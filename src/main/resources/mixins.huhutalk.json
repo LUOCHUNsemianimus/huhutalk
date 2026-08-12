@@ -1,0 +1,14 @@
+{
+  "required": true,
+  "minVersion": "0.8",
+  "package": "com.huhutalk.mixin",
+  "compatibilityLevel": "JAVA_17",
+  "refmap": "huhutalk.refmap.json",
+  "mixins": [],
+  "client": [
+    "MouseHandlerMixin"
+  ],
+  "injectors": {
+    "defaultRequire": 1
+  }
+}
