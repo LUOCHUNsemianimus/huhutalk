@@ -4,66 +4,89 @@ import com.huhutalk.phone.IPhonePage;
 import com.huhutalk.phone.PhoneOverlay;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.network.chat.Component;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
 /**
- * 女仆列表页面，点击某女仆进入聊天。
- * 数据源：目前使用静态假列表，请替换为你的真实女仆获取逻辑。
+ * 女仆列表页面。
+ * 数据源暂时使用假列表，可替换为你的 MaidManager 获取逻辑。
  */
 public class MaidListPage implements IPhonePage {
     private final List<MaidEntry> maids = new ArrayList<>();
     private int scrollOffset = 0;
-    private final int ITEM_HEIGHT = 40;
+    private static final int ITEM_HEIGHT = 40; // 暂时固定，未来可动态
 
     public MaidListPage() {
-        // 假数据：请替换为你的 MaidManager 接口
+        // 假数据
         maids.add(new MaidEntry(UUID.randomUUID(), "女仆A", true));
         maids.add(new MaidEntry(UUID.randomUUID(), "女仆B", false));
         maids.add(new MaidEntry(UUID.randomUUID(), "女仆C", true));
+        maids.add(new MaidEntry(UUID.randomUUID(), "女仆D", true));
+        maids.add(new MaidEntry(UUID.randomUUID(), "女仆E", false));
     }
 
     @Override
     public void render(GuiGraphics graphics, int baseX, int baseY, float partialTick) {
-        // 顶部导航栏
-        drawNavBar(graphics, baseX, baseY);
-        // 女仆列表
-        int listStartY = baseY + 30;
-        for (int i = 0; i < maids.size(); i++) {
-            int y = listStartY + i * ITEM_HEIGHT - scrollOffset;
-            if (y + ITEM_HEIGHT < listStartY || y > baseY + 340) continue; // 裁剪
+        int w = PhoneOverlay.getPhoneWidth();
+        int h = PhoneOverlay.getPhoneHeight();
+        int navH = (int)(h * 0.08);          // 导航栏高度
 
-            MaidEntry entry = maids.get(i);
-            graphics.fill(baseX + 5, y + 5, baseX + 35, y + 35, 0xFF888888); // 头像框
-            graphics.drawString(Minecraft.getInstance().font, entry.name(), baseX + 45, y + 10, 0xFFFFFFFF);
-            String status = entry.online() ? "在线" : "离线";
-            graphics.drawString(Minecraft.getInstance().font, status, baseX + 180, y + 10, 0xFFAAAAAA);
-        }
-    }
-
-    private void drawNavBar(GuiGraphics graphics, int baseX, int baseY) {
-        graphics.fill(baseX, baseY, baseX + 220, baseY + 25, 0xFF333333);
+        // 导航栏
+        graphics.fill(baseX, baseY, baseX + w, baseY + navH, 0xFF333333);
         // 返回按钮
-        graphics.drawString(Minecraft.getInstance().font, "< 返回", baseX + 5, baseY + 5, 0xFFFFFFFF);
-        graphics.drawString(Minecraft.getInstance().font, "我的女仆", baseX + 70, baseY + 5, 0xFFFFFFFF);
+        graphics.drawString(Minecraft.getInstance().font, "< 返回",
+                baseX + 4, baseY + 3, 0xFFFFFFFF);
+        // 标题
+        String title = "我的女仆";
+        int titleWidth = Minecraft.getInstance().font.width(title);
+        graphics.drawString(Minecraft.getInstance().font, title,
+                baseX + (w - titleWidth) / 2, baseY + 3, 0xFFFFFFFF);
+
+        // 列表区域（从 navH 开始，到窗口底部）
+        int listTop = baseY + navH;
+        int listBottom = baseY + h;
+        // 裁剪区域
+        graphics.enableScissor(baseX, listTop, baseX + w, listBottom);
+
+        // 临时变量 index 需要在循环中声明
+        int itemY;
+        for (int i = 0; i < maids.size(); i++) {
+            itemY = listTop + i * ITEM_HEIGHT - scrollOffset;
+            if (itemY + ITEM_HEIGHT < listTop || itemY > listBottom) continue; // 完全不可见
+            MaidEntry entry = maids.get(i);
+            // 头像框
+            graphics.fill(baseX + 5, itemY + 5, baseX + 35, itemY + 35, 0xFF888888);
+            // 名字
+            graphics.drawString(Minecraft.getInstance().font, entry.name(),
+                    baseX + 45, itemY + 8, 0xFFFFFFFF);
+            // 在线状态
+            String status = entry.online() ? "在线" : "离线";
+            graphics.drawString(Minecraft.getInstance().font, status,
+                    baseX + w - 30, itemY + 8, 0xFFAAAAAA);
+        }
+
+        graphics.disableScissor();
     }
 
     @Override
     public boolean mouseClicked(double relX, double relY, int button, int action) {
-        if (action != 1) return false; // 只处理按下事件
-        // 检查返回按钮
-        if (relX >= 0 && relX <= 60 && relY >= 0 && relY <= 25) {
+        if (action != 1) return false;
+        int w = PhoneOverlay.getPhoneWidth();
+        int h = PhoneOverlay.getPhoneHeight();
+        int navH = (int)(h * 0.08);
+
+        // 返回按钮
+        if (relX >= 0 && relX <= 60 && relY >= 0 && relY <= navH) {
             PhoneOverlay.popPage();
             return true;
         }
-        // 检查女仆列表项目
-        int listStartY = 30;
+
+        int listTop = navH;
         for (int i = 0; i < maids.size(); i++) {
-            int y = listStartY + i * ITEM_HEIGHT - scrollOffset;
-            if (relY >= y && relY < y + ITEM_HEIGHT) {
+            int itemY = listTop + i * ITEM_HEIGHT - scrollOffset;
+            if (relY >= itemY && relY < itemY + ITEM_HEIGHT) {
                 MaidEntry maid = maids.get(i);
                 PhoneOverlay.pushPage(new ChatPage(maid));
                 return true;
@@ -74,10 +97,10 @@ public class MaidListPage implements IPhonePage {
 
     @Override
     public boolean mouseScrolled(double relX, double relY, double scrollDelta) {
-        int listHeight = maids.size() * ITEM_HEIGHT;
-        int visibleHeight = 340 - 30; // 手机内可用高度
-        scrollOffset -= (int) (scrollDelta * 10);
-        scrollOffset = Math.max(0, Math.min(scrollOffset, Math.max(0, listHeight - visibleHeight)));
+        int totalHeight = maids.size() * ITEM_HEIGHT;
+        int visibleHeight = PhoneOverlay.getPhoneHeight() - (int)(PhoneOverlay.getPhoneHeight() * 0.08);
+        scrollOffset -= (int)(scrollDelta * 10);
+        scrollOffset = Math.max(0, Math.min(scrollOffset, Math.max(0, totalHeight - visibleHeight)));
         return true;
     }
 }

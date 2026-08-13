@@ -7,110 +7,127 @@ import com.huhutalk.phone.PhoneInputScreen;
 import com.huhutalk.phone.PhoneOverlay;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.network.chat.Component;
 
 import java.util.List;
 import java.util.UUID;
 
 /**
- * 聊天页面，支持键盘/鼠标操作，Alt+点击激活输入框。
+ * 聊天页面。
+ * 支持消息显示、输入框激活、发送消息（暂时模拟女仆回复）。
  */
 public class ChatPage implements IPhonePage {
     private final UUID maidUuid;
     private final String maidName;
     private List<ChatMessage> messages;
-    private int scrollPosition = 0; // 消息列表滚动偏移（向上为正）
-    private int maxScroll = 0;
-
-    private String currentInput = ""; // 输入框文本缓冲
-    private boolean inputActive = false; // 输入框是否被激活（高亮）
+    private String currentInput = "";
+    private boolean inputActive = false;
 
     public ChatPage(MaidEntry maid) {
         this.maidUuid = maid.uuid();
         this.maidName = maid.name();
         this.messages = MessageManager.getMessages(maidUuid);
-        // 添加测试消息（如果为空）
         if (this.messages.isEmpty()) {
-            MessageManager.addMessage(maidUuid, new ChatMessage(new UUID(0, 0), "系统", "开始聊天吧！", ChatMessage.SenderType.MAID));
+            MessageManager.addMessage(maidUuid,
+                    new ChatMessage(new UUID(0, 0), "系统", "开始聊天吧！", ChatMessage.SenderType.MAID));
             this.messages = MessageManager.getMessages(maidUuid);
         }
     }
 
     @Override
     public void render(GuiGraphics graphics, int baseX, int baseY, float partialTick) {
-        // 顶部导航
-        graphics.fill(baseX, baseY, baseX + 220, baseY + 25, 0xFF333333);
-        graphics.drawString(Minecraft.getInstance().font, "< 返回", baseX + 5, baseY + 5, 0xFFFFFFFF);
-        graphics.drawString(Minecraft.getInstance().font, maidName, baseX + 60, baseY + 5, 0xFFFFFFFF);
-        // 设置图标（⚙）
-        graphics.drawString(Minecraft.getInstance().font, "⚙", baseX + 195, baseY + 5, 0xFFFFAA00);
+        int w = PhoneOverlay.getPhoneWidth();
+        int h = PhoneOverlay.getPhoneHeight();
+        int navH = (int)(h * 0.08);
+        int inputH = (int)(h * 0.1);
 
-        // 消息区域 (y: 25 ~ 300)
-        int msgAreaTop = baseY + 25;
-        int msgAreaBottom = baseY + 300;
-        int msgAreaHeight = msgAreaBottom - msgAreaTop;
-        graphics.enableScissor(baseX, msgAreaTop, baseX + 220, msgAreaBottom); // 裁剪
-        drawMessages(graphics, baseX, msgAreaTop, msgAreaHeight);
+        // 顶部导航栏
+        graphics.fill(baseX, baseY, baseX + w, baseY + navH, 0xFF333333);
+        // 返回按钮
+        graphics.drawString(Minecraft.getInstance().font, "< 返回",
+                baseX + 4, baseY + 3, 0xFFFFFFFF);
+        // 昵称
+        int nameW = Minecraft.getInstance().font.width(maidName);
+        graphics.drawString(Minecraft.getInstance().font, maidName,
+                baseX + (w - nameW) / 2, baseY + 3, 0xFFFFFFFF);
+        // 设置图标
+        graphics.drawString(Minecraft.getInstance().font, "⚙",
+                baseX + w - 20, baseY + 3, 0xFFFFAA00);
+
+        // 消息区域
+        int msgTop = baseY + navH;
+        int msgBottom = baseY + h - inputH;
+        graphics.enableScissor(baseX, msgTop, baseX + w, msgBottom);
+        drawMessages(graphics, baseX, msgTop, msgBottom - msgTop);
         graphics.disableScissor();
 
-        // 输入框区域 (y: 305 ~ 335)
-        int inputY = baseY + 305;
-        graphics.fill(baseX + 5, inputY, baseX + 215, inputY + 25, inputActive ? 0xFF555555 : 0xFF222222);
+        // 输入框区域
+        int inputY = baseY + h - inputH;
+        graphics.fill(baseX + 5, inputY + 3, baseX + w - 5, inputY + inputH - 3,
+                inputActive ? 0xFF555555 : 0xFF222222);
         // 表情按钮
-        graphics.fill(baseX + 10, inputY + 3, baseX + 30, inputY + 23, 0xFFFFCC00);
-        graphics.drawString(Minecraft.getInstance().font, "😊", baseX + 14, inputY + 6, 0xFF000000);
-        // 输入文本区
-        String displayText = currentInput.isEmpty() ? "输入消息..." : currentInput;
+        graphics.fill(baseX + 10, inputY + 6, baseX + 30, inputY + inputH - 6, 0xFFFFCC00);
+        graphics.drawString(Minecraft.getInstance().font, "😊", baseX + 14, inputY + 8, 0xFF000000);
+        // 文本预览
+        String display = currentInput.isEmpty() ? "输入消息..." : currentInput;
         int textColor = currentInput.isEmpty() ? 0xFF888888 : 0xFFFFFFFF;
-        graphics.drawString(Minecraft.getInstance().font, displayText, baseX + 40, inputY + 6, textColor);
+        graphics.drawString(Minecraft.getInstance().font, display,
+                baseX + 35, inputY + 8, textColor);
         // 发送按钮
-        graphics.fill(baseX + 185, inputY + 3, baseX + 210, inputY + 23, 0xFF00AA00);
-        graphics.drawString(Minecraft.getInstance().font, "发送", baseX + 188, inputY + 6, 0xFFFFFFFF);
+        int sendX = baseX + w - 45;
+        graphics.fill(sendX, inputY + 6, sendX + 30, inputY + inputH - 6, 0xFF00AA00);
+        graphics.drawString(Minecraft.getInstance().font, "发送", sendX + 3, inputY + 8, 0xFFFFFFFF);
     }
 
     private void drawMessages(GuiGraphics graphics, int baseX, int topY, int height) {
-        int lineHeight = Minecraft.getInstance().font.lineHeight + 4;
-        int y = topY + height - 5; // 从底部开始画
-        int drawn = 0;
-        for (int i = messages.size() - 1; i >= 0; i--) {
+        Minecraft mc = Minecraft.getInstance();
+        int lineHeight = mc.font.lineHeight + 4;
+        int y = topY + height - lineHeight;
+        for (int i = messages.size() - 1; i >= 0 && y >= topY; i--) {
             ChatMessage msg = messages.get(i);
-            boolean isPlayer = (msg.getType() == ChatMessage.SenderType.PLAYER);
+            boolean isPlayer = msg.getType() == ChatMessage.SenderType.PLAYER;
             String text = msg.getSenderName() + ": " + msg.getContent();
-            // 简单处理：每行最多宽度180，但这里不自动换行，仅单行显示（可后续优化）
-            int textWidth = Minecraft.getInstance().font.width(text);
-            if (textWidth > 190) text = text.substring(0, 17) + "..."; // 简单截断
-            int x = isPlayer ? baseX + 220 - textWidth - 10 : baseX + 10;
+            int w = PhoneOverlay.getPhoneWidth();
+            int maxWidth = w - 20;
+            if (mc.font.width(text) > maxWidth) {
+                // 简单截断，未来可自动换行
+                text = mc.font.plainSubstrByWidth(text, maxWidth - 10) + "...";
+            }
+            int x = isPlayer ? baseX + w - mc.font.width(text) - 6 : baseX + 6;
             int color = isPlayer ? 0xFF88FF88 : 0xFFFFFFFF;
+            graphics.drawString(mc.font, text, x, y, color);
             y -= lineHeight;
-            graphics.drawString(Minecraft.getInstance().font, text, x, y, color);
-            drawn++;
-            if (y < topY) break;
         }
     }
 
     @Override
     public boolean mouseClicked(double relX, double relY, int button, int action) {
-        if (action != 1) return false; // 只处理按下
+        if (action != 1) return false;
+        int w = PhoneOverlay.getPhoneWidth();
+        int h = PhoneOverlay.getPhoneHeight();
+        int navH = (int)(h * 0.08);
+        int inputH = (int)(h * 0.1);
 
         // 返回按钮
-        if (relX >= 0 && relX <= 60 && relY >= 0 && relY <= 25) {
+        if (relX >= 0 && relX <= 60 && relY >= 0 && relY <= navH) {
             PhoneOverlay.popPage();
             return true;
         }
 
-        // 输入框激活区域（5~215, 305~330）
-        if (relX >= 5 && relX <= 215 && relY >= 305 && relY <= 330) {
-            // 表情按钮细分
+        int inputTop = h - inputH;
+        // 检查输入栏区域
+        if (relY >= inputTop + 3 && relY <= inputTop + inputH - 3) {
+            // 表情按钮
             if (relX >= 10 && relX <= 30) {
                 // TODO: 打开表情面板
                 return true;
             }
-            // 发送按钮细分
-            if (relX >= 185 && relX <= 210) {
+            // 发送按钮
+            int sendX = w - 45;
+            if (relX >= sendX && relX <= sendX + 30) {
                 sendMessage();
                 return true;
             }
-            // 其余区域：激活输入框
+            // 其他区域：激活输入
             activateInput();
             return true;
         }
@@ -119,13 +136,11 @@ public class ChatPage implements IPhonePage {
 
     private void activateInput() {
         inputActive = true;
-        // 计算输入框在屏幕上的全局坐标
-        int screenX = PhoneOverlay.getPhoneX() + 40; // 相对于手机
-        int screenY = PhoneOverlay.getPhoneY() + 306;
+        int screenX = PhoneOverlay.getPhoneX() + 35;  // 相对手机坐标
+        int screenY = PhoneOverlay.getPhoneY() + PhoneOverlay.getPhoneHeight() - (int)(PhoneOverlay.getPhoneHeight() * 0.1) + 2;
         Minecraft.getInstance().setScreen(new PhoneInputScreen(this, currentInput, screenX, screenY));
     }
 
-    // 由 PhoneInputScreen 回调
     public void onInputFinished(String text, boolean send) {
         inputActive = false;
         currentInput = text;
@@ -141,7 +156,6 @@ public class ChatPage implements IPhonePage {
 
     private void sendMessage() {
         if (currentInput.isBlank()) return;
-        // 玩家消息
         ChatMessage playerMsg = new ChatMessage(
                 Minecraft.getInstance().player.getUUID(),
                 Minecraft.getInstance().player.getName().getString(),
@@ -149,11 +163,12 @@ public class ChatPage implements IPhonePage {
                 ChatMessage.SenderType.PLAYER
         );
         MessageManager.addMessage(maidUuid, playerMsg);
-        // 模拟女仆回复（后续替换为网络）
+        // 模拟女仆回复
         new Thread(() -> {
-            try { Thread.sleep(500 + (int)(Math.random()*1000)); } catch (InterruptedException e) {}
-            ChatMessage maidReply = new ChatMessage(maidUuid, maidName, "收到！", ChatMessage.SenderType.MAID);
-            MessageManager.addMessage(maidUuid, maidReply);
+            try { Thread.sleep(600 + (int)(Math.random()*1200)); } catch (InterruptedException ignored) {}
+            ChatMessage reply = new ChatMessage(maidUuid, maidName,
+                    "收到！（自动回复）", ChatMessage.SenderType.MAID);
+            MessageManager.addMessage(maidUuid, reply);
         }).start();
         currentInput = "";
         messages = MessageManager.getMessages(maidUuid);
@@ -161,10 +176,7 @@ public class ChatPage implements IPhonePage {
 
     @Override
     public boolean mouseScrolled(double relX, double relY, double scrollDelta) {
-        // 滚动消息区域
-        int lineHeight = Minecraft.getInstance().font.lineHeight + 4;
-        scrollPosition -= (int) (scrollDelta * lineHeight);
-        // 暂不处理，消息绘制从底部开始，滚动通过改变起始索引，先简化
+        // 消息列表滚动，简单处理：调整绘制起始索引，当前实现为从底部绘制不受滚动影响
         return true;
     }
 }
