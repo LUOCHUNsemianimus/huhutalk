@@ -1,7 +1,7 @@
 package com.huhutalk.client.keybind;
 
 import com.huhutalk.HuhuTalk;
-import com.huhutalk.client.PhoneScreenManager;
+import com.huhutalk.phone.PhoneOverlay;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent;
@@ -25,12 +25,12 @@ public class ModKeyBinds {
             Minecraft mc = Minecraft.getInstance();
             if (mc.player == null) return;
 
-            if (PhoneScreenManager.isPhoneOpen()) {        // 修改为 isPhoneOpen
-                PhoneScreenManager.closePhone();
+            // 手机已打开则关闭；未打开且没有其他 GUI 时打开
+            if (PhoneOverlay.isVisible()) {
+                PhoneOverlay.toggle();
             } else if (mc.screen == null) {
-                PhoneScreenManager.openPhone();            // 无参，恢复或桌面
+                PhoneOverlay.toggle();
             }
-            // 其他 GUI 开启时不响应
         }
     }
 }

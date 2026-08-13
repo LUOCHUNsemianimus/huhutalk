@@ -15,4 +15,9 @@ public class MaidListCache {
     public static List<S2CMaidListPacket.MaidDisplayInfo> getList() {
         return list;
     }
+
+    /** 清空列表（进入新世界时调用） */
+    public static void clear() {
+        list = new ArrayList<>();
+    }
 }
