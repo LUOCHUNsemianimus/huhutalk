@@ -1,26 +1,46 @@
 package com.huhutalk.client;
 
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.mojang.logging.LogUtils;
+import net.minecraft.client.Minecraft;
+import org.slf4j.Logger;
+
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.*;
 
 /**
- * 聊天历史 + 草稿存储（按世界隔离，内存态）。
+ * 聊天历史 + 草稿存储（按世界隔离 + 磁盘持久化）。
  * <p>
- * 切换世界时调用 onWorldChanged(newKey)，
- * 不同世界的聊天记录互不干扰，也不会丢失。
- * <p>
- * 注意：游戏完全退出后内存清空，历史不跨启动保留。
- * 如需长期保存，后续可加 JSON 文件持久化。
+ * 内存中保留当前所有已加载世界的数据；每次写入后同步落盘到
+ * .minecraft/huhutalk/chat/<世界key>.json。
+ * 切换世界时：保存旧世界 -> 切换 key -> 从磁盘加载新世界。
+ * 游戏完全退出后重新进入存档，历史依然存在。
  */
 public class ChatHistoryStorage {
+    private static final Logger LOGGER = LogUtils.getLogger();
+    private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
+
     private static String currentWorldKey = "default";
     private static final Map<String, Map<UUID, List<ChatMessageEntry>>> WORLD_HISTORY = new HashMap<>();
     private static final Map<String, Map<UUID, String>> WORLD_DRAFTS = new HashMap<>();
 
-    /** 切换世界：保留各世界数据，只切换当前指向 */
+    /** 切换世界：先保存旧世界，再加载新世界 */
     public static void onWorldChanged(String newKey) {
+        if (!newKey.equals(currentWorldKey)) {
+            saveToDisk(currentWorldKey); // 旧世界落盘
+        }
         currentWorldKey = newKey;
         WORLD_HISTORY.putIfAbsent(newKey, new HashMap<>());
         WORLD_DRAFTS.putIfAbsent(newKey, new HashMap<>());
+        loadFromDisk(newKey); // 新世界从磁盘恢复
+    }
+
+    /** 显式保存当前世界（退出世界/退出游戏时调用） */
+    public static void saveCurrentWorld() {
+        saveToDisk(currentWorldKey);
     }
 
     private static Map<UUID, List<ChatMessageEntry>> currentHistory() {
@@ -35,6 +55,7 @@ public class ChatHistoryStorage {
         currentHistory()
                 .computeIfAbsent(maidUuid, k -> new ArrayList<>())
                 .add(new ChatMessageEntry(text, isPlayer, isError));
+        saveToDisk(currentWorldKey); // ✅ 写入即落盘
     }
 
     public static List<ChatMessageEntry> getMessages(UUID maidUuid) {
@@ -43,10 +64,95 @@ public class ChatHistoryStorage {
 
     public static void setDraft(UUID maidUuid, String draft) {
         currentDrafts().put(maidUuid, draft == null ? "" : draft);
+        saveToDisk(currentWorldKey); // ✅ 草稿同样落盘
     }
 
     public static String getDraft(UUID maidUuid) {
         return currentDrafts().getOrDefault(maidUuid, "");
+    }
+
+    // ==================== 磁盘读写 ====================
+
+    /** 存档目录：.minecraft/huhutalk/chat/ */
+    private static Path storageDir() {
+        return Minecraft.getInstance().gameDirectory.toPath().resolve("huhutalk").resolve("chat");
+    }
+
+    /** 世界 key 转安全文件名（去掉 / : 等非法字符） */
+    private static String sanitizeKey(String key) {
+        return key.replaceAll("[^a-zA-Z0-9_\\-\\.]", "_");
+    }
+
+    private static Path worldFile(String key) {
+        return storageDir().resolve(sanitizeKey(key) + ".json");
+    }
+
+    /** JSON 文件结构：history 与 drafts 均用 UUID 字符串作 key */
+    private static class WorldSaveData {
+        Map<String, List<ChatMessageEntry>> history = new HashMap<>();
+        Map<String, String> drafts = new HashMap<>();
+    }
+
+    private static void saveToDisk(String key) {
+        if ("default".equals(key)) return; // 初始占位 key 不落盘
+        try {
+            WorldSaveData data = new WorldSaveData();
+            Map<UUID, List<ChatMessageEntry>> hist = WORLD_HISTORY.get(key);
+            if (hist != null) {
+                for (Map.Entry<UUID, List<ChatMessageEntry>> e : hist.entrySet()) {
+                    if (!e.getValue().isEmpty()) {
+                        data.history.put(e.getKey().toString(), e.getValue());
+                    }
+                }
+            }
+            Map<UUID, String> drafts = WORLD_DRAFTS.get(key);
+            if (drafts != null) {
+                for (Map.Entry<UUID, String> e : drafts.entrySet()) {
+                    if (!e.getValue().isEmpty()) {
+                        data.drafts.put(e.getKey().toString(), e.getValue());
+                    }
+                }
+            }
+            Path file = worldFile(key);
+            Files.createDirectories(file.getParent());
+            Files.writeString(file, GSON.toJson(data));
+        } catch (IOException e) {
+            LOGGER.error("[HuhuTalk] 保存聊天历史失败: {}", key, e);
+        }
+    }
+
+    private static void loadFromDisk(String key) {
+        Path file = worldFile(key);
+        if (!Files.exists(file)) return;
+        try {
+            WorldSaveData data = GSON.fromJson(Files.readString(file), WorldSaveData.class);
+            Map<UUID, List<ChatMessageEntry>> hist = new HashMap<>();
+            Map<UUID, String> drafts = new HashMap<>();
+
+            if (data != null && data.history != null) {
+                for (Map.Entry<String, List<ChatMessageEntry>> e : data.history.entrySet()) {
+                    try {
+                        hist.put(UUID.fromString(e.getKey()), e.getValue() == null ? new ArrayList<>() : e.getValue());
+                    } catch (IllegalArgumentException ex) {
+                        LOGGER.warn("[HuhuTalk] 非法 UUID: {}", e.getKey());
+                    }
+                }
+            }
+            if (data != null && data.drafts != null) {
+                for (Map.Entry<String, String> e : data.drafts.entrySet()) {
+                    try {
+                        drafts.put(UUID.fromString(e.getKey()), e.getValue() == null ? "" : e.getValue());
+                    } catch (IllegalArgumentException ex) {
+                        LOGGER.warn("[HuhuTalk] 非法 UUID: {}", e.getKey());
+                    }
+                }
+            }
+
+            WORLD_HISTORY.put(key, hist);
+            WORLD_DRAFTS.put(key, drafts);
+        } catch (IOException e) {
+            LOGGER.error("[HuhuTalk] 读取聊天历史失败: {}", key, e);
+        }
     }
 
     public record ChatMessageEntry(String text, boolean isPlayer, boolean isError) {

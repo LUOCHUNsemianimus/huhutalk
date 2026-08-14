@@ -5,6 +5,7 @@ import com.huhutalk.phone.IPhonePage;
 import com.huhutalk.phone.PhoneOverlay;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
+import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -12,17 +13,18 @@ import java.util.function.Supplier;
 
 /**
  * 手机主界面。
- * 根据 PhoneOverlay.getGridColumns() 动态调整每行图标数量。
- * TALK 图标右上角会显示未读红点（所有女仆未读总和）。
+ * - APP 图标网格（按 gridColumns 动态调整）
+ * - TALK 图标右上角未读红点
+ * - ✅ 顶部状态栏端口：左时间 / 中信号 / 右电量 + 关闭按钮
  */
 public class MainPage implements IPhonePage {
     private final List<AppInfo> apps = new ArrayList<>();
 
     public MainPage() {
-        apps.add(new AppInfo("TALK", 0xFFC0CB, true, () -> new MaidListPage())); // 粉色
-        apps.add(new AppInfo("30分", 0x6495ED, false, null)); // 蓝色
-        apps.add(new AppInfo("打车", 0xFFFF00, false, null)); // 黄色
-        apps.add(new AppInfo("打人", 0xFF0000, false, null)); // 红色
+        apps.add(new AppInfo("TALK", 0xFFC0CB, true, () -> new MaidListPage()));
+        apps.add(new AppInfo("30分", 0x6495ED, false, null));
+        apps.add(new AppInfo("打车", 0xFFFF00, false, null));
+        apps.add(new AppInfo("打人", 0xFF0000, false, null));
     }
 
     /** 计算 TALK 图标的红点位置，渲染与点击共用 */
@@ -56,12 +58,25 @@ public class MainPage implements IPhonePage {
         int h = PhoneOverlay.getPhoneHeight();
         var font = Minecraft.getInstance().font;
 
-        // 顶部状态栏
+        // ============ 顶部状态栏（端口） ============
         int navH = (int)(h * 0.08);
-        graphics.fill(baseX, baseY, baseX + w, baseY + navH, 0xFF333333);
+        graphics.fill(baseX, baseY, baseX + w, baseY + navH, 0xFF222222);
+
+        // ✅ 左侧：时间占位
+        graphics.drawString(font, "12:00", baseX + 4, baseY + 3, 0xFFFFFFFF);
+
+        // ✅ 中间：信号占位
+        String signal = ">>";
+        graphics.drawString(font, signal, baseX + w / 2 - 4, baseY + 3, 0xFF00FF00);
+
+        // ✅ 右侧：电量占位
+        String battery = "100%";
+        graphics.drawString(font, battery, baseX + w - 44, baseY + 3, 0xFF00FF00);
+
+        // 关闭按钮
         graphics.drawString(font, "X", baseX + w - 12, baseY + 3, 0xFFFF0000);
 
-        // 图标布局（与 mouseClicked 完全一致）
+        // ============ APP 图标网格 ============
         int margin = (int)(w * 0.08);
         int cols = PhoneOverlay.getGridColumns();
         int iconW = (w - margin * (cols + 1)) / cols;
@@ -80,7 +95,7 @@ public class MainPage implements IPhonePage {
             int textY = y + iconH / 2 - 4;
             graphics.drawString(font, app.label, textX, textY, 0xFFFFFFFF);
 
-            // ✅ TALK 图标红点
+            // TALK 红点
             if ("TALK".equals(app.label)) {
                 int unread = NotificationManager.getTotalUnread();
                 if (unread > 0) {
@@ -96,13 +111,14 @@ public class MainPage implements IPhonePage {
 
     @Override
     public boolean mouseClicked(double relX, double relY, int button, int action) {
-        if (action != 1) return false;
+        if (button != GLFW.GLFW_MOUSE_BUTTON_LEFT) return false;
+        if (action != GLFW.GLFW_PRESS) return false;
 
         int w = PhoneOverlay.getPhoneWidth();
         int h = PhoneOverlay.getPhoneHeight();
         int navH = (int)(h * 0.08);
 
-        // 关闭按钮
+        // 关闭按钮（保持原区域，电量显示在左侧不冲突）
         if (relX >= w - 15 && relX <= w && relY >= 0 && relY <= navH) {
             PhoneOverlay.toggle();
             return true;
@@ -133,7 +149,7 @@ public class MainPage implements IPhonePage {
         return false;
     }
 
-    /** 红点坐标计算（预留未来动画后使用） */
+    /** 红点坐标计算（预留未来动画使用） */
     public int[] getTalkIconPosition() {
         int[] pos = new int[4];
         if (getTalkIconPos(pos)) return pos;

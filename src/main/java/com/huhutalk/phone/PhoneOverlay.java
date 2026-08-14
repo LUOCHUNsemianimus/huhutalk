@@ -11,8 +11,8 @@ import java.util.Stack;
 /**
  * 手机悬浮窗总控（保留页面栈版）。
  * <p>
- * 关键变化：toggle() 关闭手机时**不再清空 pageStack**，
- * 只隐藏手机和关闭透明输入屏幕。重新打开时恢复到之前的页面。
+ * toggle() 关闭手机时不清空 pageStack，只隐藏。
+ * 右键（button==1）= 返回上一页，主界面右键 = 关闭手机。
  */
 public class PhoneOverlay {
     private static boolean visible = false;
@@ -65,11 +65,9 @@ public class PhoneOverlay {
     /** 隐藏手机：保留页面栈，只关闭透明输入屏幕并保存草稿 */
     private static void hide() {
         visible = false;
-        // 保存当前聊天页草稿（如果正在聊天）
-        if (pageStack.peek() instanceof ChatPage chatPage) {
+        if (!pageStack.isEmpty() && pageStack.peek() instanceof ChatPage chatPage) {
             chatPage.onPageHide();
         }
-        // 关闭透明输入屏幕（其 onClose 会调用 ChatPage.onInputClosed 保存草稿）
         if (Minecraft.getInstance().screen instanceof PhoneInputScreen) {
             Minecraft.getInstance().setScreen(null);
         }
@@ -153,14 +151,28 @@ public class PhoneOverlay {
 
     public static boolean handleMouseClicked(double screenX, double screenY, int button, int action) {
         if (!visible) return false;
-        IPhonePage page = getCurrentPage();
-        if (page == null) return false;
+        if (action != GLFW.GLFW_PRESS) return false;
+
         double relX = screenX - phoneX;
         double relY = screenY - phoneY;
-        if (relX >= 0 && relY >= 0 && relX < phoneWidth && relY < phoneHeight) {
-            return page.mouseClicked(relX, relY, button, action);
+        if (relX < 0 || relY < 0 || relX >= phoneWidth || relY >= phoneHeight) {
+            return false; // 手机外点击不拦截
         }
-        return true;
+
+        // ✅ 右键 = 返回上一页 / 主界面右键关闭手机
+        if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
+            if (pageStack.size() > 1) {
+                popPage();
+            } else {
+                hide();
+                updateCursorMode();
+            }
+            return true;
+        }
+
+        IPhonePage page = getCurrentPage();
+        if (page == null) return true;
+        return page.mouseClicked(relX, relY, button, action);
     }
 
     public static boolean handleMouseScroll(double screenX, double screenY, double scrollDelta) {

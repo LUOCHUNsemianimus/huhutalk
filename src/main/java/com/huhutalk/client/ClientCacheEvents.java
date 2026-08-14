@@ -9,25 +9,25 @@ import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
 
 /**
  * 客户端世界切换处理。
- * 切换世界时：
- * - 切换聊天历史/草稿/未读的数据源（旧世界数据保留）
- * - 清空女仆列表缓存（重新请求）
- * - 关闭手机并清空页面栈
+ * - 进入世界：切换数据源（保存旧世界、加载新世界）、清空缓存、重置手机
+ * - 退出世界：显式落盘聊天历史
  */
 @EventBusSubscriber(modid = HuhuTalk.MOD_ID, value = Dist.CLIENT)
 public class ClientCacheEvents {
 
     @SubscribeEvent
     public static void onPlayerLogin(ClientPlayerNetworkEvent.LoggingIn event) {
-        // 1. 计算当前世界 key
         String worldKey = WorldKeyHelper.getCurrentWorldKey(event.getPlayer());
-        // 2. 切换聊天历史/草稿数据源
-        ChatHistoryStorage.onWorldChanged(worldKey);
-        // 3. 切换未读红点数据源
+        ChatHistoryStorage.onWorldChanged(worldKey); // 内部会保存旧世界 + 加载新世界
         NotificationManager.onWorldChanged(worldKey);
-        // 4. 清空女仆列表缓存（重新请求）
         MaidListCache.clear();
-        // 5. 关闭手机并清空页面栈（防止显示上个存档的聊天界面）
+        PhoneOverlay.resetForNewWorld();
+    }
+
+    /** ✅ 退出世界/退出游戏前，把当前世界聊天历史落盘 */
+    @SubscribeEvent
+    public static void onPlayerLogout(ClientPlayerNetworkEvent.LoggingOut event) {
+        ChatHistoryStorage.saveCurrentWorld();
         PhoneOverlay.resetForNewWorld();
     }
 }
