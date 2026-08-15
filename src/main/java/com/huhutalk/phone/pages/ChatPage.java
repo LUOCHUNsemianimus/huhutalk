@@ -24,6 +24,7 @@ import java.util.UUID;
  * - 输入框支持换行、滚动显示最后3行、闪烁光标跟随真实编辑位置
  * - 顶部导航：左返回 / 中名称 / 右设置齿轮（占位）
  * - 底部导航栏：单字占位标签（语音/表情/图片/拍照/加号），点击展开面板（面板位于输入框下方）
+ * - 输入框支持鼠标滚轮滚动，上下键移动光标时自动滚动跟随
  */
 public class ChatPage implements IPhonePage {
     private static final int AVATAR = 12;
@@ -48,6 +49,9 @@ public class ChatPage implements IPhonePage {
     /** 底部面板是否展开 */
     private boolean bottomPanelOpen = false;
 
+    /** 输入框文本滚动偏移：当前可视区域的第一行在全部行列表中的索引 */
+    private int inputScrollOffset = 0;
+
     public ChatPage(UUID maidUuid, String maidName) {
         this.maidUuid = maidUuid;
         this.maidName = maidName;
@@ -65,6 +69,9 @@ public class ChatPage implements IPhonePage {
     public UUID getMaidUuid() { return maidUuid; }
     public String getCurrentInputText() { return currentInput; }
 
+    /** PhoneInputScreen 读取光标索引（供上下键移动后回写隐藏 EditBox） */
+    public int getCursorIndex() { return cursorIndex; }
+
     /** PhoneInputScreen 同步光标索引 */
     public void setCursorIndex(int idx) {
         this.cursorIndex = Math.max(0, Math.min(currentInput.length(), idx));
@@ -74,6 +81,8 @@ public class ChatPage implements IPhonePage {
     public void onInputChanged(String text) {
         this.currentInput = text;
         this.cursorIndex = Math.min(this.cursorIndex, text.length());
+        // 输入内容变化时，保持滚动偏移在有效范围（渲染时会钳制，但这里确保后续光标计算正确）
+        ensureCursorVisible();
         ChatHistoryStorage.setDraft(maidUuid, text);
     }
 
@@ -112,6 +121,7 @@ public class ChatPage implements IPhonePage {
         PacketDistributor.sendToServer(new C2SMaidChatPacket(maidUuid, text));
         currentInput = "";
         cursorIndex = 0;
+        inputScrollOffset = 0; // 发送后重置滚动位置
     }
 
     // ==================== 布局常量 ====================
@@ -144,6 +154,57 @@ public class ChatPage implements IPhonePage {
         return (System.currentTimeMillis() % 1000) < 500;
     }
 
+    // ==================== 滚动相关 ====================
+
+    /**
+     * 计算当前可视区域应该从哪一行开始显示。
+     * @param totalLines 输入文本分词后的总行数
+     * @return 起始行索引（0开始），保证合法且优先显示最后 MAX_VISIBLE_INPUT_LINES 行
+     */
+    private int getVisibleStartIdx(int totalLines) {
+        int maxStart = Math.max(0, totalLines - MAX_VISIBLE_INPUT_LINES);
+        // 如果滚动偏移越界，修正到合法范围
+        return Math.max(0, Math.min(inputScrollOffset, maxStart));
+    }
+
+    /**
+     * 确保光标所在行在可视区域内。
+     * 如果光标行 < 当前显示起始行，则滚动使该行成为第一行；
+     * 如果光标行 >= 当前显示起始行 + MAX_VISIBLE_INPUT_LINES，则滚动使该行成为最后一行。
+     */
+    private void ensureCursorVisible() {
+        Font font = Minecraft.getInstance().font;
+        int inputTextW = sendX(0) - inputLeft(0) - 10;
+        List<String> lines = wrapToLines(font, currentInput, inputTextW);
+        if (lines.isEmpty()) {
+            inputScrollOffset = 0;
+            return;
+        }
+        int cursorLine = cursorIndexToLineCol(lines, cursorIndex)[0];
+        int visibleStart = getVisibleStartIdx(lines.size());
+        int visibleEnd = visibleStart + MAX_VISIBLE_INPUT_LINES; // 超出末尾也没关系
+
+        if (cursorLine < visibleStart) {
+            // 光标在可视区域上方，将光标行设为起始行
+            inputScrollOffset = cursorLine;
+        } else if (cursorLine >= visibleEnd) {
+            // 光标在可视区域下方（或太靠后），将光标行设为最后一行
+            inputScrollOffset = Math.max(0, cursorLine - MAX_VISIBLE_INPUT_LINES + 1);
+        }
+        // 再次钳制
+        inputScrollOffset = Math.max(0, Math.min(inputScrollOffset, Math.max(0, lines.size() - MAX_VISIBLE_INPUT_LINES)));
+    }
+
+    /** 滚动输入框内容（供鼠标滚轮调用） */
+    public void scrollInput(int delta) {
+        Font font = Minecraft.getInstance().font;
+        int inputTextW = sendX(0) - inputLeft(0) - 10;
+        List<String> lines = wrapToLines(font, currentInput, inputTextW);
+        int maxStart = Math.max(0, lines.size() - MAX_VISIBLE_INPUT_LINES);
+        // delta > 0 表示向上滚动（显示更早内容），delta < 0 向下滚动
+        inputScrollOffset = Math.max(0, Math.min(maxStart, inputScrollOffset - delta));
+    }
+
     // ==================== 屏幕坐标判定（供 PhoneInputScreen 调用） ====================
 
     /** 判断屏幕坐标是否落在发送按钮上 */
@@ -174,7 +235,7 @@ public class ChatPage implements IPhonePage {
 
         List<String> lines = wrapToLines(font, currentInput, inputTextW);
         if (lines.isEmpty()) return 0;
-        int startIdx = Math.max(0, lines.size() - MAX_VISIBLE_INPUT_LINES);
+        int startIdx = getVisibleStartIdx(lines.size());  // ✅ 使用滚动偏移
 
         // 计算点击所在视觉行
         int rowInVisible = (int)((relY - (iTop + 6)) / lineH);
@@ -258,10 +319,10 @@ public class ChatPage implements IPhonePage {
         } else {
             int inputTextW = sendX(baseX) - inputLeft(baseX) - 10;
             List<String> lines = wrapToLines(font, currentInput, inputTextW);
-            int startIdx = Math.max(0, lines.size() - MAX_VISIBLE_INPUT_LINES);
+            int startIdx = getVisibleStartIdx(lines.size()); // ✅ 使用滚动偏移
             int drawY = iTop + 6;
 
-            for (int i = startIdx; i < lines.size(); i++) {
+            for (int i = startIdx; i < lines.size() && i < startIdx + MAX_VISIBLE_INPUT_LINES; i++) {
                 g.drawString(font, lines.get(i), textX, drawY, 0xFFFFFFFF);
                 drawY += lineH;
             }
@@ -271,7 +332,7 @@ public class ChatPage implements IPhonePage {
                 int[] lineCol = cursorIndexToLineCol(lines, cursorIndex);
                 int globalLine = lineCol[0];
                 int col = lineCol[1];
-                if (globalLine >= startIdx && globalLine < lines.size()) {
+                if (globalLine >= startIdx && globalLine < startIdx + MAX_VISIBLE_INPUT_LINES) {
                     String targetLine = lines.get(globalLine);
                     int safeCol = Math.min(col, targetLine.length());
                     int cursorDrawX = textX + font.width(targetLine.substring(0, safeCol));
@@ -359,7 +420,7 @@ public class ChatPage implements IPhonePage {
 
     // ==================== 文本换行工具 ====================
 
-    /** 纯按宽度换行（输入文本无 \n，每行是原始子串） */
+    /** 纯按宽度换行（输入文本无 \\n，每行是原始子串） */
     private List<String> wrapToLines(Font font, String text, int maxWidth) {
         List<String> lines = new ArrayList<>();
         StringBuilder current = new StringBuilder();
@@ -388,6 +449,46 @@ public class ChatPage implements IPhonePage {
         }
         int lastIdx = lines.size() - 1;
         return new int[]{lastIdx, lines.get(lastIdx).length()};
+    }
+
+    /** 行号 + 列号 -> 字符索引（与 cursorIndexToLineCol 互为逆运算） */
+    private int lineColToCursorIndex(List<String> lines, int targetLine, int targetCol) {
+        int base = 0;
+        for (int i = 0; i < targetLine; i++) {
+            base += lines.get(i).length();
+        }
+        int maxCol = lines.get(targetLine).length();
+        return base + Math.min(targetCol, maxCol);
+    }
+
+    /** ✅ 上方向键：移动到上一视觉行的相同列（第一行则跳到行首） */
+    public void moveCursorUp() {
+        Font font = Minecraft.getInstance().font;
+        int inputTextW = sendX(0) - inputLeft(0) - 10;
+        List<String> lines = wrapToLines(font, currentInput, inputTextW);
+        int[] lc = cursorIndexToLineCol(lines, cursorIndex);
+        if (lc[0] > 0) {
+            cursorIndex = lineColToCursorIndex(lines, lc[0] - 1, lc[1]);
+        } else {
+            cursorIndex = 0;
+        }
+        cursorIndex = Math.max(0, Math.min(currentInput.length(), cursorIndex));
+        ensureCursorVisible(); // ✅ 自动滚动跟随
+    }
+
+    /** ✅ 下方向键：移动到下一视觉行的相同列（最后一行则跳到行尾） */
+    public void moveCursorDown() {
+        Font font = Minecraft.getInstance().font;
+        int inputTextW = sendX(0) - inputLeft(0) - 10;
+        List<String> lines = wrapToLines(font, currentInput, inputTextW);
+        int[] lc = cursorIndexToLineCol(lines, cursorIndex);
+        if (lc[0] < lines.size() - 1) {
+            cursorIndex = lineColToCursorIndex(lines, lc[0] + 1, lc[1]);
+        } else {
+            cursorIndex = currentInput.length();
+        }
+        cursorIndex = Math.max(0, Math.min(currentInput.length(), cursorIndex));
+        ensureCursorVisible(); // ✅ 自动滚动跟随
     }
 
     /** 消息气泡文本换行（渲染用） */
