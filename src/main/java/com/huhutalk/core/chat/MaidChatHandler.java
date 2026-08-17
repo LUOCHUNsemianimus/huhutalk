@@ -4,8 +4,12 @@ import com.github.tartaricacid.touhoulittlemaid.ai.manager.entity.MaidAIChatMana
 import com.github.tartaricacid.touhoulittlemaid.ai.service.llm.LLMMessage;
 import com.github.tartaricacid.touhoulittlemaid.ai.service.llm.LLMSite;
 import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
+import com.huhutalk.common.MaidStatus;
 import com.huhutalk.common.StableIdProvider;
+import com.huhutalk.core.contact.MaidContactBook;
+import com.huhutalk.core.contact.MaidContactEntry;
 import com.huhutalk.network.S2CMaidChatErrorPacket;
+import com.huhutalk.network.S2CMaidChatInfoPacket;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -16,12 +20,11 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class MaidChatHandler {
+
     public static void handleChat(ServerPlayer player, String stableId, String message) {
         EntityMaid maid = findMaidByStableId(player.getServer(), stableId);
         if (maid == null) {
-            // TODO 步骤6：改为离线消息入队
-            PacketDistributor.sendToPlayer(player,
-                    new S2CMaidChatErrorPacket(stableId, "女仆不在线或未加载"));
+            handleOfflineMessage(player, stableId, message);
             return;
         }
         if (!maid.isOwnedBy(player)) {
@@ -42,7 +45,16 @@ public class MaidChatHandler {
 
         Runnable chatAction = () -> {
             List<LLMMessage> messages = buildMessages(manager, message);
-            HuhuTalkChatCallback callback = new HuhuTalkChatCallback(manager, messages, player, stableId);
+            // 正常聊天允许消费待注入系统消息（如果有积压，一并带上）
+            String stableIdIn = stableId;
+            EntityMaid maidIn = maid;
+            if (maidIn instanceof StableIdProvider provider) {
+                List<String> pending = PendingSystemMessageBus.drain(stableIdIn);
+                if (!pending.isEmpty()) {
+                    messages.add(0, LLMMessage.systemChat(maidIn, String.join("\n", pending)));
+                }
+            }
+            HuhuTalkChatCallback callback = new HuhuTalkChatCallback(manager, messages, player, stableIdIn);
             site.client().chat(callback);
         };
 
@@ -50,6 +62,54 @@ public class MaidChatHandler {
             return;
         }
         chatAction.run();
+    }
+
+    /**
+     * 主动播报离线消息。不写 TLM 用户历史。
+     * <p>
+     * 消息结构：
+     * [SYSTEM 离线汇总] [SYSTEM 设定] [SYSTEM 摘要(可选)] [历史] [USER 请回复主人]
+     */
+    public static void handleSystemInjection(ServerPlayer player, String stableId, String systemText) {
+        EntityMaid maid = findMaidByStableId(player.getServer(), stableId);
+        if (maid == null) return;
+        MaidAIChatManager manager = maid.getAiChatManager();
+        LLMSite site = manager.getLLMSite();
+        if (site == null || !site.enabled()) return;
+
+        List<LLMMessage> messages = new ArrayList<>();
+        messages.add(LLMMessage.systemChat(maid, systemText));
+        manager.getSetting().ifPresent(setting -> {
+            String language = manager.getChatLanguage();
+            String settingText = setting.getSetting(maid, language);
+            messages.add(LLMMessage.systemChat(maid, settingText));
+        });
+        manager.getHistorySummaryManager().appendSummaryMessage(messages);
+        manager.getHistory().getDeque().descendingIterator().forEachRemaining(messages::add);
+        messages.add(LLMMessage.userChat(maid, "请回复主人"));
+
+        HuhuTalkChatCallback callback = new HuhuTalkChatCallback(manager, messages, player, stableId);
+        site.client().chat(callback);
+    }
+
+    private static void handleOfflineMessage(ServerPlayer player, String stableId, String message) {
+        MaidContactBook book = MaidContactBook.get(player.getServer());
+        MaidContactEntry entry = book.getEntry(stableId);
+
+        if (entry == null || !entry.getOwnerUuid().equals(player.getUUID().toString())) {
+            PacketDistributor.sendToPlayer(player,
+                    new S2CMaidChatErrorPacket(stableId, "找不到该女仆或不是你的女仆"));
+            return;
+        }
+
+        OfflineMessageQueue queue = OfflineMessageQueue.get(player.getServer());
+        queue.enqueue(stableId, player.getName().getString(), player.getUUID().toString(),
+                message, player.serverLevel().getGameTime());
+
+        String infoText = entry.getStatus() == MaidStatus.DEAD
+                ? "女仆已死亡，消息会等她复活后代为转达。"
+                : "女仆暂不在线，消息已离线保存。";
+        PacketDistributor.sendToPlayer(player, new S2CMaidChatInfoPacket(stableId, infoText));
     }
 
     private static List<LLMMessage> buildMessages(MaidAIChatManager manager, String userMessage) {

@@ -3,6 +3,7 @@ package com.huhutalk.core.status;
 import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
 import com.huhutalk.common.MaidStableIdHelper;
 import com.huhutalk.common.MaidStatus;
+import com.huhutalk.core.chat.OfflineMessageDeliverer;
 import com.huhutalk.core.contact.MaidContactBook;
 import com.huhutalk.core.contact.MaidContactEntry;
 import net.minecraft.server.MinecraftServer;
@@ -26,12 +27,12 @@ public class MaidScanTicker {
         Set<String> seenStableIds = new HashSet<>();
         long gameTime = server.overworld().getGameTime();
 
-        // 扫描所有维度中已加载的女仆（getAllEntities 不依赖 AABB，兼容性更好）
         for (ServerLevel level : server.getAllLevels()) {
             for (Entity entity : level.getAllEntities()) {
                 if (entity instanceof EntityMaid maid) {
                     String stableId = MaidStableIdHelper.getOrCreateStableId(maid);
                     seenStableIds.add(stableId);
+
                     book.markOnline(
                             stableId,
                             maid.getName().getString(),
@@ -39,11 +40,13 @@ public class MaidScanTicker {
                             gameTime,
                             maid.getOwnerUUID().toString()
                     );
+
+                    // 不再依赖 resurrected，只要女仆在线就尝试交付积压消息
+                    OfflineMessageDeliverer.tryDeliver(maid);
                 }
             }
         }
 
-        // 将之前 ONLINE 但本轮未扫描到的条目标记为 OFFLINE
         for (MaidContactEntry entry : book.getAllEntries().values()) {
             if (entry.getStatus() == MaidStatus.ONLINE && !seenStableIds.contains(entry.getStableId())) {
                 book.markOffline(entry.getStableId(), gameTime);
