@@ -1,6 +1,9 @@
 package com.huhutalk;
 
+import com.huhutalk.core.status.MaidDeathHandler;
+import com.huhutalk.core.status.MaidScanTicker;
 import com.huhutalk.client.keybind.ModKeyBinds;
+import com.huhutalk.core.event.FilmTransformHandler;
 import com.huhutalk.network.C2SMaidChatPacket;
 import com.huhutalk.network.C2SRequestMaidListPacket;
 import net.neoforged.bus.api.IEventBus;
@@ -19,6 +22,12 @@ public class HuhuTalk {
     public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
 
     public HuhuTalk(IEventBus modEventBus) {
+        // ========== 新增在这里 ==========
+        // 注册游戏总线事件处理器（服务端、客户端通用）
+        NeoForge.EVENT_BUS.register(new FilmTransformHandler());
+        NeoForge.EVENT_BUS.register(new MaidScanTicker());
+        NeoForge.EVENT_BUS.register(new MaidDeathHandler());
+
         modEventBus.addListener(RegisterKeyMappingsEvent.class, ModKeyBinds::registerKeybinds);
         modEventBus.addListener(this::clientSetup);
         modEventBus.addListener(RegisterPayloadHandlersEvent.class, this::setupPackets);

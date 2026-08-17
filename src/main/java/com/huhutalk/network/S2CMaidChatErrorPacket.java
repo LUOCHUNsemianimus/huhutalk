@@ -7,13 +7,12 @@ import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.UUID;
-
-public record S2CMaidChatErrorPacket(UUID maidUuid, String error) implements CustomPacketPayload {
-    public static final CustomPacketPayload.Type<S2CMaidChatErrorPacket> TYPE = new CustomPacketPayload.Type<>(ResourceLocation.fromNamespaceAndPath("huhutalk", "maid_chat_error"));
+public record S2CMaidChatErrorPacket(String stableId, String error) implements CustomPacketPayload {
+    public static final CustomPacketPayload.Type<S2CMaidChatErrorPacket> TYPE =
+            new CustomPacketPayload.Type<>(ResourceLocation.fromNamespaceAndPath("huhutalk", "maid_chat_error"));
     public static final StreamCodec<RegistryFriendlyByteBuf, S2CMaidChatErrorPacket> STREAM_CODEC = StreamCodec.composite(
-            ByteBufCodecs.STRING_UTF8.map(UUID::fromString, UUID::toString),
-            S2CMaidChatErrorPacket::maidUuid,
+            ByteBufCodecs.STRING_UTF8,
+            S2CMaidChatErrorPacket::stableId,
             ByteBufCodecs.STRING_UTF8,
             S2CMaidChatErrorPacket::error,
             S2CMaidChatErrorPacket::new

@@ -13,30 +13,29 @@ import net.neoforged.neoforge.network.PacketDistributor;
 
 import java.net.http.HttpRequest;
 import java.util.List;
-import java.util.UUID;
 
 public class HuhuTalkChatCallback extends LLMCallback {
     private final ServerPlayer sender;
-    private final UUID maidUuid;
+    private final String stableId;
 
-    public HuhuTalkChatCallback(MaidAIChatManager chatManager, List<LLMMessage> messages, ServerPlayer sender, UUID maidUuid) {
+    public HuhuTalkChatCallback(MaidAIChatManager chatManager, List<LLMMessage> messages,
+                                ServerPlayer sender, String stableId) {
         super(chatManager, messages);
         this.sender = sender;
-        this.maidUuid = maidUuid;
-        // ✅ 修复④：务必开启工具调用，否则 LLM 会把 tool_call 当作文本输出
+        this.stableId = stableId;
         this.needAddTools = true;
     }
 
     @Override
     public void onSuccess(ResponseChat responseChat) {
         super.onSuccess(responseChat);
-
         String replyText = responseChat.getChatText();
         if (sender != null && sender.isAlive() && !replyText.isBlank()) {
             if (getMaid().level() instanceof ServerLevel serverLevel) {
                 MinecraftServer server = serverLevel.getServer();
                 server.submit(() -> {
-                    PacketDistributor.sendToPlayer(sender, new S2CMaidChatResponsePacket(maidUuid, replyText));
+                    PacketDistributor.sendToPlayer(sender,
+                            new S2CMaidChatResponsePacket(stableId, replyText));
                 });
             }
         }
@@ -48,7 +47,8 @@ public class HuhuTalkChatCallback extends LLMCallback {
         if (sender != null && sender.isAlive()) {
             if (getMaid().level() instanceof ServerLevel serverLevel) {
                 serverLevel.getServer().submit(() -> {
-                    PacketDistributor.sendToPlayer(sender, new S2CMaidChatErrorPacket(maidUuid, throwable.getMessage()));
+                    PacketDistributor.sendToPlayer(sender,
+                            new S2CMaidChatErrorPacket(stableId, throwable.getMessage()));
                 });
             }
         }
