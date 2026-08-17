@@ -41,12 +41,13 @@ public class MaidScanTicker {
                             maid.getOwnerUUID().toString()
                     );
 
-                    // 不再依赖 resurrected，只要女仆在线就尝试交付积压消息
+                    // 无论是否复活，都尝试交付离线消息（内部会检查队列）
                     OfflineMessageDeliverer.tryDeliver(maid);
                 }
             }
         }
 
+        // 将之前 ONLINE 但本轮未扫描到的条目标记为 OFFLINE
         for (MaidContactEntry entry : book.getAllEntries().values()) {
             if (entry.getStatus() == MaidStatus.ONLINE && !seenStableIds.contains(entry.getStableId())) {
                 book.markOffline(entry.getStableId(), gameTime);
