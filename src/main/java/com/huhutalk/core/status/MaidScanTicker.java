@@ -33,6 +33,11 @@ public class MaidScanTicker {
                     String stableId = MaidStableIdHelper.getOrCreateStableId(maid);
                     seenStableIds.add(stableId);
 
+                    // 在 markOnline 之前获取旧状态，判断她是否刚从死亡/离线中恢复
+                    MaidContactEntry oldEntry = book.getEntry(stableId);
+                    MaidStatus previousStatus = oldEntry == null ? null : oldEntry.getStatus();
+                    boolean wasDead = previousStatus == MaidStatus.DEAD;
+
                     book.markOnline(
                             stableId,
                             maid.getName().getString(),
@@ -41,13 +46,13 @@ public class MaidScanTicker {
                             maid.getOwnerUUID().toString()
                     );
 
-                    // 无论是否复活，都尝试交付离线消息（内部会检查队列）
-                    OfflineMessageDeliverer.tryDeliver(maid);
+                    // 每次扫描都尝试交付离线消息，内部会检查队列
+                    OfflineMessageDeliverer.tryDeliver(maid, wasDead);
                 }
             }
         }
 
-        // 将之前 ONLINE 但本轮未扫描到的条目标记为 OFFLINE
+        // 将 ONLINE 但未扫描到的标记为 OFFLINE
         for (MaidContactEntry entry : book.getAllEntries().values()) {
             if (entry.getStatus() == MaidStatus.ONLINE && !seenStableIds.contains(entry.getStableId())) {
                 book.markOffline(entry.getStableId(), gameTime);

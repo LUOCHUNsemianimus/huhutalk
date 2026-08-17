@@ -68,7 +68,7 @@ public class MaidChatHandler {
      * 主动播报离线消息。不写 TLM 用户历史。
      * <p>
      * 消息结构：
-     * [SYSTEM 离线汇总] [SYSTEM 设定] [SYSTEM 摘要(可选)] [历史] [USER 请回复主人]
+     * [SYSTEM 离线汇总] [SYSTEM 设定] [SYSTEM 摘要(可选)] [历史] [USER 引导回应]
      */
     public static void handleSystemInjection(ServerPlayer player, String stableId, String systemText) {
         EntityMaid maid = findMaidByStableId(player.getServer(), stableId);
@@ -86,7 +86,7 @@ public class MaidChatHandler {
         });
         manager.getHistorySummaryManager().appendSummaryMessage(messages);
         manager.getHistory().getDeque().descendingIterator().forEachRemaining(messages::add);
-        messages.add(LLMMessage.userChat(maid, "请回复主人"));
+        messages.add(LLMMessage.userChat(maid, "主人就站在你面前，正期待着你的反应。请综合以上所有信息，给他一个自然的、发自内心的回应。"));
 
         HuhuTalkChatCallback callback = new HuhuTalkChatCallback(manager, messages, player, stableId);
         site.client().chat(callback);
