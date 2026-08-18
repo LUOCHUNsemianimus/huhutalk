@@ -1,0 +1,7 @@
+{
+  "variants": {
+    "": {
+      "model": "huhutalk:block/wifi_block"
+    }
+  }
+}

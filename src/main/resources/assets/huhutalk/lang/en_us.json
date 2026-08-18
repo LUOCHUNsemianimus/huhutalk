@@ -1,0 +1,8 @@
+{
+  "itemGroup.huhutalk": "HuhuTalk",
+  "item.huhutalk.phone_watch": "Phone Watch (Youth)",
+  "item.huhutalk.phone_smart": "Smartphone (Pro)",
+  "block.huhutalk.wifi_block": "WiFi Block",
+  "item.huhutalk.phone.tooltip.watch": "Youth phone: can only be reached within a WiFi Block's coverage.",
+  "item.huhutalk.phone.tooltip.smart": "Pro phone: always reachable wherever the maid is placed."
+}

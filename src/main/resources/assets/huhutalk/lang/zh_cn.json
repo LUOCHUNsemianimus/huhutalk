@@ -1,0 +1,8 @@
+{
+  "itemGroup.huhutalk": "HuhuTalk",
+  "item.huhutalk.phone_watch": "电话手表（青春版）",
+  "item.huhutalk.phone_smart": "智能手机（Pro）",
+  "block.huhutalk.wifi_block": "WiFi 方块",
+  "item.huhutalk.phone.tooltip.watch": "青春版：仅当女仆位于 WiFi 方块覆盖范围内时才能联系。",
+  "item.huhutalk.phone.tooltip.smart": "Pro 版：女仆可放置在任何位置，始终可达。"
+}

@@ -4,6 +4,9 @@ import com.huhutalk.core.status.MaidDeathHandler;
 import com.huhutalk.core.status.MaidScanTicker;
 import com.huhutalk.client.keybind.ModKeyBinds;
 import com.huhutalk.core.event.FilmTransformHandler;
+import com.huhutalk.init.HuhuTalkBlocks;
+import com.huhutalk.init.HuhuTalkCreativeTabs;
+import com.huhutalk.init.HuhuTalkItems;
 import com.huhutalk.network.C2SMaidChatPacket;
 import com.huhutalk.network.C2SRequestMaidListPacket;
 import net.neoforged.bus.api.IEventBus;
@@ -22,6 +25,11 @@ public class HuhuTalk {
     public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
 
     public HuhuTalk(IEventBus modEventBus) {
+        // ========== 注册物品 / 方块 ==========
+        HuhuTalkItems.ITEMS.register(modEventBus);
+        HuhuTalkBlocks.BLOCKS.register(modEventBus);
+        HuhuTalkCreativeTabs.TABS.register(modEventBus);
+
         // ========== 新增在这里 ==========
         // 注册游戏总线事件处理器（服务端、客户端通用）
         NeoForge.EVENT_BUS.register(new FilmTransformHandler());
