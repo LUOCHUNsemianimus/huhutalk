@@ -1,6 +1,7 @@
 package com.huhutalk.core.chat;
 
 import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
+import com.huhutalk.common.PhoneHelper;
 import com.huhutalk.common.StableIdProvider;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
@@ -45,6 +46,15 @@ public class OfflineMessageDeliverer {
         }
 
         if (pending.isEmpty()) return;
+
+        // 女仆当前未佩戴手机（已关机）→ 不能主动播报，放回等待
+        if (!PhoneHelper.hasPhone(maid)) {
+            LOGGER.info("[OfflineDeliverer] 女仆 {} 未佩戴手机，消息放回等待", stableId);
+            for (String msg : pending) {
+                PendingSystemMessageBus.queue(stableId, msg);
+            }
+            return;
+        }
 
         LOGGER.info("[OfflineDeliverer] 女仆 {} 有待播报消息 {} 条", stableId, pending.size());
 

@@ -98,6 +98,35 @@ public class MaidContactBook extends SavedData {
         return entries.get(stableId);
     }
 
+    /** 取或建联系人条目（不存在则创建，默认 OFFLINE）。供票据管理器记录坐标/手机档位使用。 */
+    public MaidContactEntry getOrCreateEntry(String stableId, String name, String ownerUuid) {
+        MaidContactEntry entry = entries.get(stableId);
+        if (entry == null) {
+            entry = new MaidContactEntry(stableId, name, MaidStatus.OFFLINE, 0, 0, "", 0, ownerUuid);
+            entries.put(stableId, entry);
+            setDirty();
+        }
+        return entry;
+    }
+
+    /** 标记女仆"已关机"：在簿但当前未佩戴手机，不可远程联系 */
+    public void markShutdown(String stableId, String name, String dimension,
+                             long gameTime, String ownerUuid) {
+        MaidContactEntry entry = entries.get(stableId);
+        if (entry == null) {
+            entry = new MaidContactEntry(stableId, name, MaidStatus.SHUTDOWN, 0, 0, dimension, gameTime, ownerUuid);
+            entries.put(stableId, entry);
+            setDirty();
+            return;
+        }
+        entry.setName(name);
+        entry.setDimension(dimension);
+        entry.setLastSeenTime(gameTime);
+        entry.setOwnerUuid(ownerUuid);
+        entry.setStatus(MaidStatus.SHUTDOWN);
+        setDirty();
+    }
+
     @Override
     public CompoundTag save(CompoundTag tag, net.minecraft.core.HolderLookup.Provider registries) {
         CompoundTag root = new CompoundTag();

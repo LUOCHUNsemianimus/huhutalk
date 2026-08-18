@@ -1,7 +1,13 @@
 package com.huhutalk.core.contact;
 
 import com.huhutalk.common.MaidStatus;
+import com.huhutalk.init.MaidPhoneTier;
+import net.minecraft.core.registries.Registries;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.Level;
 
 /**
  * 单条女仆联系人数据。
@@ -18,6 +24,10 @@ public class MaidContactEntry {
     private String dimension;
     private long lastSeenTime;
     private String ownerUuid;
+    /** 女仆最后已知区块坐标（用于离线再水化/覆盖判断） */
+    private ChunkPos lastChunkPos;
+    /** 女仆最后已知手机档位（用于离线再水化） */
+    private MaidPhoneTier lastPhoneTier;
 
     public MaidContactEntry(String stableId, String name, MaidStatus status,
                             int deathCount, int lastSeenDeathCount,
@@ -92,6 +102,34 @@ public class MaidContactEntry {
         this.ownerUuid = ownerUuid;
     }
 
+    public ChunkPos getLastChunkPos() {
+        return lastChunkPos;
+    }
+
+    public void setLastChunkPos(ChunkPos lastChunkPos) {
+        this.lastChunkPos = lastChunkPos;
+    }
+
+    public MaidPhoneTier getLastPhoneTier() {
+        return lastPhoneTier;
+    }
+
+    public void setLastPhoneTier(MaidPhoneTier lastPhoneTier) {
+        this.lastPhoneTier = lastPhoneTier;
+    }
+
+    /** 把 dimension 字符串解析为维度 ResourceKey（解析失败兜底主世界） */
+    public ResourceKey<Level> getDimensionKey() {
+        if (dimension == null || dimension.isEmpty()) {
+            return Level.OVERWORLD;
+        }
+        try {
+            return ResourceKey.create(Registries.DIMENSION, ResourceLocation.parse(dimension));
+        } catch (Exception e) {
+            return Level.OVERWORLD;
+        }
+    }
+
     public CompoundTag toNbt() {
         CompoundTag tag = new CompoundTag();
         tag.putString("stableId", stableId);
@@ -102,6 +140,13 @@ public class MaidContactEntry {
         tag.putString("dimension", dimension);
         tag.putLong("lastSeenTime", lastSeenTime);
         tag.putString("ownerUuid", ownerUuid);
+        if (lastChunkPos != null) {
+            tag.putInt("lastChunkX", lastChunkPos.x);
+            tag.putInt("lastChunkZ", lastChunkPos.z);
+        }
+        if (lastPhoneTier != null) {
+            tag.putString("lastPhoneTier", lastPhoneTier.name());
+        }
         return tag;
     }
 
@@ -120,7 +165,18 @@ public class MaidContactEntry {
         long lastSeenTime = tag.getLong("lastSeenTime");
         // 旧存档没有该字段时返回空字符串
         String ownerUuid = tag.getString("ownerUuid");
-        return new MaidContactEntry(stableId, name, status, deathCount,
+        MaidContactEntry entry = new MaidContactEntry(stableId, name, status, deathCount,
                 lastSeenDeathCount, dimension, lastSeenTime, ownerUuid);
+        if (tag.contains("lastChunkX") && tag.contains("lastChunkZ")) {
+            entry.lastChunkPos = new ChunkPos(tag.getInt("lastChunkX"), tag.getInt("lastChunkZ"));
+        }
+        if (tag.contains("lastPhoneTier")) {
+            try {
+                entry.lastPhoneTier = MaidPhoneTier.valueOf(tag.getString("lastPhoneTier"));
+            } catch (IllegalArgumentException ignored) {
+                entry.lastPhoneTier = null;
+            }
+        }
+        return entry;
     }
 }

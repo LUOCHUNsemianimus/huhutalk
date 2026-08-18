@@ -62,9 +62,10 @@ public class MaidListPage implements IPhonePage {
                 String statusText;
                 int statusColor;
                 switch (info.status()) {
-                    case ONLINE -> { statusText = "在线"; statusColor = 0xFF00FF00; }
-                    case DEAD   -> { statusText = "死亡"; statusColor = 0xFFFF0000; }
-                    default     -> { statusText = "离线"; statusColor = 0xFFAAAAAA; }
+                    case ONLINE   -> { statusText = "在线"; statusColor = 0xFF00FF00; }
+                    case DEAD     -> { statusText = "死亡"; statusColor = 0xFFFF0000; }
+                    case SHUTDOWN -> { statusText = "已关机"; statusColor = 0xFF888888; }
+                    default       -> { statusText = "离线"; statusColor = 0xFFAAAAAA; }
                 }
                 graphics.drawString(font, statusText, baseX + w - 34, itemY + 8, statusColor);
 

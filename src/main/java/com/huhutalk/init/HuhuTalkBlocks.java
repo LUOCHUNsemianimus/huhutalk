@@ -23,7 +23,7 @@ public final class HuhuTalkBlocks {
 
     public static final DeferredHolder<Block, Block> WIFI_BLOCK =
             BLOCKS.register("wifi_block",
-                    () -> new Block(BlockBehaviour.Properties.ofFullCopy(Blocks.IRON_BLOCK)
+                    () -> new BlockWifi(BlockBehaviour.Properties.ofFullCopy(Blocks.IRON_BLOCK)
                             .strength(2.0f, 6.0f)));
 
     /** WiFi 方块的物品形态（便于摆放） */

@@ -3,6 +3,7 @@ package com.huhutalk.core.status;
 import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
 import com.huhutalk.common.MaidStableIdHelper;
 import com.huhutalk.common.MaidStatus;
+import com.huhutalk.common.PhoneHelper;
 import com.huhutalk.core.chat.OfflineMessageDeliverer;
 import com.huhutalk.core.contact.MaidContactBook;
 import com.huhutalk.core.contact.MaidContactEntry;
@@ -38,13 +39,16 @@ public class MaidScanTicker {
                     MaidStatus previousStatus = oldEntry == null ? null : oldEntry.getStatus();
                     boolean wasDead = previousStatus == MaidStatus.DEAD;
 
-                    book.markOnline(
-                            stableId,
-                            maid.getName().getString(),
-                            level.dimension().location().toString(),
-                            gameTime,
-                            maid.getOwnerUUID().toString()
-                    );
+                    String name = maid.getName().getString();
+                    String dimension = level.dimension().location().toString();
+                    String ownerUuid = maid.getOwnerUUID().toString();
+
+                    // 有手机 → ONLINE（可达）；无手机 → SHUTDOWN（已关机）
+                    if (PhoneHelper.hasPhone(maid)) {
+                        book.markOnline(stableId, name, dimension, gameTime, ownerUuid);
+                    } else {
+                        book.markShutdown(stableId, name, dimension, gameTime, ownerUuid);
+                    }
 
                     // 每次扫描都尝试交付离线消息，内部会检查队列
                     OfflineMessageDeliverer.tryDeliver(maid, wasDead);

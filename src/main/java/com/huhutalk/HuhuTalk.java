@@ -4,6 +4,7 @@ import com.huhutalk.core.status.MaidDeathHandler;
 import com.huhutalk.core.status.MaidScanTicker;
 import com.huhutalk.client.keybind.ModKeyBinds;
 import com.huhutalk.core.event.FilmTransformHandler;
+import com.huhutalk.core.load.TicketManager;
 import com.huhutalk.init.HuhuTalkBlocks;
 import com.huhutalk.init.HuhuTalkCreativeTabs;
 import com.huhutalk.init.HuhuTalkItems;
@@ -35,6 +36,7 @@ public class HuhuTalk {
         NeoForge.EVENT_BUS.register(new FilmTransformHandler());
         NeoForge.EVENT_BUS.register(new MaidScanTicker());
         NeoForge.EVENT_BUS.register(new MaidDeathHandler());
+        NeoForge.EVENT_BUS.register(new TicketManager());
 
         modEventBus.addListener(RegisterKeyMappingsEvent.class, ModKeyBinds::registerKeybinds);
         modEventBus.addListener(this::clientSetup);

@@ -5,6 +5,7 @@ import com.github.tartaricacid.touhoulittlemaid.ai.service.llm.LLMMessage;
 import com.github.tartaricacid.touhoulittlemaid.ai.service.llm.LLMSite;
 import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
 import com.huhutalk.common.MaidStatus;
+import com.huhutalk.common.PhoneHelper;
 import com.huhutalk.common.StableIdProvider;
 import com.huhutalk.core.contact.MaidContactBook;
 import com.huhutalk.core.contact.MaidContactEntry;
@@ -30,6 +31,12 @@ public class MaidChatHandler {
         if (!maid.isOwnedBy(player)) {
             PacketDistributor.sendToPlayer(player,
                     new S2CMaidChatErrorPacket(stableId, "这不是你的女仆"));
+            return;
+        }
+        // 女仆已加载但未佩戴手机 → 已关机，无法远程联系
+        if (!PhoneHelper.hasPhone(maid)) {
+            PacketDistributor.sendToPlayer(player,
+                    new S2CMaidChatInfoPacket(stableId, "该女仆没有佩戴手机，暂时无法联系。"));
             return;
         }
 
