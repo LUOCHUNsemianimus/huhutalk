@@ -6,6 +6,7 @@ import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
+import net.neoforged.neoforge.client.event.ClientTickEvent;
 
 /**
  * 客户端世界切换处理。
@@ -24,6 +25,12 @@ public class ClientCacheEvents {
         PhoneOverlay.resetForNewWorld();
         // 同步 JourneyMap 路径点给服务端（可选软依赖，未装时自动跳过）
         WaypointSync.sendWaypoints();
+    }
+
+    /** 周期性重同步路径点（进世界后路径点才陆续加载，需补发） */
+    @SubscribeEvent
+    public static void onClientTick(ClientTickEvent.Post event) {
+        WaypointSync.tickSync();
     }
 
     /** ✅ 退出世界/退出游戏前，把当前世界聊天历史落盘 */

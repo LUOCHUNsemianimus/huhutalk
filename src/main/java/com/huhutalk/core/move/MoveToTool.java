@@ -75,7 +75,8 @@ public class MoveToTool implements ITool<MoveToTool.Result> {
         IntegerParameter y = IntegerParameter.create().setDescription("Y coordinate (for target_type=coordinate)");
         IntegerParameter z = IntegerParameter.create().setDescription("Z coordinate (for target_type=coordinate)");
         StringParameter waypoint = StringParameter.create()
-                .setDescription("JourneyMap waypoint name (for target_type=waypoint)");
+                .setDescription("JourneyMap waypoint name (for target_type=waypoint). Known: "
+                        + knownWaypointNames(maid));
 
         StringParameter arrival = StringParameter.create()
                 .setDescription("What to do after arriving (optional): meet / wait / protect / back");
@@ -148,16 +149,28 @@ public class MoveToTool implements ITool<MoveToTool.Result> {
     }
 
     private static MoveArrival parseArrival(String arrival, String targetType) {
+        boolean isPlayer = "player".equals(targetType);
         if (arrival == null || arrival.isBlank()) {
-            return "player".equals(targetType) ? MoveArrival.BACK : MoveArrival.MEET;
+            return isPlayer ? MoveArrival.BACK : MoveArrival.MEET;
         }
         return switch (arrival.toLowerCase()) {
             case "meet" -> MoveArrival.MEET;
             case "wait" -> MoveArrival.WAIT_IDLE;
             case "protect" -> MoveArrival.PROTECT;
-            case "back", "come" -> MoveArrival.BACK;
+            // 坐标/路径点移动绝不"过来跟随"（那会立即被跟随拽回），一律当作集合点等待
+            case "back", "come" -> isPlayer ? MoveArrival.BACK : MoveArrival.MEET;
             default -> MoveArrival.NONE;
         };
+    }
+
+    private static String knownWaypointNames(EntityMaid maid) {
+        if (maid.getOwner() instanceof ServerPlayer sp) {
+            var list = WaypointCache.getWaypoints(sp.getUUID());
+            if (!list.isEmpty()) {
+                return list.stream().map(WaypointEntry::name).toList().toString();
+            }
+        }
+        return "(none synced yet)";
     }
 
     public record Result(String targetType, int x, int y, int z, String waypointName, String arrival) {
