@@ -2,6 +2,7 @@ package com.huhutalk.core.move;
 
 import com.github.tartaricacid.touhoulittlemaid.api.task.IMaidTask;
 import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
+import com.google.common.collect.Lists;
 import com.huhutalk.HuhuTalk;
 import com.mojang.datafixers.util.Pair;
 import net.minecraft.resources.ResourceLocation;
@@ -44,7 +45,8 @@ public class TaskMoveTo implements IMaidTask {
 
     @Override
     public List<Pair<Integer, BehaviorControl<? super EntityMaid>>> createBrainTasks(EntityMaid maid) {
-        return List.of(Pair.of(2, new MaidMoveToTask()));
+        // 注意：必须返回【可变】列表，TLM 建脑时会改写此列表；返回不可变 List.of() 会抛 UnsupportedOperationException
+        return Lists.newArrayList(Pair.of(2, new MaidMoveToTask()));
     }
 
     @Override
