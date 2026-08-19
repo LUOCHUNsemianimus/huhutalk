@@ -14,8 +14,12 @@ import org.jetbrains.annotations.Nullable;
  * <p>
  * 目标存储在女仆 persistent NBT 中，作为"移动任务"与"move_to 工具/命令"之间的共享契约。
  * <p>
- * 移动时记录：目标模式、到达动作、<b>移动前的原工作模式</b>、<b>守家状态</b>。
- * 若女仆处于守家模式，移动前会临时解除守家限制以便走动，到达后恢复。
+ * <b>守家处理</b>：移动期间强制开启守家模式并清空活动半径——
+ * <ul>
+ *   <li>守家模式开启可<b>抑制 TLM 自带跟随传送</b>（否则女仆"嗖"地传送到主人身边，失去走路感）；</li>
+ *   <li>清空活动半径则允许女仆走出守家范围、真正走到目标。</li>
+ * </ul>
+ * 到达后关闭守家（被召唤后应跟随主人），并切回移动前的任务（或按到达动作切换）。
  */
 public final class MaidMoveData {
     private static final String KEY = "HuhuTalkMoveTarget";
@@ -27,11 +31,6 @@ public final class MaidMoveData {
     private static final String Z = "z";
     private static final String ARRIVAL = "arrival";
     private static final String PREV_TASK = "prevTask";
-    private static final String HOME_MODE = "homeMode";
-    private static final String HOME_X = "hx";
-    private static final String HOME_Y = "hy";
-    private static final String HOME_Z = "hz";
-    private static final String HOME_RADIUS = "hr";
 
     private static final ResourceLocation ATTACK_TASK =
             ResourceLocation.fromNamespaceAndPath("touhou_little_maid", "attack");
@@ -61,30 +60,21 @@ public final class MaidMoveData {
     }
 
     /**
-     * 构造基础标签：记录到达动作、原工作模式、守家状态；若在守家则临时解除限制以便走动。
+     * 构造基础标签：记录到达动作、移动前任务；并开启守家+清空活动半径以安全移动。
      */
     private static CompoundTag baseTag(EntityMaid maid, MoveArrival arrival) {
         CompoundTag tag = new CompoundTag();
         tag.putString(ARRIVAL, arrival.name());
 
-        // 记录原工作模式
+        // 记录移动前的工作模式（到达后切回）
         IMaidTask task = maid.getTask();
         if (task != null) {
             tag.putString(PREV_TASK, task.getUid().toString());
         }
 
-        // 记录并临时解除守家限制
-        boolean home = maid.isHomeModeEnable();
-        tag.putBoolean(HOME_MODE, home);
-        if (home && maid.hasRestriction()) {
-            BlockPos center = maid.getRestrictCenter();
-            tag.putInt(HOME_X, center.getX());
-            tag.putInt(HOME_Y, center.getY());
-            tag.putInt(HOME_Z, center.getZ());
-            tag.putFloat(HOME_RADIUS, maid.getRestrictRadius());
-            maid.setHomeModeEnable(false);
-            maid.clearRestriction();
-        }
+        // 开启守家（抑制 TLM 跟随传送）+ 清空活动半径（允许走出守家范围）
+        maid.setHomeModeEnable(true);
+        maid.clearRestriction();
         return tag;
     }
 
@@ -121,7 +111,7 @@ public final class MaidMoveData {
         maid.getPersistentData().remove(KEY);
     }
 
-    /** 到达/中止后收尾：恢复守家状态，再按 arrival 切回对应任务 */
+    /** 到达/中止后收尾：关闭守家（跟随主人），再按 arrival 切回对应任务 */
     public static void applyArrival(EntityMaid maid) {
         CompoundTag tag = maid.getPersistentData().getCompound(KEY);
         if (tag.isEmpty()) {
@@ -129,20 +119,11 @@ public final class MaidMoveData {
         }
         String arrival = tag.getString(ARRIVAL);
         String prevTask = tag.getString(PREV_TASK);
-        boolean home = tag.getBoolean(HOME_MODE);
 
         clear(maid);
 
-        // 恢复守家
-        if (home) {
-            maid.setHomeModeEnable(true);
-            if (tag.contains(HOME_X)) {
-                maid.restrictTo(
-                        new BlockPos(tag.getInt(HOME_X), tag.getInt(HOME_Y), tag.getInt(HOME_Z)),
-                        Math.max(1, Math.round(tag.getFloat(HOME_RADIUS)))
-                );
-            }
-        }
+        // 关闭守家：被召唤后应能跟随主人
+        maid.setHomeModeEnable(false);
 
         // 切换任务
         MoveArrival action;

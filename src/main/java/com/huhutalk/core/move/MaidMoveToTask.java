@@ -16,12 +16,12 @@ import net.minecraft.world.entity.ai.memory.MemoryStatus;
  * 走完路径后根据到达动作收尾。
  */
 public class MaidMoveToTask extends Behavior<EntityMaid> {
-    /** 移动速度倍率（比 TLM 喂食的 0.6 快一些） */
-    private static final float SPEED = 1.0f;
+    /** 移动速度倍率（正常行走档，避免"飞"过去） */
+    private static final float SPEED = 0.65f;
     /** 寻路完成距离（格） */
     private static final int STOP_DISTANCE = 2;
-    /** 判定"到达"的距离平方 */
-    private static final double ARRIVE_DIST_SQ = 3.0 * 3.0;
+    /** 判定"到达"的水平距离（格），与垂直无关 */
+    private static final double ARRIVE_DIST = 4.0;
 
     private BlockPos lastTarget;
 
@@ -57,8 +57,10 @@ public class MaidMoveToTask extends Behavior<EntityMaid> {
             return;
         }
 
-        // 到达判定
-        if (maid.blockPosition().distSqr(target) <= ARRIVE_DIST_SQ) {
+        // 到达判定（水平距离）
+        double dx = target.getX() - maid.getX();
+        double dz = target.getZ() - maid.getZ();
+        if (Math.sqrt(dx * dx + dz * dz) <= ARRIVE_DIST) {
             MaidMoveData.clear(maid);
             MaidMoveData.applyArrival(maid);
             this.doStop(level, maid, gameTime);
