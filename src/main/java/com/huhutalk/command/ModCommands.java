@@ -49,7 +49,7 @@ public final class ModCommands {
                                                     int x = IntegerArgumentType.getInteger(ctx, "x");
                                                     int y = IntegerArgumentType.getInteger(ctx, "y");
                                                     int z = IntegerArgumentType.getInteger(ctx, "z");
-                                                    int n = apply(entities, new BlockPos(x, y, z), MoveArrival.WAIT_IDLE);
+                                                    int n = apply(entities, new BlockPos(x, y, z), MoveArrival.MEET);
                                                     ctx.getSource().sendSuccess(() ->
                                                             Component.literal("Moved " + n + " maids to " + x + "," + y + "," + z), true);
                                                     return 1;

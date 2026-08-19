@@ -92,6 +92,11 @@ public final class MaidMoveData {
             // 走路：写目标 NBT + 切到移动任务
             setCoordinateTarget(maid, targetPos, arrival);
             maid.setTask(TaskMoveTo.INSTANCE);
+        } else if (arrival == MoveArrival.MEET) {
+            // 远距离集合点：先传送到目标点，再用移动任务进入"等待玩家"阶段
+            teleportMaid(maid, targetPos, targetDim);
+            setCoordinateTarget(maid, targetPos, arrival);
+            maid.setTask(TaskMoveTo.INSTANCE);
         } else {
             // 传送：立即传送 + 到达收尾（不切移动任务）
             teleportAndArrive(maid, targetPos, targetDim, arrival);
@@ -102,6 +107,16 @@ public final class MaidMoveData {
 
     public static boolean hasTarget(EntityMaid maid) {
         return maid.getPersistentData().contains(KEY);
+    }
+
+    /** 读取当前移动目标的到达动作（无目标时返回 BACK） */
+    public static MoveArrival getArrival(EntityMaid maid) {
+        CompoundTag tag = maid.getPersistentData().getCompound(KEY);
+        try {
+            return MoveArrival.valueOf(tag.getString(ARRIVAL));
+        } catch (IllegalArgumentException | NullPointerException e) {
+            return MoveArrival.BACK;
+        }
     }
 
     private static void setCoordinateTarget(EntityMaid maid, BlockPos pos, MoveArrival arrival) {
@@ -170,26 +185,29 @@ public final class MaidMoveData {
 
     private static void teleportAndArrive(EntityMaid maid, BlockPos targetPos, ResourceKey<Level> targetDim, MoveArrival arrival) {
         IMaidTask prevTask = maid.getTask();
+        teleportMaid(maid, targetPos, targetDim);
+        String arrivalName = arrival == null ? MoveArrival.BACK.name() : arrival.name();
+        finishArrival(maid, arrivalName, prevTask == null ? "" : prevTask.getUid().toString());
+    }
+
+    /** 同维度/跨维度传送到目标点，返回是否成功 */
+    private static boolean teleportMaid(EntityMaid maid, BlockPos targetPos, ResourceKey<Level> targetDim) {
         if (!(maid.level() instanceof ServerLevel maidLevel)) {
-            return;
+            return false;
         }
         ServerLevel targetLevel = maidLevel.getServer().getLevel(targetDim);
         if (targetLevel == null) {
-            return;
+            return false;
         }
         double x = targetPos.getX() + 0.5;
         double z = targetPos.getZ() + 0.5;
         double y = targetPos.getY();
-
         if (targetLevel == maidLevel) {
             maid.teleportTo(x, y, z);
         } else {
-            // 跨维度传送
             maid.teleportTo(targetLevel, x, y, z, Set.of(), maid.getYRot(), maid.getXRot());
         }
-
-        String arrivalName = arrival == null ? MoveArrival.BACK.name() : arrival.name();
-        finishArrival(maid, arrivalName, prevTask == null ? "" : prevTask.getUid().toString());
+        return true;
     }
 
     /** 统一的到达收尾：关 home + 按到达动作切任务 */
@@ -206,7 +224,7 @@ public final class MaidMoveData {
         switch (action) {
             case WAIT_IDLE -> maid.setTask(TaskManager.getIdleTask());
             case PROTECT -> TaskManager.findTask(ATTACK_TASK).ifPresent(maid::setTask);
-            case BACK -> restoreTask(maid, prevTaskUid);
+            case BACK, MEET -> restoreTask(maid, prevTaskUid);
             default -> {
                 // NONE：保持当前任务
             }
@@ -260,6 +278,11 @@ public final class MaidMoveData {
             MaidConfig.MAID_SLEEP_RANGE.set(savedSleep);
             configModified = false;
         }
+    }
+
+    /** 供移动任务在"到达并驻留等待"时调用（不再需要临时大范围） */
+    public static void endMovePublic() {
+        endMove();
     }
 
     /** 服务端关闭时兜底恢复（防崩溃/异常导致配置残留） */
