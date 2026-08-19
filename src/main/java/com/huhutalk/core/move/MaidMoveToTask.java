@@ -20,8 +20,8 @@ public class MaidMoveToTask extends Behavior<EntityMaid> {
     private static final float SPEED = 0.65f;
     /** 寻路完成距离（格） */
     private static final int STOP_DISTANCE = 2;
-    /** 判定"到达"的水平距离（格），与垂直无关。留余量避免停在判定边界不触发 */
-    private static final double ARRIVE_DIST = 6.0;
+    /** 判定"到达"的水平距离（格），与垂直无关 */
+    private static final double ARRIVE_DIST = 4.0;
 
     private BlockPos lastTarget;
 
@@ -57,11 +57,10 @@ public class MaidMoveToTask extends Behavior<EntityMaid> {
             return;
         }
 
-        // 到达判定（水平距离）
+        // 到达判定（水平距离）。注意：不要先 clear，applyArrival 内部会读取标签并清理
         double dx = target.getX() - maid.getX();
         double dz = target.getZ() - maid.getZ();
         if (Math.sqrt(dx * dx + dz * dz) <= ARRIVE_DIST) {
-            MaidMoveData.clear(maid);
             MaidMoveData.applyArrival(maid);
             this.doStop(level, maid, gameTime);
             return;
