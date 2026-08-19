@@ -22,6 +22,8 @@ public class ClientCacheEvents {
         NotificationManager.onWorldChanged(worldKey);
         MaidListCache.clear();
         PhoneOverlay.resetForNewWorld();
+        // 同步 JourneyMap 路径点给服务端（可选软依赖，未装时自动跳过）
+        WaypointSync.sendWaypoints();
     }
 
     /** ✅ 退出世界/退出游戏前，把当前世界聊天历史落盘 */

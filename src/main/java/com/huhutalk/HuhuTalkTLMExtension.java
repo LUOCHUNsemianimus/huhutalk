@@ -1,9 +1,11 @@
 package com.huhutalk;
 
+import com.github.tartaricacid.touhoulittlemaid.ai.agent.tool.ToolRegister;
 import com.github.tartaricacid.touhoulittlemaid.api.ILittleMaid;
 import com.github.tartaricacid.touhoulittlemaid.api.LittleMaidExtension;
 import com.github.tartaricacid.touhoulittlemaid.entity.task.TaskManager;
 import com.github.tartaricacid.touhoulittlemaid.item.bauble.BaubleManager;
+import com.huhutalk.core.move.MoveToTool;
 import com.huhutalk.core.move.TaskMoveTo;
 import com.huhutalk.init.HuhuTalkItems;
 
@@ -27,5 +29,10 @@ public class HuhuTalkTLMExtension implements ILittleMaid {
     @Override
     public void addMaidTask(TaskManager manager) {
         manager.add(TaskMoveTo.INSTANCE);
+    }
+
+    @Override
+    public void registerAITool(ToolRegister register) {
+        register.register(new MoveToTool());
     }
 }
