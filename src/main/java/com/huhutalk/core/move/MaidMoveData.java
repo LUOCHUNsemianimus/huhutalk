@@ -148,7 +148,7 @@ public final class MaidMoveData {
         maid.getPersistentData().put(KEY, tag);
     }
 
-    /** 构造基础标签：记录移动前任务；临时调大范围 */
+    /** 构造基础标签：记录移动前任务 + 原守家坐标；临时调大范围 */
     private static CompoundTag baseTag(EntityMaid maid, MoveArrival arrival) {
         CompoundTag tag = new CompoundTag();
         tag.putString(ARRIVAL, arrival.name());
@@ -156,8 +156,40 @@ public final class MaidMoveData {
         if (task != null) {
             tag.putString(PREV_TASK, task.getUid().toString());
         }
+        // 保存原守家坐标，供到达后恢复（否则守家被迁到目标点，会导致到达后跟随失效）
+        saveOriginalHome(maid, tag);
         beginMove();
         return tag;
+    }
+
+    private static void saveOriginalHome(EntityMaid maid, CompoundTag tag) {
+        SchedulePos sp = maid.getSchedulePos();
+        savePos(tag, "ow", sp.getWorkPos());
+        savePos(tag, "oi", sp.getIdlePos());
+        savePos(tag, "os", sp.getSleepPos());
+    }
+
+    private static void savePos(CompoundTag tag, String prefix, BlockPos pos) {
+        if (pos != null) {
+            tag.putInt(prefix + "x", pos.getX());
+            tag.putInt(prefix + "y", pos.getY());
+            tag.putInt(prefix + "z", pos.getZ());
+        }
+    }
+
+    /** 恢复原守家坐标并重设活动范围 */
+    private static void restoreOriginalHome(EntityMaid maid, CompoundTag tag) {
+        SchedulePos sp = maid.getSchedulePos();
+        if (tag.contains("owx")) {
+            sp.setWorkPos(new BlockPos(tag.getInt("owx"), tag.getInt("owy"), tag.getInt("owz")));
+        }
+        if (tag.contains("oix")) {
+            sp.setIdlePos(new BlockPos(tag.getInt("oix"), tag.getInt("oiy"), tag.getInt("oiz")));
+        }
+        if (tag.contains("osx")) {
+            sp.setSleepPos(new BlockPos(tag.getInt("osx"), tag.getInt("osy"), tag.getInt("osz")));
+        }
+        sp.restrictTo(maid);
     }
 
     /** 移动任务每 tick 解析目标坐标 */
@@ -188,7 +220,7 @@ public final class MaidMoveData {
         maid.getPersistentData().remove(KEY);
     }
 
-    /** 走路到达/中止后收尾（读 NBT → 清理 → 恢复范围 → 切任务） */
+    /** 走路到达/中止后收尾（读 NBT → 恢复守家 → 清理 → 恢复范围 → 切任务） */
     public static void applyArrival(EntityMaid maid) {
         CompoundTag tag = maid.getPersistentData().getCompound(KEY);
         if (tag.isEmpty()) {
@@ -196,6 +228,11 @@ public final class MaidMoveData {
         }
         String arrival = tag.getString(ARRIVAL);
         String prevTask = tag.getString(PREV_TASK);
+        // 非 BACK（去往某地）：恢复原守家坐标，避免守家被迁到目标点导致到达后跟随失效
+        if (!MoveArrival.BACK.name().equals(arrival)) {
+            restoreOriginalHome(maid, tag);
+            maid.clearRestriction();
+        }
         clear(maid);
         endMove();
         finishArrival(maid, arrival, prevTask);

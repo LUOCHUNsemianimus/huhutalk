@@ -2,13 +2,17 @@ package com.huhutalk.core.move;
 
 import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
 import com.google.common.collect.ImmutableMap;
+import com.huhutalk.common.MaidStableIdHelper;
+import com.huhutalk.network.S2CMaidChatResponsePacket;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.ai.behavior.Behavior;
 import net.minecraft.world.entity.ai.behavior.BehaviorUtils;
 import net.minecraft.world.entity.ai.memory.MemoryModuleType;
 import net.minecraft.world.entity.ai.memory.MemoryStatus;
+import net.neoforged.neoforge.network.PacketDistributor;
 
 /**
  * 移动任务的导航行为。
@@ -109,6 +113,16 @@ public class MaidMoveToTask extends Behavior<EntityMaid> {
         maid.getNavigation().stop();
         maid.getBrain().eraseMemory(MemoryModuleType.WALK_TARGET);
         maid.getBrain().eraseMemory(MemoryModuleType.LOOK_TARGET);
+        notifyArrived(maid);
+    }
+
+    /** 到达后通知主人（发到手机，不触发 LLM，不烧 token） */
+    private void notifyArrived(EntityMaid maid) {
+        if (maid.getOwner() instanceof ServerPlayer owner && owner.isAlive()) {
+            String stableId = MaidStableIdHelper.getOrCreateStableId(maid);
+            PacketDistributor.sendToPlayer(owner,
+                    new S2CMaidChatResponsePacket(stableId, "我到了,在这里等你。"));
+        }
     }
 
     /** 等待阶段：主人进入目标点附近 → 跟随 */
