@@ -1,6 +1,7 @@
 package com.huhutalk.core.move;
 
 import com.github.tartaricacid.touhoulittlemaid.api.task.IMaidTask;
+import com.github.tartaricacid.touhoulittlemaid.config.subconfig.MaidConfig;
 import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
 import com.github.tartaricacid.touhoulittlemaid.entity.task.TaskManager;
 import net.minecraft.core.BlockPos;
@@ -14,12 +15,14 @@ import org.jetbrains.annotations.Nullable;
  * <p>
  * 目标存储在女仆 persistent NBT 中，作为"移动任务"与"move_to 工具/命令"之间的共享契约。
  * <p>
- * <b>守家处理</b>：移动期间强制开启守家模式并清空活动半径——
+ * <b>关于守家/范围（TLM 机制）</b>：
  * <ul>
- *   <li>守家模式开启可<b>抑制 TLM 自带跟随传送</b>（否则女仆"嗖"地传送到主人身边，失去走路感）；</li>
- *   <li>清空活动半径则允许女仆走出守家范围、真正走到目标。</li>
+ *   <li>工作/休闲/睡觉范围是<b>全局配置</b>（{@link MaidConfig}），非每只女仆独立；</li>
+ *   <li>{@code SchedulePos} 每 tick 按当前活动把女仆活动半径刷回配置值；</li>
+ *   <li>TLM 的 {@code MaidFollowOwnerTask} 在女仆远离主人且活动半径小时会<b>直接传送</b>到主人身边。</li>
  * </ul>
- * 到达后关闭守家（被召唤后应跟随主人），并切回移动前的任务（或按到达动作切换）。
+ * 因此移动期间<b>临时把三个范围调到各自上限</b>（WORK 64 / IDLE 32 / SLEEP 32），
+ * 让女仆在被召唤时"走过去"而非"被传送"。到达后恢复原配置。
  */
 public final class MaidMoveData {
     private static final String KEY = "HuhuTalkMoveTarget";
@@ -35,8 +38,57 @@ public final class MaidMoveData {
     private static final ResourceLocation ATTACK_TASK =
             ResourceLocation.fromNamespaceAndPath("touhou_little_maid", "attack");
 
+    // ============ 临时调大范围的全局状态 ============
+    private static final int TMP_WORK = 64;
+    private static final int TMP_IDLE = 32;
+    private static final int TMP_SLEEP = 32;
+    private static boolean configModified = false;
+    private static int savedWork, savedIdle, savedSleep;
+    /** 当前正在进行的移动数（多只女仆同时移动时，全部结束后才恢复配置） */
+    private static int activeMoves = 0;
+
     private MaidMoveData() {
     }
+
+    /** 移动开始：临时调大三个范围（首次才保存原值） */
+    private static void beginMove() {
+        if (activeMoves == 0) {
+            savedWork = MaidConfig.MAID_WORK_RANGE.get();
+            savedIdle = MaidConfig.MAID_IDLE_RANGE.get();
+            savedSleep = MaidConfig.MAID_SLEEP_RANGE.get();
+            MaidConfig.MAID_WORK_RANGE.set(TMP_WORK);
+            MaidConfig.MAID_IDLE_RANGE.set(TMP_IDLE);
+            MaidConfig.MAID_SLEEP_RANGE.set(TMP_SLEEP);
+            configModified = true;
+        }
+        activeMoves++;
+    }
+
+    /** 移动结束：最后一个移动结束后恢复原范围 */
+    public static void endMove() {
+        if (activeMoves > 0) {
+            activeMoves--;
+        }
+        if (activeMoves == 0 && configModified) {
+            MaidConfig.MAID_WORK_RANGE.set(savedWork);
+            MaidConfig.MAID_IDLE_RANGE.set(savedIdle);
+            MaidConfig.MAID_SLEEP_RANGE.set(savedSleep);
+            configModified = false;
+        }
+    }
+
+    /** 服务端关闭时兜底恢复（防崩溃/异常导致配置残留） */
+    public static void restoreOnServerStop() {
+        if (configModified) {
+            MaidConfig.MAID_WORK_RANGE.set(savedWork);
+            MaidConfig.MAID_IDLE_RANGE.set(savedIdle);
+            MaidConfig.MAID_SLEEP_RANGE.set(savedSleep);
+            configModified = false;
+            activeMoves = 0;
+        }
+    }
+
+    // ============ 目标读写 ============
 
     public static boolean hasTarget(EntityMaid maid) {
         return maid.getPersistentData().contains(KEY);
@@ -60,7 +112,7 @@ public final class MaidMoveData {
     }
 
     /**
-     * 构造基础标签：记录到达动作、移动前任务；并开启守家+清空活动半径以安全移动。
+     * 构造基础标签：记录移动前任务；临时调大范围以"走过去而非传送"。
      */
     private static CompoundTag baseTag(EntityMaid maid, MoveArrival arrival) {
         CompoundTag tag = new CompoundTag();
@@ -72,9 +124,8 @@ public final class MaidMoveData {
             tag.putString(PREV_TASK, task.getUid().toString());
         }
 
-        // 开启守家（抑制 TLM 跟随传送）+ 清空活动半径（允许走出守家范围）
-        maid.setHomeModeEnable(true);
-        maid.clearRestriction();
+        // 临时调大范围，使跟随传送阈值变大 → 女仆走过去而非被传送
+        beginMove();
         return tag;
     }
 
@@ -111,7 +162,7 @@ public final class MaidMoveData {
         maid.getPersistentData().remove(KEY);
     }
 
-    /** 到达/中止后收尾：关闭守家（跟随主人），再按 arrival 切回对应任务 */
+    /** 到达/中止后收尾：恢复范围、关闭 home（可跟随），再按 arrival 切回对应任务 */
     public static void applyArrival(EntityMaid maid) {
         CompoundTag tag = maid.getPersistentData().getCompound(KEY);
         if (tag.isEmpty()) {
@@ -121,8 +172,9 @@ public final class MaidMoveData {
         String prevTask = tag.getString(PREV_TASK);
 
         clear(maid);
+        endMove();
 
-        // 关闭守家：被召唤后应能跟随主人
+        // 关闭 home：被召唤后应能跟随主人
         maid.setHomeModeEnable(false);
 
         // 切换任务

@@ -45,8 +45,9 @@ public class TaskMoveTo implements IMaidTask {
 
     @Override
     public List<Pair<Integer, BehaviorControl<? super EntityMaid>>> createBrainTasks(EntityMaid maid) {
-        // 注意：必须返回【可变】列表，TLM 建脑时会改写此列表；返回不可变 List.of() 会抛 UnsupportedOperationException
-        return Lists.newArrayList(Pair.of(2, new MaidMoveToTask()));
+        // 注意：必须返回【可变】列表，TLM 建脑时会改写此列表；返回不可变 List.of() 会抛 UnsupportedOperationException。
+        // 优先级 4 高于 TLM 核心脑里的 MaidFollowOwnerTask(3)，从而在移动期间抢占它、抑制其"远离即传送"。
+        return Lists.newArrayList(Pair.of(4, new MaidMoveToTask()));
     }
 
     @Override
