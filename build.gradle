@@ -37,6 +37,10 @@ repositories {
 dependencies {
     // 车万女仆 编译期依赖（不打包进最终产物，玩家需自行安装）
     compileOnly("maven.modrinth:R0bDWFAW:1.5.3-neoforge+mc1.21.1")
+
+    // JourneyMap 编译期依赖（可选软依赖，用于读取玩家路径点。不打包，玩家无需强制安装）。
+    // 版本 ID 3AZpZoxN = 1.21.1-6.0.0-beta.53+neoforge（Modrinth）。仅用于本侧查看/编译其 API。
+    compileOnly("maven.modrinth:journeymap:3AZpZoxN")
 }
 
 base {

@@ -3,6 +3,7 @@ package com.huhutalk;
 import com.huhutalk.core.status.MaidDeathHandler;
 import com.huhutalk.core.status.MaidScanTicker;
 import com.huhutalk.client.keybind.ModKeyBinds;
+import com.huhutalk.command.ModCommands;
 import com.huhutalk.core.event.FilmTransformHandler;
 import com.huhutalk.core.load.TicketManager;
 import com.huhutalk.init.HuhuTalkBlocks;
@@ -16,6 +17,7 @@ import net.neoforged.fml.event.lifecycle.FMLClientSetupEvent;
 import net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.common.NeoForge;
+import net.neoforged.neoforge.event.RegisterCommandsEvent;
 import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -37,6 +39,7 @@ public class HuhuTalk {
         NeoForge.EVENT_BUS.register(new MaidScanTicker());
         NeoForge.EVENT_BUS.register(new MaidDeathHandler());
         NeoForge.EVENT_BUS.register(new TicketManager());
+        NeoForge.EVENT_BUS.addListener(RegisterCommandsEvent.class, ModCommands::register);
 
         modEventBus.addListener(RegisterKeyMappingsEvent.class, ModKeyBinds::registerKeybinds);
         modEventBus.addListener(this::clientSetup);

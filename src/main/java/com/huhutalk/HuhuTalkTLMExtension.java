@@ -2,7 +2,9 @@ package com.huhutalk;
 
 import com.github.tartaricacid.touhoulittlemaid.api.ILittleMaid;
 import com.github.tartaricacid.touhoulittlemaid.api.LittleMaidExtension;
+import com.github.tartaricacid.touhoulittlemaid.entity.task.TaskManager;
 import com.github.tartaricacid.touhoulittlemaid.item.bauble.BaubleManager;
+import com.huhutalk.core.move.TaskMoveTo;
 import com.huhutalk.init.HuhuTalkItems;
 
 /**
@@ -20,5 +22,10 @@ public class HuhuTalkTLMExtension implements ILittleMaid {
         // 手机物品本体即 IMaidBauble 实现，直接绑定
         manager.bind(HuhuTalkItems.PHONE_WATCH.get(), HuhuTalkItems.PHONE_WATCH.get());
         manager.bind(HuhuTalkItems.PHONE_SMART.get(), HuhuTalkItems.PHONE_SMART.get());
+    }
+
+    @Override
+    public void addMaidTask(TaskManager manager) {
+        manager.add(TaskMoveTo.INSTANCE);
     }
 }
