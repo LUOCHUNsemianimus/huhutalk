@@ -3,7 +3,6 @@ package com.huhutalk.command;
 import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
 import com.huhutalk.core.move.MaidMoveData;
 import com.huhutalk.core.move.MoveArrival;
-import com.huhutalk.core.move.TaskMoveTo;
 import com.mojang.brigadier.builder.LiteralArgumentBuilder;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import net.minecraft.commands.CommandSourceStack;
@@ -77,11 +76,11 @@ public final class ModCommands {
                 continue;
             }
             if (pos == null) {
-                MaidMoveData.setPlayerTarget(maid, arrival);
+                // 近走远传（自动判断）
+                MaidMoveData.orderCome(maid, arrival);
             } else {
-                MaidMoveData.setCoordinateTarget(maid, pos, arrival);
+                MaidMoveData.orderCoordinate(maid, pos, maid.level().dimension(), arrival);
             }
-            maid.setTask(TaskMoveTo.INSTANCE);
             n++;
         }
         return n;

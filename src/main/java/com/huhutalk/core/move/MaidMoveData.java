@@ -6,23 +6,27 @@ import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
 import com.github.tartaricacid.touhoulittlemaid.entity.task.TaskManager;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.RelativeMovement;
+import net.minecraft.world.level.Level;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.Set;
+
 /**
- * 女仆移动目标的读写（契约层）。
+ * 女仆移动指令的统一入口（契约层）。
  * <p>
- * 目标存储在女仆 persistent NBT 中，作为"移动任务"与"move_to 工具/命令"之间的共享契约。
- * <p>
- * <b>关于守家/范围（TLM 机制）</b>：
+ * <b>近走远传</b>：同维度且水平距离 ≤ {@link #WALK_DIST} 时走路（走移动任务），
+ * 否则（远距离/跨维度）<b>直接传送</b>，不再依赖 TLM 自带那套有延迟的跟随传送。
  * <ul>
- *   <li>工作/休闲/睡觉范围是<b>全局配置</b>（{@link MaidConfig}），非每只女仆独立；</li>
- *   <li>{@code SchedulePos} 每 tick 按当前活动把女仆活动半径刷回配置值；</li>
- *   <li>TLM 的 {@code MaidFollowOwnerTask} 在女仆远离主人且活动半径小时会<b>直接传送</b>到主人身边。</li>
+ *   <li>{@link #orderCome}：让女仆到自己身边。</li>
+ *   <li>{@link #orderCoordinate}：让女仆到指定坐标（可跨维度）。</li>
  * </ul>
- * 因此移动期间<b>临时把三个范围调到各自上限</b>（WORK 64 / IDLE 32 / SLEEP 32），
- * 让女仆在被召唤时"走过去"而非"被传送"。到达后恢复原配置。
+ * <b>范围处理</b>：走路时需要临时把工作/休闲/睡觉范围调到上限（避免 TLM 跟随传送、且能走出去），
+ * 到达后恢复。这些范围是全局配置，用计数管理，多只女仆移动时全部结束才恢复。
  */
 public final class MaidMoveData {
     private static final String KEY = "HuhuTalkMoveTarget";
@@ -35,6 +39,9 @@ public final class MaidMoveData {
     private static final String ARRIVAL = "arrival";
     private static final String PREV_TASK = "prevTask";
 
+    /** 同维度下"走"的最大水平距离（格），超出则传送 */
+    public static final int WALK_DIST = 64;
+
     private static final ResourceLocation ATTACK_TASK =
             ResourceLocation.fromNamespaceAndPath("touhou_little_maid", "attack");
 
@@ -44,13 +51,184 @@ public final class MaidMoveData {
     private static final int TMP_SLEEP = 32;
     private static boolean configModified = false;
     private static int savedWork, savedIdle, savedSleep;
-    /** 当前正在进行的移动数（多只女仆同时移动时，全部结束后才恢复配置） */
     private static int activeMoves = 0;
 
     private MaidMoveData() {
     }
 
-    /** 移动开始：临时调大三个范围（首次才保存原值） */
+    // ============ 统一入口 ============
+
+    /** 让女仆到自己身边（近走远传） */
+    public static void orderCome(EntityMaid maid, MoveArrival arrival) {
+        LivingEntity owner = maid.getOwner();
+        if (owner == null || owner.isDeadOrDying() || owner.isSpectator()) {
+            return;
+        }
+        orderMove(maid, owner.blockPosition(), owner.level().dimension(), arrival);
+    }
+
+    /** 让女仆到指定坐标（近走远传，可跨维度） */
+    public static void orderCoordinate(EntityMaid maid, BlockPos pos, ResourceKey<Level> dim, MoveArrival arrival) {
+        orderMove(maid, pos, dim, arrival);
+    }
+
+    /** 判定并执行：近走远传 */
+    private static void orderMove(EntityMaid maid, BlockPos targetPos, ResourceKey<Level> targetDim, MoveArrival arrival) {
+        if (maid == null || targetPos == null || targetDim == null) {
+            return;
+        }
+        boolean sameDim = maid.level().dimension().equals(targetDim);
+        boolean near = sameDim && horizontalDistSq(maid, targetPos) <= (double) WALK_DIST * WALK_DIST;
+
+        if (near) {
+            // 走路：写目标 NBT + 切到移动任务
+            setCoordinateTarget(maid, targetPos, arrival);
+            maid.setTask(TaskMoveTo.INSTANCE);
+        } else {
+            // 传送：立即传送 + 到达收尾（不切移动任务）
+            teleportAndArrive(maid, targetPos, targetDim, arrival);
+        }
+    }
+
+    // ============ 走路路径（目标 NBT + 移动任务） ============
+
+    public static boolean hasTarget(EntityMaid maid) {
+        return maid.getPersistentData().contains(KEY);
+    }
+
+    private static void setCoordinateTarget(EntityMaid maid, BlockPos pos, MoveArrival arrival) {
+        CompoundTag tag = baseTag(maid, arrival);
+        tag.putString(MODE, MODE_COORDINATE);
+        tag.putInt(X, pos.getX());
+        tag.putInt(Y, pos.getY());
+        tag.putInt(Z, pos.getZ());
+        maid.getPersistentData().put(KEY, tag);
+    }
+
+    /** 构造基础标签：记录移动前任务；临时调大范围 */
+    private static CompoundTag baseTag(EntityMaid maid, MoveArrival arrival) {
+        CompoundTag tag = new CompoundTag();
+        tag.putString(ARRIVAL, arrival.name());
+        IMaidTask task = maid.getTask();
+        if (task != null) {
+            tag.putString(PREV_TASK, task.getUid().toString());
+        }
+        beginMove();
+        return tag;
+    }
+
+    /** 移动任务每 tick 解析目标坐标 */
+    @Nullable
+    public static BlockPos resolveTarget(EntityMaid maid) {
+        CompoundTag tag = maid.getPersistentData().getCompound(KEY);
+        if (tag.isEmpty()) {
+            return null;
+        }
+        String mode = tag.getString(MODE);
+        if (MODE_PLAYER.equals(mode)) {
+            LivingEntity owner = maid.getOwner();
+            if (owner == null || owner.isDeadOrDying() || owner.isSpectator()) {
+                return null;
+            }
+            if (owner.level() != maid.level()) {
+                return null;
+            }
+            return owner.blockPosition();
+        }
+        if (!tag.contains(X) || !tag.contains(Y) || !tag.contains(Z)) {
+            return null;
+        }
+        return new BlockPos(tag.getInt(X), tag.getInt(Y), tag.getInt(Z));
+    }
+
+    public static void clear(EntityMaid maid) {
+        maid.getPersistentData().remove(KEY);
+    }
+
+    /** 走路到达/中止后收尾（读 NBT → 清理 → 恢复范围 → 切任务） */
+    public static void applyArrival(EntityMaid maid) {
+        CompoundTag tag = maid.getPersistentData().getCompound(KEY);
+        if (tag.isEmpty()) {
+            return;
+        }
+        String arrival = tag.getString(ARRIVAL);
+        String prevTask = tag.getString(PREV_TASK);
+        clear(maid);
+        endMove();
+        finishArrival(maid, arrival, prevTask);
+    }
+
+    // ============ 传送路径 ============
+
+    private static void teleportAndArrive(EntityMaid maid, BlockPos targetPos, ResourceKey<Level> targetDim, MoveArrival arrival) {
+        IMaidTask prevTask = maid.getTask();
+        if (!(maid.level() instanceof ServerLevel maidLevel)) {
+            return;
+        }
+        ServerLevel targetLevel = maidLevel.getServer().getLevel(targetDim);
+        if (targetLevel == null) {
+            return;
+        }
+        double x = targetPos.getX() + 0.5;
+        double z = targetPos.getZ() + 0.5;
+        double y = targetPos.getY();
+
+        if (targetLevel == maidLevel) {
+            maid.teleportTo(x, y, z);
+        } else {
+            // 跨维度传送
+            maid.teleportTo(targetLevel, x, y, z, Set.of(), maid.getYRot(), maid.getXRot());
+        }
+
+        String arrivalName = arrival == null ? MoveArrival.BACK.name() : arrival.name();
+        finishArrival(maid, arrivalName, prevTask == null ? "" : prevTask.getUid().toString());
+    }
+
+    /** 统一的到达收尾：关 home + 按到达动作切任务 */
+    private static void finishArrival(EntityMaid maid, String arrivalName, String prevTaskUid) {
+        // 关闭 home：被召唤后应能跟随主人
+        maid.setHomeModeEnable(false);
+
+        MoveArrival action;
+        try {
+            action = MoveArrival.valueOf(arrivalName);
+        } catch (IllegalArgumentException | NullPointerException e) {
+            action = MoveArrival.BACK;
+        }
+        switch (action) {
+            case WAIT_IDLE -> maid.setTask(TaskManager.getIdleTask());
+            case PROTECT -> TaskManager.findTask(ATTACK_TASK).ifPresent(maid::setTask);
+            case BACK -> restoreTask(maid, prevTaskUid);
+            default -> {
+                // NONE：保持当前任务
+            }
+        }
+    }
+
+    private static void restoreTask(EntityMaid maid, String prevTaskUid) {
+        if (prevTaskUid == null || prevTaskUid.isEmpty()) {
+            maid.setTask(TaskManager.getIdleTask());
+            return;
+        }
+        ResourceLocation uid = ResourceLocation.tryParse(prevTaskUid);
+        if (uid == null) {
+            maid.setTask(TaskManager.getIdleTask());
+            return;
+        }
+        TaskManager.findTask(uid).ifPresentOrElse(
+                maid::setTask,
+                () -> maid.setTask(TaskManager.getIdleTask())
+        );
+    }
+
+    private static double horizontalDistSq(EntityMaid maid, BlockPos target) {
+        double dx = target.getX() - maid.getX();
+        double dz = target.getZ() - maid.getZ();
+        return dx * dx + dz * dz;
+    }
+
+    // ============ 全局范围临时调整 ============
+
     private static void beginMove() {
         if (activeMoves == 0) {
             savedWork = MaidConfig.MAID_WORK_RANGE.get();
@@ -64,8 +242,7 @@ public final class MaidMoveData {
         activeMoves++;
     }
 
-    /** 移动结束：最后一个移动结束后恢复原范围 */
-    public static void endMove() {
+    private static void endMove() {
         if (activeMoves > 0) {
             activeMoves--;
         }
@@ -86,127 +263,5 @@ public final class MaidMoveData {
             configModified = false;
             activeMoves = 0;
         }
-    }
-
-    // ============ 目标读写 ============
-
-    public static boolean hasTarget(EntityMaid maid) {
-        return maid.getPersistentData().contains(KEY);
-    }
-
-    /** 设置"移动到固定坐标"目标。调用方需随后切换任务到移动模式。 */
-    public static void setCoordinateTarget(EntityMaid maid, BlockPos pos, MoveArrival arrival) {
-        CompoundTag tag = baseTag(maid, arrival);
-        tag.putString(MODE, MODE_COORDINATE);
-        tag.putInt(X, pos.getX());
-        tag.putInt(Y, pos.getY());
-        tag.putInt(Z, pos.getZ());
-        maid.getPersistentData().put(KEY, tag);
-    }
-
-    /** 设置"移动到主人身边"目标（实时追踪）。调用方需随后切换任务到移动模式。 */
-    public static void setPlayerTarget(EntityMaid maid, MoveArrival arrival) {
-        CompoundTag tag = baseTag(maid, arrival);
-        tag.putString(MODE, MODE_PLAYER);
-        maid.getPersistentData().put(KEY, tag);
-    }
-
-    /**
-     * 构造基础标签：记录移动前任务；临时调大范围以"走过去而非传送"。
-     */
-    private static CompoundTag baseTag(EntityMaid maid, MoveArrival arrival) {
-        CompoundTag tag = new CompoundTag();
-        tag.putString(ARRIVAL, arrival.name());
-
-        // 记录移动前的工作模式（到达后切回）
-        IMaidTask task = maid.getTask();
-        if (task != null) {
-            tag.putString(PREV_TASK, task.getUid().toString());
-        }
-
-        // 临时调大范围，使跟随传送阈值变大 → 女仆走过去而非被传送
-        beginMove();
-        return tag;
-    }
-
-    /**
-     * 解析当前应前往的坐标。
-     *
-     * @return 目标坐标；目标失效（主人消失/跨维度暂不可走/无目标）时返回 {@code null}
-     */
-    @Nullable
-    public static BlockPos resolveTarget(EntityMaid maid) {
-        CompoundTag tag = maid.getPersistentData().getCompound(KEY);
-        if (tag.isEmpty()) {
-            return null;
-        }
-        String mode = tag.getString(MODE);
-        if (MODE_PLAYER.equals(mode)) {
-            LivingEntity owner = maid.getOwner();
-            if (owner == null || owner.isDeadOrDying() || owner.isSpectator()) {
-                return null;
-            }
-            // 跨维度暂不支持"走"，传送留待后续
-            if (owner.level() != maid.level()) {
-                return null;
-            }
-            return owner.blockPosition();
-        }
-        if (!tag.contains(X) || !tag.contains(Y) || !tag.contains(Z)) {
-            return null;
-        }
-        return new BlockPos(tag.getInt(X), tag.getInt(Y), tag.getInt(Z));
-    }
-
-    public static void clear(EntityMaid maid) {
-        maid.getPersistentData().remove(KEY);
-    }
-
-    /** 到达/中止后收尾：恢复范围、关闭 home（可跟随），再按 arrival 切回对应任务 */
-    public static void applyArrival(EntityMaid maid) {
-        CompoundTag tag = maid.getPersistentData().getCompound(KEY);
-        if (tag.isEmpty()) {
-            return;
-        }
-        String arrival = tag.getString(ARRIVAL);
-        String prevTask = tag.getString(PREV_TASK);
-
-        clear(maid);
-        endMove();
-
-        // 关闭 home：被召唤后应能跟随主人
-        maid.setHomeModeEnable(false);
-
-        // 切换任务
-        MoveArrival action;
-        try {
-            action = MoveArrival.valueOf(arrival);
-        } catch (IllegalArgumentException | NullPointerException e) {
-            action = MoveArrival.BACK;
-        }
-        switch (action) {
-            case WAIT_IDLE -> maid.setTask(TaskManager.getIdleTask());
-            case PROTECT -> TaskManager.findTask(ATTACK_TASK).ifPresent(maid::setTask);
-            case BACK -> restoreTask(maid, prevTask);
-            default -> {
-                // NONE：保持"移动"模式停在原地
-            }
-        }
-    }
-
-    private static void restoreTask(EntityMaid maid, String prevTaskUid) {
-        if (prevTaskUid == null || prevTaskUid.isEmpty()) {
-            maid.setTask(TaskManager.getIdleTask());
-            return;
-        }
-        ResourceLocation uid = ResourceLocation.tryParse(prevTaskUid);
-        if (uid == null) {
-            maid.setTask(TaskManager.getIdleTask());
-            return;
-        }
-        TaskManager.findTask(uid).ifPresentOrElse(
-                maid::setTask,
-                () -> maid.setTask(TaskManager.getIdleTask())
-        );
     }
 }
