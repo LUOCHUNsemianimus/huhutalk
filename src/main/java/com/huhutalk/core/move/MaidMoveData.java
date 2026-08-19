@@ -3,6 +3,7 @@ package com.huhutalk.core.move;
 import com.github.tartaricacid.touhoulittlemaid.api.task.IMaidTask;
 import com.github.tartaricacid.touhoulittlemaid.config.subconfig.MaidConfig;
 import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
+import com.github.tartaricacid.touhoulittlemaid.entity.passive.SchedulePos;
 import com.github.tartaricacid.touhoulittlemaid.entity.task.TaskManager;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
@@ -89,18 +90,37 @@ public final class MaidMoveData {
         boolean near = sameDim && horizontalDistSq(maid, targetPos) <= (double) walkLimit * walkLimit;
 
         if (near) {
-            // 走路：写目标 NBT + 切到移动任务
+            // 走路：先迁家到目标点并开启守家（停止跟随、不被旧家拉回），再写目标 NBT + 切移动任务
+            if (arrival != MoveArrival.BACK) {
+                relocateHomeToTarget(maid, targetPos);
+            }
             setCoordinateTarget(maid, targetPos, arrival);
             maid.setTask(TaskMoveTo.INSTANCE);
         } else if (arrival == MoveArrival.MEET) {
-            // 远距离集合点：先传送到目标点，再用移动任务进入"等待玩家"阶段
+            // 远距离集合点：先传送到目标点，再迁家 + 用移动任务进入"等待玩家"阶段
             teleportMaid(maid, targetPos, targetDim);
+            relocateHomeToTarget(maid, targetPos);
             setCoordinateTarget(maid, targetPos, arrival);
             maid.setTask(TaskMoveTo.INSTANCE);
         } else {
             // 传送：立即传送 + 到达收尾（不切移动任务）
             teleportAndArrive(maid, targetPos, targetDim, arrival);
         }
+    }
+
+    /**
+     * 把女仆的"家"迁到目标点并开启守家。
+     * <p>
+     * 解决"走过去"被 home/跟随拉回的问题：开启守家（停止跟随），并把 home 坐标设为目标点，
+     * 这样走动途中既不会被玩家跟随拉回，也不会被旧家的守家行为拉回。
+     */
+    private static void relocateHomeToTarget(EntityMaid maid, BlockPos targetPos) {
+        SchedulePos sp = maid.getSchedulePos();
+        sp.setWorkPos(targetPos);
+        sp.setIdlePos(targetPos);
+        sp.setSleepPos(targetPos);
+        sp.restrictTo(maid);
+        maid.setHomeModeEnable(true);
     }
 
     // ============ 走路路径（目标 NBT + 移动任务） ============
