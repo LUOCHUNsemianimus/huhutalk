@@ -51,8 +51,8 @@ public class MaidMoveToTask extends Behavior<EntityMaid> {
     protected void tick(ServerLevel level, EntityMaid maid, long gameTime) {
         BlockPos target = MaidMoveData.resolveTarget(maid);
         if (target == null) {
-            // 目标失效（主人消失/跨维度）→ 清理并停止
-            MaidMoveData.clear(maid);
+            // 目标失效（主人消失/跨维度）→ 恢复守家与原模式并停止
+            MaidMoveData.applyArrival(maid);
             this.doStop(level, maid, gameTime);
             return;
         }

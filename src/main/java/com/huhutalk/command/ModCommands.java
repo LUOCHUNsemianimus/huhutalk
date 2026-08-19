@@ -50,7 +50,7 @@ public final class ModCommands {
                                                     int x = IntegerArgumentType.getInteger(ctx, "x");
                                                     int y = IntegerArgumentType.getInteger(ctx, "y");
                                                     int z = IntegerArgumentType.getInteger(ctx, "z");
-                                                    int n = apply(entities, new BlockPos(x, y, z), MoveArrival.NONE);
+                                                    int n = apply(entities, new BlockPos(x, y, z), MoveArrival.WAIT_IDLE);
                                                     ctx.getSource().sendSuccess(() ->
                                                             Component.literal("Moved " + n + " maids to " + x + "," + y + "," + z), true);
                                                     return 1;
@@ -62,7 +62,7 @@ public final class ModCommands {
                 .then(Commands.argument("targets", EntityArgument.entities())
                         .executes(ctx -> {
                             Collection<? extends Entity> entities = EntityArgument.getEntities(ctx, "targets");
-                            int n = apply(entities, null, MoveArrival.NONE);
+                            int n = apply(entities, null, MoveArrival.BACK);
                             ctx.getSource().sendSuccess(() ->
                                     Component.literal("Summoning " + n + " maids to your side"), true);
                             return 1;
