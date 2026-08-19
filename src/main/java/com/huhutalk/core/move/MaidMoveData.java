@@ -11,6 +11,7 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.RelativeMovement;
+import net.minecraft.world.entity.schedule.Activity;
 import net.minecraft.world.level.Level;
 import org.jetbrains.annotations.Nullable;
 
@@ -78,7 +79,14 @@ public final class MaidMoveData {
             return;
         }
         boolean sameDim = maid.level().dimension().equals(targetDim);
-        boolean near = sameDim && horizontalDistSq(maid, targetPos) <= (double) WALK_DIST * WALK_DIST;
+
+        // 可达的走路距离：TLM 限定了工作范围最高 64、空闲/睡觉最高 32。
+        // 超过可达范围的目标无法"走"（否则会被跟随传送），一律传送。
+        int walkLimit = WALK_DIST;
+        if (sameDim && maid.getScheduleDetail() != Activity.WORK) {
+            walkLimit = 32;
+        }
+        boolean near = sameDim && horizontalDistSq(maid, targetPos) <= (double) walkLimit * walkLimit;
 
         if (near) {
             // 走路：写目标 NBT + 切到移动任务

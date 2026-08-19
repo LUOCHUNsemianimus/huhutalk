@@ -33,6 +33,11 @@ repositories {
     mavenCentral()
 }
 
+// 声明 localRuntime 配置：仅供开发环境运行时使用（不打包进最终模组）。
+// 必须在 dependencies 块之前声明，否则 dependencies { localRuntime(...) } 会找不到方法。
+configurations {
+    localRuntime
+}
 
 dependencies {
     // 车万女仆 编译期依赖（不打包进最终产物，玩家需自行安装）
@@ -41,6 +46,9 @@ dependencies {
     // JourneyMap 编译期依赖（可选软依赖，用于读取玩家路径点。不打包，玩家无需强制安装）。
     // 版本 ID 3AZpZoxN = 1.21.1-6.0.0-beta.53+neoforge（Modrinth）。仅用于本侧查看/编译其 API。
     compileOnly("maven.modrinth:journeymap:3AZpZoxN")
+
+    // JourneyMap 仅加入开发环境运行时（localRuntime，不打包），便于在游戏内测试路径点功能。
+    localRuntime("maven.modrinth:journeymap:3AZpZoxN")
 }
 
 base {
@@ -95,6 +103,7 @@ neoForge {
 }
 
 configurations {
+    localRuntime
     runtimeClasspath.extendsFrom localRuntime
 }
 
