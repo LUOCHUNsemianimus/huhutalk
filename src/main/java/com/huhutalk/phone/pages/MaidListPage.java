@@ -1,5 +1,6 @@
 package com.huhutalk.phone.pages;
 
+import com.huhutalk.client.ChatHistoryStorage;
 import com.huhutalk.client.MaidListCache;
 import com.huhutalk.client.NotificationManager;
 import com.huhutalk.network.C2SRequestMaidListPacket;
@@ -58,6 +59,12 @@ public class MaidListPage implements IPhonePage {
 
                 graphics.fill(baseX + 5, itemY + 5, baseX + 35, itemY + 35, 0xFF888888);
                 graphics.drawString(font, info.name(), baseX + 45, itemY + 8, 0xFFFFFFFF);
+
+                // 未送达红"!"（入离线队列、尚未送达）
+                if (ChatHistoryStorage.hasPendingMessages(info.stableId())) {
+                    int nameW = font.width(info.name());
+                    graphics.drawString(font, "!", baseX + 45 + nameW + 3, itemY + 8, 0xFFFF3333);
+                }
 
                 String statusText;
                 int statusColor;

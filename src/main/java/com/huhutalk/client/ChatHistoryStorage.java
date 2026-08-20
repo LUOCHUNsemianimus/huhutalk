@@ -99,6 +99,20 @@ public class ChatHistoryStorage {
         return currentHistory().getOrDefault(stableId, Collections.emptyList());
     }
 
+    /** 该女仆是否有未送达（入离线队列）的消息，用于列表红"!"标记 */
+    public static boolean hasPendingMessages(String stableId) {
+        List<ChatMessageEntry> list = currentHistory().get(stableId);
+        if (list == null) {
+            return false;
+        }
+        for (ChatMessageEntry e : list) {
+            if (e.pending()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     public static void setDraft(String stableId, String draft) {
         currentDrafts().put(stableId, draft == null ? "" : draft);
         saveToDisk(currentWorldKey); // 草稿同样落盘
