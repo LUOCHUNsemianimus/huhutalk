@@ -25,8 +25,8 @@ import java.util.Set;
  * 仅在状态变化时发给其主人。这样工作/休息/睡觉的关键节点都会被捕捉，但网络/开销很小。
  */
 public class MaidStatusTicker {
-    /** 扫描间隔（tick）。约 4000 tick = 一次游戏日内 6 次，低频 */
-    private static final int INTERVAL = 4000;
+    /** 扫描间隔（tick）。约 1000 tick = 每 ~50 秒一次，低频；仅状态变化才推送 */
+    private static final int INTERVAL = 1000;
 
     private final Map<String, String> lastSent = new HashMap<>();
 

@@ -2,8 +2,10 @@ package com.huhutalk.phone.pages;
 
 import com.huhutalk.client.ChatHistoryStorage;
 import com.huhutalk.client.MaidListCache;
+import com.huhutalk.client.MaidStatusCache;
 import com.huhutalk.client.NotificationManager;
 import com.huhutalk.network.C2SRequestMaidListPacket;
+import com.huhutalk.network.C2SRequestMaidStatusPacket;
 import com.huhutalk.network.S2CMaidListPacket;
 import com.huhutalk.phone.IPhonePage;
 import com.huhutalk.phone.PhoneOverlay;
@@ -11,12 +13,15 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.neoforged.neoforge.network.PacketDistributor;
 
+import java.util.ArrayList;
 import java.util.List;
 
 public class MaidListPage implements IPhonePage {
     private List<S2CMaidListPacket.MaidDisplayInfo> maidList = List.of();
     private int scrollOffset = 0;
-    private static final int ITEM_HEIGHT = 40;
+    private static final int ITEM_HEIGHT = 48;
+    /** 本次页面打开是否已向服务端按需请求过状态（列表异步到达，需去重） */
+    private boolean statusRequested = false;
 
     public MaidListPage() {
         PacketDistributor.sendToServer(new C2SRequestMaidListPacket());
@@ -24,6 +29,7 @@ public class MaidListPage implements IPhonePage {
 
     @Override
     public void onOpen() {
+        statusRequested = false;
         refreshList();
     }
 
@@ -31,9 +37,23 @@ public class MaidListPage implements IPhonePage {
         maidList = MaidListCache.getList();
     }
 
+    /** 列表到达后按需请求一次所有女仆的状态（打开页面/列表变化时立刻刷新状态小字） */
+    private void requestStatusOnce() {
+        if (statusRequested || maidList.isEmpty()) {
+            return;
+        }
+        statusRequested = true;
+        List<String> ids = new ArrayList<>();
+        for (S2CMaidListPacket.MaidDisplayInfo info : maidList) {
+            ids.add(info.stableId());
+        }
+        PacketDistributor.sendToServer(new C2SRequestMaidStatusPacket(ids));
+    }
+
     @Override
     public void render(GuiGraphics graphics, int baseX, int baseY, float partialTick) {
         refreshList();
+        requestStatusOnce();
         int w = PhoneOverlay.getPhoneWidth();
         int h = PhoneOverlay.getPhoneHeight();
         int navH = (int)(h * 0.08);
@@ -58,12 +78,18 @@ public class MaidListPage implements IPhonePage {
                 S2CMaidListPacket.MaidDisplayInfo info = maidList.get(i);
 
                 graphics.fill(baseX + 5, itemY + 5, baseX + 35, itemY + 35, 0xFF888888);
-                graphics.drawString(font, info.name(), baseX + 45, itemY + 8, 0xFFFFFFFF);
+                graphics.drawString(font, info.name(), baseX + 45, itemY + 6, 0xFFFFFFFF);
 
                 // 未送达红"!"（入离线队列、尚未送达）
                 if (ChatHistoryStorage.hasPendingMessages(info.stableId())) {
                     int nameW = font.width(info.name());
-                    graphics.drawString(font, "!", baseX + 45 + nameW + 3, itemY + 8, 0xFFFF3333);
+                    graphics.drawString(font, "!", baseX + 45 + nameW + 3, itemY + 6, 0xFFFF3333);
+                }
+
+                // 状态小字：女仆当前工作状态（如"种地中…"），按需请求 + 低频推送更新
+                String actionStatus = MaidStatusCache.get(info.stableId());
+                if (!actionStatus.isEmpty()) {
+                    graphics.drawString(font, actionStatus, baseX + 45, itemY + 20, 0xFFAAAAAA);
                 }
 
                 String statusText;
@@ -74,12 +100,12 @@ public class MaidListPage implements IPhonePage {
                     case SHUTDOWN -> { statusText = "已关机"; statusColor = 0xFF888888; }
                     default       -> { statusText = "离线"; statusColor = 0xFFAAAAAA; }
                 }
-                graphics.drawString(font, statusText, baseX + w - 34, itemY + 8, statusColor);
+                graphics.drawString(font, statusText, baseX + w - 34, itemY + 6, statusColor);
 
                 int unread = NotificationManager.getUnread(info.stableId());
                 if (unread > 0) {
                     int dotX = baseX + w - 46;
-                    int dotY = itemY + 6;
+                    int dotY = itemY + 30;
                     graphics.fill(dotX, dotY, dotX + 12, dotY + 12, 0xFFFF0000);
                     String num = unread > 99 ? "99+" : String.valueOf(unread);
                     graphics.drawString(font, num, dotX + 3, dotY + 2, 0xFFFFFFFF);

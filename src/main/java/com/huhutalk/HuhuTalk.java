@@ -13,6 +13,8 @@ import com.huhutalk.init.HuhuTalkCreativeTabs;
 import com.huhutalk.init.HuhuTalkItems;
 import com.huhutalk.network.C2SMaidChatPacket;
 import com.huhutalk.network.C2SRequestMaidListPacket;
+import com.huhutalk.network.C2SRequestMaidStatusPacket;
+import com.huhutalk.network.C2SSOSPacket;
 import com.huhutalk.network.C2SSyncWaypointsPacket;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.common.Mod;
@@ -67,6 +69,10 @@ public class HuhuTalk {
         registrar.playToServer(C2SMaidChatPacket.TYPE, C2SMaidChatPacket.STREAM_CODEC, C2SMaidChatPacket::handle);
         // 客户端 → 服务端：请求女仆列表
         registrar.playToServer(C2SRequestMaidListPacket.TYPE, C2SRequestMaidListPacket.STREAM_CODEC, C2SRequestMaidListPacket::handle);
+        // 客户端 → 服务端：按需请求女仆状态
+        registrar.playToServer(C2SRequestMaidStatusPacket.TYPE, C2SRequestMaidStatusPacket.STREAM_CODEC, C2SRequestMaidStatusPacket::handle);
+        // 客户端 → 服务端：SOS 紧急呼叫
+        registrar.playToServer(C2SSOSPacket.TYPE, C2SSOSPacket.STREAM_CODEC, C2SSOSPacket::handle);
         // 客户端 → 服务端：同步 JourneyMap 路径点
         registrar.playToServer(C2SSyncWaypointsPacket.TYPE, C2SSyncWaypointsPacket.STREAM_CODEC, C2SSyncWaypointsPacket::handle);
         // 注意：S2C 包在 ClientPayloadSetup 中注册

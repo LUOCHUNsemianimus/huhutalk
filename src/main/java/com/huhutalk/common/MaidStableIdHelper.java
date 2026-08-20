@@ -1,6 +1,9 @@
 package com.huhutalk.common;
 
 import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.entity.Entity;
 
 import java.util.UUID;
 
@@ -38,5 +41,26 @@ public final class MaidStableIdHelper {
         }
         // 理论上不会走到这里，因为所有 EntityMaid 都被 mixin 注入了
         return generate();
+    }
+
+    /**
+     * 在所有已加载的维度中，按稳定 ID 查找女仆实体。
+     * <p>仅读取既有稳定 ID，不新建；找不到返回 {@code null}（女仆未加载/离线/已卸载）。
+     * 用于"按需请求状态"等场景。
+     */
+    public static EntityMaid findMaid(MinecraftServer server, String stableId) {
+        if (server == null || stableId == null) {
+            return null;
+        }
+        for (ServerLevel level : server.getAllLevels()) {
+            for (Entity entity : level.getAllEntities()) {
+                if (entity instanceof EntityMaid maid && entity instanceof StableIdProvider provider) {
+                    if (stableId.equals(provider.getStableId())) {
+                        return maid;
+                    }
+                }
+            }
+        }
+        return null;
     }
 }

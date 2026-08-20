@@ -6,6 +6,7 @@ import com.github.tartaricacid.touhoulittlemaid.ai.service.function.schema.param
 import com.github.tartaricacid.touhoulittlemaid.ai.service.function.schema.parameter.ObjectParameter;
 import com.github.tartaricacid.touhoulittlemaid.ai.service.function.schema.parameter.Parameter;
 import com.github.tartaricacid.touhoulittlemaid.ai.service.function.schema.parameter.StringParameter;
+import com.github.tartaricacid.touhoulittlemaid.api.task.IMaidTask;
 import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
 import com.github.tartaricacid.touhoulittlemaid.entity.task.TaskManager;
 import com.huhutalk.core.waypoint.WaypointCache;
@@ -201,9 +202,19 @@ public class MoveToTool implements ITool<MoveToTool.Result> {
     /** 列出当前可用的工作模式 id，供 LLM 匹配"收菜/杀猪"等意图 */
     private static String knownTaskIds() {
         return TaskManager.getTaskIndex().stream()
-                .filter(t -> !t.isHidden(null))
+                // isHidden(null) 仅用于"在切换 UI 中是否隐藏"判断；个别任务可能解引用女仆而 NPE，故防御性兜底
+                .filter(t -> !safeIsHidden(t))
                 .map(t -> t.getUid().getPath() + " (" + t.getMaidActionSummary() + ")")
                 .toList().toString();
+    }
+
+    private static boolean safeIsHidden(IMaidTask task) {
+        try {
+            return task.isHidden(null);
+        } catch (RuntimeException e) {
+            // 某些任务在 null 女仆下判断隐藏会抛异常，保守视为不隐藏（保留在可选列表）
+            return false;
+        }
     }
 
     public record Result(String targetType, int x, int y, int z, String waypointName, String arrival, String task) {

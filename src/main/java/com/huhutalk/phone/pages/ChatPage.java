@@ -4,6 +4,7 @@ import com.huhutalk.client.ChatHistoryStorage;
 import com.huhutalk.client.MaidStatusCache;
 import com.huhutalk.client.NotificationManager;
 import com.huhutalk.network.C2SMaidChatPacket;
+import com.huhutalk.network.C2SRequestMaidStatusPacket;
 import com.huhutalk.phone.IPhonePage;
 import com.huhutalk.phone.PhoneInputScreen;
 import com.huhutalk.phone.PhoneOverlay;
@@ -52,6 +53,8 @@ public class ChatPage implements IPhonePage {
         this.currentInput = ChatHistoryStorage.getDraft(stableId);
         this.cursorIndex = currentInput.length();
         NotificationManager.clear(stableId);
+        // 按需请求一次该女仆的当前状态（打开聊天页立刻刷新状态小字）
+        PacketDistributor.sendToServer(new C2SRequestMaidStatusPacket(List.of(stableId)));
     }
 
     public boolean isWaitingResponse() { return waitingResponse; }

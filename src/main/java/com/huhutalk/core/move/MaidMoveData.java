@@ -95,6 +95,30 @@ public final class MaidMoveData {
         maid.getPersistentData().put(KEY, tag);
     }
 
+    /**
+     * SOS 紧急呼叫：把女仆立刻传送到主人身边并切到战斗模式保护。
+     * <p>复刻"come"逻辑（近走远传），但作为紧急呼叫<b>一律直接传送</b>，
+     * 到达后把家迁到主人处、开启守家并切换到攻击任务，让其守在玩家身边战斗保护。
+     */
+    public static void orderSOS(EntityMaid maid) {
+        LivingEntity owner = maid.getOwner();
+        if (owner == null || owner.isDeadOrDying() || owner.isSpectator()) {
+            return;
+        }
+        // 防重入：清理上一次未完成的移动（恢复原守家 + 清 NBT + 平衡范围计数）
+        cancelCurrentMove(maid);
+        BlockPos target = owner.blockPosition();
+        ResourceKey<Level> dim = owner.level().dimension();
+        // 紧急呼叫直接传送，不依赖走路
+        if (!teleportMaid(maid, target, dim)) {
+            return;
+        }
+        // 把家迁到主人处并开启守家，切到攻击任务保护玩家
+        relocateHomeToTarget(maid, target);
+        maid.setHomeModeEnable(true);
+        TaskManager.findTask(ATTACK_TASK).ifPresent(maid::setTask);
+    }
+
     // ============ 延迟队列（供 LLM 工具使用，脱离聊天回调上下文） ============
 
     private static final List<PendingMove> MOVE_QUEUE = new ArrayList<>();

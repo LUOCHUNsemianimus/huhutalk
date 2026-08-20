@@ -1,10 +1,12 @@
 package com.huhutalk.phone.pages;
 
 import com.huhutalk.client.NotificationManager;
+import com.huhutalk.network.C2SSOSPacket;
 import com.huhutalk.phone.IPhonePage;
 import com.huhutalk.phone.PhoneOverlay;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
+import net.neoforged.neoforge.network.PacketDistributor;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
@@ -16,15 +18,20 @@ import java.util.function.Supplier;
  * - APP 图标网格（按 gridColumns 动态调整）
  * - TALK 图标右上角未读红点
  * - ✅ 顶部状态栏端口：左时间 / 中信号 / 右电量 + 关闭按钮
+ * - SOS 紧急呼叫按钮（召来全部已佩戴手机的女仆并进入战斗保护）
  */
 public class MainPage implements IPhonePage {
     private final List<AppInfo> apps = new ArrayList<>();
+    /** SOS 点击后的短暂提示（毫秒时间戳） */
+    private long sosFlashUntil = 0;
+    private String sosMessage = "";
 
     public MainPage() {
         apps.add(new AppInfo("TALK", 0xFFC0CB, true, () -> new MaidListPage()));
+        apps.add(new AppInfo("SOS", 0xFF0000, true, null));
         apps.add(new AppInfo("30分", 0x6495ED, false, null));
         apps.add(new AppInfo("打车", 0xFFFF00, false, null));
-        apps.add(new AppInfo("打人", 0xFF0000, false, null));
+        apps.add(new AppInfo("打人", 0xFF8000, false, null));
     }
 
     /** 计算 TALK 图标的红点位置，渲染与点击共用 */
@@ -107,6 +114,14 @@ public class MainPage implements IPhonePage {
                 }
             }
         }
+
+        // SOS 点击后的短暂提示
+        if (System.currentTimeMillis() < sosFlashUntil && !sosMessage.isEmpty()) {
+            int msgW = font.width(sosMessage);
+            int msgY = startY - (int)(h * 0.02);
+            graphics.fill(baseX + 4, msgY - 2, baseX + w - 4, msgY + font.lineHeight + 2, 0xAA000000);
+            graphics.drawString(font, sosMessage, baseX + (w - msgW) / 2, msgY, 0xFFFF6666);
+        }
     }
 
     @Override
@@ -138,6 +153,11 @@ public class MainPage implements IPhonePage {
 
             if (relX >= x && relX <= x + iconW && relY >= y && relY <= y + iconH) {
                 AppInfo app = apps.get(i);
+                // SOS：不发页，直接发紧急呼叫包并显示提示
+                if ("SOS".equals(app.label)) {
+                    sendSos();
+                    return true;
+                }
                 if (app.implemented && app.pageFactory != null) {
                     PhoneOverlay.pushPage(app.pageFactory.get());
                 } else {
@@ -147,6 +167,13 @@ public class MainPage implements IPhonePage {
             }
         }
         return false;
+    }
+
+    /** 发送 SOS 紧急呼叫包，并显示短暂提示 */
+    private void sendSos() {
+        PacketDistributor.sendToServer(new C2SSOSPacket());
+        sosMessage = "🚨 已紧急呼叫全部女仆!";
+        sosFlashUntil = System.currentTimeMillis() + 3000;
     }
 
     /** 红点坐标计算（预留未来动画使用） */
