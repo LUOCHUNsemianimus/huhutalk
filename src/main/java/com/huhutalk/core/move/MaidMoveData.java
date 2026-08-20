@@ -111,6 +111,12 @@ public final class MaidMoveData {
         if (maid == null || targetPos == null || targetDim == null) {
             return;
         }
+        // 重发时继承上一次移动记录的真实原任务（否则会把"寻路"模式当作原任务，到达后切不回真正模式）
+        String inheritedPrevTask = getStoredPrevTask(maid);
+        // 防重入：清理上一次未完成的移动（恢复原守家 + 清 NBT + 平衡范围计数），
+        // 让女仆大脑重新开始，新指令干净接管（否则等待中/进行中重发会失效或状态错乱）
+        cancelCurrentMove(maid);
+
         boolean sameDim = maid.level().dimension().equals(targetDim);
 
         // 可达的走路距离：TLM 限定了工作范围最高 64、空闲/睡觉最高 32。
@@ -126,18 +132,29 @@ public final class MaidMoveData {
             if (arrival != MoveArrival.BACK) {
                 relocateHomeToTarget(maid, targetPos);
             }
-            setCoordinateTarget(maid, targetPos, arrival);
+            setCoordinateTarget(maid, targetPos, arrival, inheritedPrevTask);
             maid.setTask(TaskMoveTo.INSTANCE);
         } else if (arrival == MoveArrival.MEET) {
             // 远距离集合点：先传送到目标点，再迁家 + 用移动任务进入"等待玩家"阶段
             teleportMaid(maid, targetPos, targetDim);
             relocateHomeToTarget(maid, targetPos);
-            setCoordinateTarget(maid, targetPos, arrival);
+            setCoordinateTarget(maid, targetPos, arrival, inheritedPrevTask);
             maid.setTask(TaskMoveTo.INSTANCE);
         } else {
             // 传送：立即传送 + 到达收尾（不切移动任务）
             teleportAndArrive(maid, targetPos, targetDim, arrival);
         }
+    }
+
+    /** 取消当前移动：恢复原守家、清空 NBT、平衡范围计数（供防重入/新指令接管用） */
+    private static void cancelCurrentMove(EntityMaid maid) {
+        CompoundTag tag = maid.getPersistentData().getCompound(KEY);
+        if (tag.isEmpty()) {
+            return;
+        }
+        restoreOriginalHome(maid, tag);
+        clear(maid);
+        endMove();
     }
 
     /**
@@ -171,8 +188,8 @@ public final class MaidMoveData {
         }
     }
 
-    private static void setCoordinateTarget(EntityMaid maid, BlockPos pos, MoveArrival arrival) {
-        CompoundTag tag = baseTag(maid, arrival);
+    private static void setCoordinateTarget(EntityMaid maid, BlockPos pos, MoveArrival arrival, String inheritedPrevTask) {
+        CompoundTag tag = baseTag(maid, arrival, inheritedPrevTask);
         tag.putString(MODE, MODE_COORDINATE);
         tag.putInt(X, pos.getX());
         tag.putInt(Y, pos.getY());
@@ -180,14 +197,21 @@ public final class MaidMoveData {
         maid.getPersistentData().put(KEY, tag);
     }
 
-    /** 构造基础标签：记录移动前任务 + 原守家坐标；临时调大范围 */
-    private static CompoundTag baseTag(EntityMaid maid, MoveArrival arrival) {
+    /** 读取当前移动 NBT 中记录的原任务（供重发时继承真实原任务） */
+    private static String getStoredPrevTask(EntityMaid maid) {
+        CompoundTag tag = maid.getPersistentData().getCompound(KEY);
+        return tag.contains(PREV_TASK) ? tag.getString(PREV_TASK) : "";
+    }
+
+    /** 构造基础标签：记录移动前任务（重发时继承真实原任务）+ 原守家坐标；临时调大范围 */
+    private static CompoundTag baseTag(EntityMaid maid, MoveArrival arrival, String inheritedPrevTask) {
         CompoundTag tag = new CompoundTag();
         tag.putString(ARRIVAL, arrival.name());
-        IMaidTask task = maid.getTask();
-        if (task != null) {
-            tag.putString(PREV_TASK, task.getUid().toString());
-        }
+        // 优先用继承的原任务（重发场景），否则取当前真实任务
+        String prevTask = (inheritedPrevTask != null && !inheritedPrevTask.isEmpty())
+                ? inheritedPrevTask
+                : (maid.getTask() != null ? maid.getTask().getUid().toString() : "");
+        tag.putString(PREV_TASK, prevTask);
         // 保存原守家坐标，供到达后恢复（否则守家被迁到目标点，会导致到达后跟随失效）
         saveOriginalHome(maid, tag);
         beginMove();
