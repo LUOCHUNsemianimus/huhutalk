@@ -285,7 +285,15 @@ public final class MaidMoveData {
         maid.getPersistentData().getCompound(KEY).putBoolean(NOTIFIED, true);
     }
 
-    /** 走路到达/中止后收尾（读 NBT → 恢复守家 → 清理 → 恢复范围 → 切任务） */
+    private static MoveArrival parseArrival(String name) {
+        try {
+            return MoveArrival.valueOf(name);
+        } catch (IllegalArgumentException | NullPointerException e) {
+            return MoveArrival.BACK;
+        }
+    }
+
+    /** 走路到达/中止后收尾（读 NBT → 恢复守家(视动作) → 清理 → 恢复范围 → 切任务） */
     public static void applyArrival(EntityMaid maid) {
         CompoundTag tag = maid.getPersistentData().getCompound(KEY);
         if (tag.isEmpty()) {
@@ -293,8 +301,9 @@ public final class MaidMoveData {
         }
         String arrival = tag.getString(ARRIVAL);
         String prevTask = tag.getString(PREV_TASK);
-        // 非 BACK（去往某地）：恢复原守家坐标，避免守家被迁到目标点导致到达后跟随失效
-        if (!MoveArrival.BACK.name().equals(arrival)) {
+        MoveArrival action = parseArrival(arrival);
+        // 只有 MEET/BACK 结束于"跟随"，需要恢复原守家；HOME/PROTECT 保持家在新地点（呆着/守家）
+        if (action == MoveArrival.MEET || action == MoveArrival.BACK) {
             restoreOriginalHome(maid, tag);
             maid.clearRestriction();
         }
@@ -332,23 +341,32 @@ public final class MaidMoveData {
         return true;
     }
 
-    /** 统一的到达收尾：关 home + 按到达动作切任务 */
+    /** 统一的到达收尾：按到达动作处理 home 与任务切换 */
     private static void finishArrival(EntityMaid maid, String arrivalName, String prevTaskUid) {
-        // 关闭 home：被召唤后应能跟随主人
-        maid.setHomeModeEnable(false);
-
-        MoveArrival action;
-        try {
-            action = MoveArrival.valueOf(arrivalName);
-        } catch (IllegalArgumentException | NullPointerException e) {
-            action = MoveArrival.BACK;
-        }
+        MoveArrival action = parseArrival(arrivalName);
         switch (action) {
-            case WAIT_IDLE -> maid.setTask(TaskManager.getIdleTask());
-            case PROTECT -> TaskManager.findTask(ATTACK_TASK).ifPresent(maid::setTask);
-            case BACK, MEET -> restoreTask(maid, prevTaskUid);
+            case BACK, MEET -> {
+                // 跟随主人
+                maid.setHomeModeEnable(false);
+                restoreTask(maid, prevTaskUid);
+            }
+            case HOME -> {
+                // 呆着/守家：守在新地点，不跟随
+                maid.setHomeModeEnable(true);
+                restoreTask(maid, prevTaskUid);
+            }
+            case PROTECT -> {
+                // 守家防御：守在新地点 + 攻击
+                maid.setHomeModeEnable(true);
+                TaskManager.findTask(ATTACK_TASK).ifPresent(maid::setTask);
+            }
+            case WAIT_IDLE -> {
+                maid.setHomeModeEnable(false);
+                maid.setTask(TaskManager.getIdleTask());
+            }
             default -> {
-                // NONE：保持当前任务
+                // NONE：关闭 home，保持当前任务
+                maid.setHomeModeEnable(false);
             }
         }
     }

@@ -84,9 +84,17 @@ public class MaidMoveToTask extends Behavior<EntityMaid> {
         double dx = target.getX() - maid.getX();
         double dz = target.getZ() - maid.getZ();
         if (Math.sqrt(dx * dx + dz * dz) <= ARRIVE_DIST) {
-            if (MaidMoveData.getArrival(maid) == MoveArrival.MEET) {
+            MoveArrival arrival = MaidMoveData.getArrival(maid);
+            if (arrival == MoveArrival.MEET) {
                 // 集合点：到达后驻留等待（开启守家 + 不再需要临时大范围）
                 beginWaiting(maid, target);
+                return;
+            }
+            if (arrival == MoveArrival.HOME || arrival == MoveArrival.PROTECT) {
+                // 呆着/守家/守家防御：通知 + 到达收尾（保持 home 在新地点）
+                notifyOnce(maid, "我到了,在这里守着。");
+                MaidMoveData.applyArrival(maid);
+                this.doStop(level, maid, gameTime);
                 return;
             }
             MaidMoveData.applyArrival(maid);
@@ -114,18 +122,17 @@ public class MaidMoveToTask extends Behavior<EntityMaid> {
         maid.getBrain().eraseMemory(MemoryModuleType.WALK_TARGET);
         maid.getBrain().eraseMemory(MemoryModuleType.LOOK_TARGET);
         // 只通知一次（标记持久化，避免大脑重复触发导致刷屏）
-        if (!MaidMoveData.wasArrivedNotified(maid)) {
-            notifyArrived(maid);
-            MaidMoveData.markArrivedNotified(maid);
-        }
+        notifyOnce(maid, "我到了,在这里等你。");
     }
 
-    /** 到达后通知主人（发到手机，不触发 LLM，不烧 token） */
-    private void notifyArrived(EntityMaid maid) {
-        if (maid.getOwner() instanceof ServerPlayer owner && owner.isAlive()) {
-            String stableId = MaidStableIdHelper.getOrCreateStableId(maid);
-            PacketDistributor.sendToPlayer(owner,
-                    new S2CMaidChatResponsePacket(stableId, "我到了,在这里等你。"));
+    /** 只通知一次（标记持久化），发到手机，不触发 LLM，不烧 token */
+    private void notifyOnce(EntityMaid maid, String text) {
+        if (!MaidMoveData.wasArrivedNotified(maid)) {
+            MaidMoveData.markArrivedNotified(maid);
+            if (maid.getOwner() instanceof ServerPlayer owner && owner.isAlive()) {
+                String stableId = MaidStableIdHelper.getOrCreateStableId(maid);
+                PacketDistributor.sendToPlayer(owner, new S2CMaidChatResponsePacket(stableId, text));
+            }
         }
     }
 

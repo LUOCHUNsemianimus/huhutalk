@@ -79,8 +79,8 @@ public class MoveToTool implements ITool<MoveToTool.Result> {
                         + knownWaypointNames(maid));
 
         StringParameter arrival = StringParameter.create()
-                .setDescription("What to do after arriving (optional): meet / wait / protect / back");
-        arrival.addEnumValues("meet", "wait", "protect", "back");
+                .setDescription("What to do after arriving (optional): meet / home / protect");
+        arrival.addEnumValues("meet", "home", "protect");
 
         root.addProperties(TARGET_TYPE, targetType);
         root.addProperties(X, x, false);
@@ -157,9 +157,14 @@ public class MoveToTool implements ITool<MoveToTool.Result> {
             // 过来 → 到身边并跟随
             return MoveArrival.BACK;
         }
-        // 坐标/路径点移动：一律 MEET（去那等玩家，到达后恢复原模式+可跟随），
-        // 仅显式 "protect" 覆盖为攻击。绝不让 LLM 给的 wait/none/back 把它改成 idle/跟随被拽回。
-        return "protect".equalsIgnoreCase(arrival) ? MoveArrival.PROTECT : MoveArrival.MEET;
+        if (arrival == null || arrival.isBlank()) {
+            return MoveArrival.MEET;
+        }
+        return switch (arrival.toLowerCase()) {
+            case "home", "stay", "guard", "呆", "守" -> MoveArrival.HOME;
+            case "defend", "protect", "守家" -> MoveArrival.PROTECT;
+            default -> MoveArrival.MEET;
+        };
     }
 
     private static String knownWaypointNames(EntityMaid maid) {

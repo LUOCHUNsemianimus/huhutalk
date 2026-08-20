@@ -35,6 +35,7 @@ public final class ModCommands {
                         .requires(src -> src.hasPermission(2))
                         .then(moveCommand())
                         .then(comeCommand())
+                        .then(stayCommand())
         );
     }
 
@@ -66,6 +67,24 @@ public final class ModCommands {
                                     Component.literal("Summoning " + n + " maids to your side"), true);
                             return 1;
                         }));
+    }
+
+    private static LiteralArgumentBuilder<CommandSourceStack> stayCommand() {
+        return Commands.literal("stay")
+                .then(Commands.argument("targets", EntityArgument.entities())
+                        .then(Commands.argument("x", IntegerArgumentType.integer())
+                                .then(Commands.argument("y", IntegerArgumentType.integer())
+                                        .then(Commands.argument("z", IntegerArgumentType.integer())
+                                                .executes(ctx -> {
+                                                    Collection<? extends Entity> entities = EntityArgument.getEntities(ctx, "targets");
+                                                    int x = IntegerArgumentType.getInteger(ctx, "x");
+                                                    int y = IntegerArgumentType.getInteger(ctx, "y");
+                                                    int z = IntegerArgumentType.getInteger(ctx, "z");
+                                                    int n = apply(entities, new BlockPos(x, y, z), MoveArrival.HOME);
+                                                    ctx.getSource().sendSuccess(() ->
+                                                            Component.literal("Staying " + n + " maids at " + x + "," + y + "," + z), true);
+                                                    return 1;
+                                                })))));
     }
 
     /** 只对选择器命中的 EntityMaid 生效。@param pos 非空=移动到坐标；null=移动到玩家身边 */
