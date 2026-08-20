@@ -48,8 +48,9 @@ public class TicketManager {
     private static final TicketType<Unit> MAID_TICKET =
             TicketType.create("huhutalk_maid", (a, b) -> 0);
 
-    /** 对账周期（tick） */
-    private static final int INTERVAL = 20;
+    /** 对账周期（tick）。1×1 票据下女仆稍一走动就可能踏进相邻未加载区块而脱载；
+     *  缩短到 5 tick（0.25s）以尽量缩小"脱载→票据跟上"的窗口，降低 Pro 女仆莫名离线的概率。 */
+    private static final int INTERVAL = 5;
 
     /** WiFi 覆盖半径（区块）。直径 3 区块 → 半径 1 */
     private static final int COVER_RADIUS = 1;

@@ -23,9 +23,8 @@ public class MaidListPage implements IPhonePage {
     private List<S2CMaidListPacket.MaidDisplayInfo> maidList = List.of();
     private int scrollOffset = 0;
     private static final int ITEM_HEIGHT = 48;
-    /** 右侧 SOS 绑定按钮的尺寸 */
-    private static final int BIND_BTN_W = 28;
-    private static final int BIND_BTN_H = 16;
+    /** 头像右下角 SOS 角标尺寸（头像 30×30，角标取约 2/3 大小，正对右下角） */
+    private static final int SOS_BADGE_SIZE = 20;
     /** 本次页面打开是否已向服务端按需请求过状态（列表异步到达，需去重） */
     private boolean statusRequested = false;
 
@@ -120,15 +119,15 @@ public class MaidListPage implements IPhonePage {
                     graphics.drawString(font, num, dotX + 3, dotY + 2, 0xFFFFFFFF);
                 }
 
-                // 右侧 SOS 绑定按钮：点击切换绑定（已绑定高亮红，未绑定灰）
+                // SOS 角标：贴在头像右下角的小方块（红=已绑定，灰=未绑定），点击切换绑定
                 boolean sosBound = SosBindCache.isBound(info.stableId());
-                int btnLeft = baseX + w - 32;
-                int btnTop = itemY + 19;
-                int btnFill = sosBound ? 0xFFE53935 : 0xFF3A3A3A;
-                graphics.fill(btnLeft, btnTop, btnLeft + BIND_BTN_W, btnTop + BIND_BTN_H, btnFill);
+                int badgeX = baseX + 35 - SOS_BADGE_SIZE;
+                int badgeY = itemY + 35 - SOS_BADGE_SIZE;
+                graphics.fill(badgeX, badgeY, badgeX + SOS_BADGE_SIZE, badgeY + SOS_BADGE_SIZE,
+                        sosBound ? 0xFFE53935 : 0xFF3A3A3A);
                 graphics.drawString(font, "SOS",
-                        btnLeft + (BIND_BTN_W - font.width("SOS")) / 2,
-                        btnTop + (BIND_BTN_H - font.lineHeight) / 2 + 1,
+                        badgeX + (SOS_BADGE_SIZE - font.width("SOS")) / 2,
+                        badgeY + (SOS_BADGE_SIZE - font.lineHeight) / 2 + 1,
                         sosBound ? 0xFFFFFFFF : 0xFFAAAAAA);
             }
         }
@@ -138,7 +137,6 @@ public class MaidListPage implements IPhonePage {
     @Override
     public boolean mouseClicked(double relX, double relY, int button, int action) {
         if (action != 1) return false;
-        int w = PhoneOverlay.getPhoneWidth();
         int h = PhoneOverlay.getPhoneHeight();
         int navH = (int)(h * 0.08);
 
@@ -152,11 +150,11 @@ public class MaidListPage implements IPhonePage {
             int itemY = listTop + i * ITEM_HEIGHT - scrollOffset;
             if (relY >= itemY && relY < itemY + ITEM_HEIGHT) {
                 S2CMaidListPacket.MaidDisplayInfo info = maidList.get(i);
-                // SOS 绑定按钮：命中则切换绑定，不进入聊天
-                int btnLeft = w - 32;
-                int btnTop = itemY + 19;
-                if (relX >= btnLeft && relX <= btnLeft + BIND_BTN_W
-                        && relY >= btnTop && relY <= btnTop + BIND_BTN_H) {
+                // SOS 角标：命中则切换绑定，不进入聊天（角标贴在头像右下角）
+                int badgeX = 35 - SOS_BADGE_SIZE;
+                int badgeY = itemY + 35 - SOS_BADGE_SIZE;
+                if (relX >= badgeX && relX <= badgeX + SOS_BADGE_SIZE
+                        && relY >= badgeY && relY <= badgeY + SOS_BADGE_SIZE) {
                     PacketDistributor.sendToServer(new C2SToggleSosBindPacket(info.stableId()));
                     return true;
                 }

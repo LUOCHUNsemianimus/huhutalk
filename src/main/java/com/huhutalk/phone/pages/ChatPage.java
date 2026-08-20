@@ -492,7 +492,7 @@ public class ChatPage implements IPhonePage {
         }
 
         if (relX >= w - 24 && relX <= w && relY >= 0 && relY <= navH()) {
-            PhoneOverlay.pushPage(new ComingSoonPage());
+            PhoneOverlay.pushPage(new MaidSettingsPage(stableId, maidName));
             return true;
         }
 

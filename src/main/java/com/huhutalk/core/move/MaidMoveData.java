@@ -374,29 +374,44 @@ public final class MaidMoveData {
         finishArrival(maid, arrivalName, prevTask == null ? "" : prevTask.getUid().toString(), "");
     }
 
-    /** 同维度/跨维度传送到目标点。
-     *  <p>修复远距离传送失败：先<b>强制加载目标区块</b>（避免传送到未加载区块失败/卡住），
-     *  再找一个安全落地高度（落回地面，避免卡进方块）。目标维度不可用则直接放弃。
+    /**
+     * 同维度/跨维度传送到目标点附近一个安全落点，成功返回 true。
+     * <p>修复"come 远距离召不回"：旧实现把女仆传到主人<b>精确坐标</b>，一旦该处不可站立
+     * （被占、在方块内、贴墙/贴边），{@code Entity#teleportTo(x,y,z)} 这个 void 变体会
+     * <b>静默失败</b>，come 看似"没反应"，随后由 TLM 的 {@code teleportToOwner}
+     * 用随机偏移兜底才姗姗来迟。
+     * <p>这里改为：先<b>强制加载目标区块</b>，再从目标点及若干小偏移中依次挑一个
+     * "有安全落地高度"的位置，用返回 boolean 的 {@code teleportTo(ServerLevel,...)} 变体
+     * 执行，任一成功即返回。
      */
-    private static void teleportMaid(EntityMaid maid, BlockPos targetPos, ResourceKey<Level> targetDim) {
+    private static boolean teleportMaid(EntityMaid maid, BlockPos targetPos, ResourceKey<Level> targetDim) {
         if (!(maid.level() instanceof ServerLevel maidLevel)) {
-            return;
+            return false;
         }
         ServerLevel targetLevel = maidLevel.getServer().getLevel(targetDim);
         if (targetLevel == null) {
-            return;
+            return false;
         }
-        // 强制加载目标区块：getChunk 会同步加载/生成该区块，确保远距离可落地
+        // 强制加载目标区块：getChunk 同步加载/生成，避免远距离传送到未加载区块失败
         targetLevel.getChunk(targetPos.getX() >> 4, targetPos.getZ() >> 4);
-        BlockPos landing = findSafeLanding(targetLevel, targetPos);
-        double x = landing.getX() + 0.5;
-        double z = landing.getZ() + 0.5;
-        double y = landing.getY();
-        if (targetLevel == maidLevel) {
-            maid.teleportTo(x, y, z);
-        } else {
-            maid.teleportTo(targetLevel, x, y, z, Set.of(), maid.getYRot(), maid.getXRot());
+
+        // 目标点 + 若干小偏移，依次尝试（覆盖"目标点被占/在方块内/贴墙"的情况）
+        int[][] offsets = {
+                {0, 0}, {1, 0}, {-1, 0}, {0, 1}, {0, -1},
+                {2, 0}, {-2, 0}, {0, 2}, {0, -2}, {1, 1}, {-1, 1}, {1, -1}, {-1, -1}
+        };
+        for (int[] off : offsets) {
+            BlockPos cand = new BlockPos(targetPos.getX() + off[0], targetPos.getY(), targetPos.getZ() + off[1]);
+            BlockPos landing = findSafeLanding(targetLevel, cand);
+            double x = landing.getX() + 0.5;
+            double z = landing.getZ() + 0.5;
+            double y = landing.getY();
+            // ServerLevel 变体返回 boolean，可判断成功；同维/跨维通用
+            if (maid.teleportTo(targetLevel, x, y, z, Set.of(), maid.getYRot(), maid.getXRot())) {
+                return true;
+            }
         }
+        return false;
     }
 
     /** 在目标点上方找第一个可安全站立的落地高度（目标 Y 向上抬 8 格，再向下扫到实心方块上方）。
