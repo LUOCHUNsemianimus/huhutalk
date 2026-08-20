@@ -43,6 +43,8 @@ public final class MaidMoveData {
     private static final String ARRIVAL = "arrival";
     private static final String PREV_TASK = "prevTask";
     private static final String NOTIFIED = "arrivedNotified";
+    /** 可选的"到点后切到的目标任务 uid"（如去农场收菜） */
+    private static final String TARGET_TASK = "targetTask";
 
     /** 同维度下"走"的最大水平距离（格），超出则传送 */
     public static final int WALK_DIST = 64;
@@ -80,16 +82,35 @@ public final class MaidMoveData {
         orderMove(maid, pos, dim, arrival);
     }
 
+    /** 让女仆到指定坐标并在到点后切换到指定任务（如"去农场收菜"） */
+    public static void orderCoordinateTask(EntityMaid maid, BlockPos pos, ResourceKey<Level> dim, String taskUid) {
+        if (taskUid == null || taskUid.isEmpty()) {
+            orderMove(maid, pos, dim, MoveArrival.HOME);
+            return;
+        }
+        orderMove(maid, pos, dim, MoveArrival.HOME);
+        // 写入目标任务字段（到点后 applyArrival 会读取并切换）
+        CompoundTag tag = maid.getPersistentData().getCompound(KEY);
+        tag.putString(TARGET_TASK, taskUid);
+        maid.getPersistentData().put(KEY, tag);
+    }
+
     // ============ 延迟队列（供 LLM 工具使用，脱离聊天回调上下文） ============
 
     private static final List<PendingMove> MOVE_QUEUE = new ArrayList<>();
 
-    private record PendingMove(EntityMaid maid, BlockPos pos, ResourceKey<Level> dim, MoveArrival arrival) {
+    private record PendingMove(EntityMaid maid, BlockPos pos, ResourceKey<Level> dim,
+                               MoveArrival arrival, String taskUid) {
     }
 
     /** 工具调用：把移动挂到队列，由服务端 tick 统一执行 */
     public static void queueMove(EntityMaid maid, BlockPos pos, ResourceKey<Level> dim, MoveArrival arrival) {
-        MOVE_QUEUE.add(new PendingMove(maid, pos, dim, arrival));
+        MOVE_QUEUE.add(new PendingMove(maid, pos, dim, arrival, null));
+    }
+
+    /** 工具调用：去往某地并在到点后切到指定任务（延迟执行） */
+    public static void queueMoveTask(EntityMaid maid, BlockPos pos, ResourceKey<Level> dim, String taskUid) {
+        MOVE_QUEUE.add(new PendingMove(maid, pos, dim, MoveArrival.HOME, taskUid));
     }
 
     /** 服务端每 tick 处理延迟队列（移出聊天回调上下文后再执行，避免干扰女仆大脑重建） */
@@ -100,7 +121,12 @@ public final class MaidMoveData {
         List<PendingMove> copy = new ArrayList<>(MOVE_QUEUE);
         MOVE_QUEUE.clear();
         for (PendingMove pm : copy) {
-            if (pm.maid().isAlive()) {
+            if (!pm.maid().isAlive()) {
+                continue;
+            }
+            if (pm.taskUid() != null && !pm.taskUid().isEmpty()) {
+                orderCoordinateTask(pm.maid(), pm.pos(), pm.dim(), pm.taskUid());
+            } else {
                 orderMove(pm.maid(), pm.pos(), pm.dim(), pm.arrival());
             }
         }
@@ -134,14 +160,14 @@ public final class MaidMoveData {
             }
             setCoordinateTarget(maid, targetPos, arrival, inheritedPrevTask);
             maid.setTask(TaskMoveTo.INSTANCE);
-        } else if (arrival == MoveArrival.MEET) {
-            // 远距离集合点：先传送到目标点，再迁家 + 用移动任务进入"等待玩家"阶段
+        } else if (arrival != MoveArrival.BACK) {
+            // 远距离非"过来"：先传送到目标点，再用移动任务（统一到点处理 arrival/目标任务）
             teleportMaid(maid, targetPos, targetDim);
             relocateHomeToTarget(maid, targetPos);
             setCoordinateTarget(maid, targetPos, arrival, inheritedPrevTask);
             maid.setTask(TaskMoveTo.INSTANCE);
         } else {
-            // 传送：立即传送 + 到达收尾（不切移动任务）
+            // 远距离"过来"：立即传送 + 到达收尾（不切移动任务）
             teleportAndArrive(maid, targetPos, targetDim, arrival);
         }
     }
@@ -301,15 +327,18 @@ public final class MaidMoveData {
         }
         String arrival = tag.getString(ARRIVAL);
         String prevTask = tag.getString(PREV_TASK);
+        String targetTask = tag.getString(TARGET_TASK);
         MoveArrival action = parseArrival(arrival);
-        // 只有 MEET/BACK 结束于"跟随"，需要恢复原守家；HOME/PROTECT 保持家在新地点（呆着/守家）
-        if (action == MoveArrival.MEET || action == MoveArrival.BACK) {
+        // 有目标任务 / HOME / PROTECT：保持 home 在新地点（到点干活/守家）；MEET/BACK 恢复原守家（结束于跟随）
+        boolean keepHomeAtLocation = !targetTask.isEmpty()
+                || action == MoveArrival.HOME || action == MoveArrival.PROTECT;
+        if (!keepHomeAtLocation) {
             restoreOriginalHome(maid, tag);
             maid.clearRestriction();
         }
         clear(maid);
         endMove();
-        finishArrival(maid, arrival, prevTask);
+        finishArrival(maid, arrival, prevTask, targetTask);
     }
 
     // ============ 传送路径 ============
@@ -318,7 +347,7 @@ public final class MaidMoveData {
         IMaidTask prevTask = maid.getTask();
         teleportMaid(maid, targetPos, targetDim);
         String arrivalName = arrival == null ? MoveArrival.BACK.name() : arrival.name();
-        finishArrival(maid, arrivalName, prevTask == null ? "" : prevTask.getUid().toString());
+        finishArrival(maid, arrivalName, prevTask == null ? "" : prevTask.getUid().toString(), "");
     }
 
     /** 同维度/跨维度传送到目标点，返回是否成功 */
@@ -342,7 +371,13 @@ public final class MaidMoveData {
     }
 
     /** 统一的到达收尾：按到达动作处理 home 与任务切换 */
-    private static void finishArrival(EntityMaid maid, String arrivalName, String prevTaskUid) {
+    private static void finishArrival(EntityMaid maid, String arrivalName, String prevTaskUid, String targetTaskUid) {
+        // 指定了目标任务 → 到点切任务（home 开，守家干活），如"去农场收菜"
+        if (targetTaskUid != null && !targetTaskUid.isEmpty()) {
+            maid.setHomeModeEnable(true);
+            setTaskByUid(maid, targetTaskUid);
+            return;
+        }
         MoveArrival action = parseArrival(arrivalName);
         switch (action) {
             case BACK, MEET -> {
@@ -371,20 +406,25 @@ public final class MaidMoveData {
         }
     }
 
-    private static void restoreTask(EntityMaid maid, String prevTaskUid) {
-        if (prevTaskUid == null || prevTaskUid.isEmpty()) {
+    /** 按任务 uid 切换工作模式（找不到则回空闲） */
+    private static void setTaskByUid(EntityMaid maid, String uid) {
+        if (uid == null || uid.isEmpty()) {
             maid.setTask(TaskManager.getIdleTask());
             return;
         }
-        ResourceLocation uid = ResourceLocation.tryParse(prevTaskUid);
-        if (uid == null) {
+        ResourceLocation rl = ResourceLocation.tryParse(uid);
+        if (rl == null) {
             maid.setTask(TaskManager.getIdleTask());
             return;
         }
-        TaskManager.findTask(uid).ifPresentOrElse(
+        TaskManager.findTask(rl).ifPresentOrElse(
                 maid::setTask,
                 () -> maid.setTask(TaskManager.getIdleTask())
         );
+    }
+
+    private static void restoreTask(EntityMaid maid, String prevTaskUid) {
+        setTaskByUid(maid, prevTaskUid);
     }
 
     private static double horizontalDistSq(EntityMaid maid, BlockPos target) {

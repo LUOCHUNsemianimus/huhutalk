@@ -7,6 +7,7 @@ import com.github.tartaricacid.touhoulittlemaid.ai.service.function.schema.param
 import com.github.tartaricacid.touhoulittlemaid.ai.service.function.schema.parameter.Parameter;
 import com.github.tartaricacid.touhoulittlemaid.ai.service.function.schema.parameter.StringParameter;
 import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
+import com.github.tartaricacid.touhoulittlemaid.entity.task.TaskManager;
 import com.huhutalk.core.waypoint.WaypointCache;
 import com.huhutalk.core.waypoint.WaypointEntry;
 import com.mojang.serialization.Codec;
@@ -38,12 +39,13 @@ public class MoveToTool implements ITool<MoveToTool.Result> {
     private static final String Z = "z";
     private static final String WAYPOINT = "waypoint_name";
     private static final String ARRIVAL = "arrival";
+    private static final String TASK = "task";
 
     private static final String TOOL_DESC = """
             Use this when the user asks the maid to go somewhere, come to the user, or go to a JourneyMap waypoint.
             target_type: 'player' = come to the user; 'coordinate' = go to a specific x,y,z; 'waypoint' = go to a JourneyMap waypoint by name.
-            arrival (optional): 'meet' = go there and wait, then follow the user when they arrive (default for going somewhere);
-            'wait' = go there and idle; 'protect' = switch to attack mode on arrival; 'back' = come to the user and follow.
+            arrival (optional): 'meet' = go there and wait, then follow the user when they arrive; 'home' = go there and stay; 'protect' = defend there.
+            task (optional): if the user wants the maid to DO a job there (e.g. "go to the farm and harvest"), set task to the matching work mode id.
             """.trim();
 
     private static final Codec<Result> CODEC = RecordCodecBuilder.create(instance -> instance.group(
@@ -52,7 +54,8 @@ public class MoveToTool implements ITool<MoveToTool.Result> {
             Codec.INT.optionalFieldOf(Y, 0).forGetter(Result::y),
             Codec.INT.optionalFieldOf(Z, 0).forGetter(Result::z),
             Codec.STRING.optionalFieldOf(WAYPOINT, "").forGetter(Result::waypointName),
-            Codec.STRING.optionalFieldOf(ARRIVAL, "").forGetter(Result::arrival)
+            Codec.STRING.optionalFieldOf(ARRIVAL, "").forGetter(Result::arrival),
+            Codec.STRING.optionalFieldOf(TASK, "").forGetter(Result::task)
     ).apply(instance, Result::new));
 
     @Override
@@ -82,12 +85,17 @@ public class MoveToTool implements ITool<MoveToTool.Result> {
                 .setDescription("What to do after arriving (optional): meet / home / protect");
         arrival.addEnumValues("meet", "home", "protect");
 
+        StringParameter task = StringParameter.create()
+                .setDescription("Optional work mode id to switch to on arrival (e.g. go farm and harvest). Known: "
+                        + knownTaskIds());
+
         root.addProperties(TARGET_TYPE, targetType);
         root.addProperties(X, x, false);
         root.addProperties(Y, y, false);
         root.addProperties(Z, z, false);
         root.addProperties(WAYPOINT, waypoint, false);
         root.addProperties(ARRIVAL, arrival, false);
+        root.addProperties(TASK, task, false);
         return root;
     }
 
@@ -112,7 +120,11 @@ public class MoveToTool implements ITool<MoveToTool.Result> {
             }
             case "coordinate" -> {
                 BlockPos pos = new BlockPos(result.x(), result.y(), result.z());
-                MaidMoveData.queueMove(maid, pos, maid.level().dimension(), arrival);
+                if (hasTask(result)) {
+                    MaidMoveData.queueMoveTask(maid, pos, maid.level().dimension(), result.task());
+                } else {
+                    MaidMoveData.queueMove(maid, pos, maid.level().dimension(), arrival);
+                }
                 return callback.addToolResult(
                         "The maid is going to %d, %d, %d.".formatted(result.x(), result.y(), result.z()), toolCallId);
             }
@@ -146,7 +158,12 @@ public class MoveToTool implements ITool<MoveToTool.Result> {
                     toolCallId);
         }
         ResourceKey<Level> dim = ResourceKey.create(Registries.DIMENSION, ResourceLocation.parse(wp.dimension()));
-        MaidMoveData.queueMove(maid, new BlockPos(wp.x(), wp.y(), wp.z()), dim, arrival);
+        BlockPos wpPos = new BlockPos(wp.x(), wp.y(), wp.z());
+        if (hasTask(result)) {
+            MaidMoveData.queueMoveTask(maid, wpPos, dim, result.task());
+        } else {
+            MaidMoveData.queueMove(maid, wpPos, dim, arrival);
+        }
         return callback.addToolResult(
                 "The maid is going to waypoint '%s' at %d, %d, %d.".formatted(wp.name(), wp.x(), wp.y(), wp.z()),
                 toolCallId);
@@ -177,6 +194,18 @@ public class MoveToTool implements ITool<MoveToTool.Result> {
         return "(none synced yet)";
     }
 
-    public record Result(String targetType, int x, int y, int z, String waypointName, String arrival) {
+    private static boolean hasTask(Result result) {
+        return result.task() != null && !result.task().isBlank();
+    }
+
+    /** 列出当前可用的工作模式 id，供 LLM 匹配"收菜/杀猪"等意图 */
+    private static String knownTaskIds() {
+        return TaskManager.getTaskIndex().stream()
+                .filter(t -> !t.isHidden(null))
+                .map(t -> t.getUid().getPath() + " (" + t.getMaidActionSummary() + ")")
+                .toList().toString();
+    }
+
+    public record Result(String targetType, int x, int y, int z, String waypointName, String arrival, String task) {
     }
 }
