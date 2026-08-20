@@ -1,6 +1,7 @@
 package com.huhutalk.phone.pages;
 
 import com.huhutalk.client.ChatHistoryStorage;
+import com.huhutalk.client.MaidStatusCache;
 import com.huhutalk.client.NotificationManager;
 import com.huhutalk.network.C2SMaidChatPacket;
 import com.huhutalk.phone.IPhonePage;
@@ -266,6 +267,12 @@ public class ChatPage implements IPhonePage {
         String titleText = waitingResponse ? "对方正在输入…" : maidName;
         int nameW = font.width(titleText);
         g.drawString(font, titleText, baseX + (w - nameW) / 2, baseY + 3, waitingResponse ? 0xFFAAAAAA : 0xFFFFFFFF);
+        // 状态小字（女仆当前状态，低频推送）
+        String status = MaidStatusCache.get(stableId);
+        if (!waitingResponse && !status.isEmpty()) {
+            int sw = font.width(status);
+            g.drawString(font, status, baseX + (w - sw) / 2, baseY + 11, 0xFFAAAAAA);
+        }
         g.drawString(font, "⚙", baseX + w - 16, baseY + 3, 0xFFFFFFFF);
 
         int msgTop = baseY + navH();

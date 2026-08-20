@@ -22,6 +22,7 @@ public class ClientCacheEvents {
         ChatHistoryStorage.onWorldChanged(worldKey); // 内部会保存旧世界 + 加载新世界
         NotificationManager.onWorldChanged(worldKey);
         MaidListCache.clear();
+        MaidStatusCache.clear();
         PhoneOverlay.resetForNewWorld();
         // 同步 JourneyMap 路径点给服务端（可选软依赖，未装时自动跳过）
         WaypointSync.sendWaypoints();

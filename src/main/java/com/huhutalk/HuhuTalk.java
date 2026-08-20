@@ -2,6 +2,7 @@ package com.huhutalk;
 
 import com.huhutalk.core.status.MaidDeathHandler;
 import com.huhutalk.core.status.MaidScanTicker;
+import com.huhutalk.core.status.MaidStatusTicker;
 import com.huhutalk.client.keybind.ModKeyBinds;
 import com.huhutalk.command.ModCommands;
 import com.huhutalk.core.event.FilmTransformHandler;
@@ -42,6 +43,7 @@ public class HuhuTalk {
         NeoForge.EVENT_BUS.register(new FilmTransformHandler());
         NeoForge.EVENT_BUS.register(new MaidScanTicker());
         NeoForge.EVENT_BUS.register(new MaidDeathHandler());
+        NeoForge.EVENT_BUS.register(new MaidStatusTicker());
         NeoForge.EVENT_BUS.register(new TicketManager());
         NeoForge.EVENT_BUS.addListener(RegisterCommandsEvent.class, ModCommands::register);
         NeoForge.EVENT_BUS.addListener(ServerStoppingEvent.class, e -> MaidMoveData.restoreOnServerStop());
