@@ -16,6 +16,8 @@ import net.minecraft.world.entity.schedule.Activity;
 import net.minecraft.world.level.Level;
 import org.jetbrains.annotations.Nullable;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Set;
 
 /**
@@ -60,7 +62,10 @@ public final class MaidMoveData {
 
     // ============ 统一入口 ============
 
-    /** 让女仆到自己身边（近走远传） */
+    /**
+     * 让女仆到自己身边（近走远传）。
+     * 工具调用走 {@link #queueMove}（延迟到服务端 tick 执行，脱离聊天回调上下文）。
+     */
     public static void orderCome(EntityMaid maid, MoveArrival arrival) {
         LivingEntity owner = maid.getOwner();
         if (owner == null || owner.isDeadOrDying() || owner.isSpectator()) {
@@ -72,6 +77,32 @@ public final class MaidMoveData {
     /** 让女仆到指定坐标（近走远传，可跨维度） */
     public static void orderCoordinate(EntityMaid maid, BlockPos pos, ResourceKey<Level> dim, MoveArrival arrival) {
         orderMove(maid, pos, dim, arrival);
+    }
+
+    // ============ 延迟队列（供 LLM 工具使用，脱离聊天回调上下文） ============
+
+    private static final List<PendingMove> MOVE_QUEUE = new ArrayList<>();
+
+    private record PendingMove(EntityMaid maid, BlockPos pos, ResourceKey<Level> dim, MoveArrival arrival) {
+    }
+
+    /** 工具调用：把移动挂到队列，由服务端 tick 统一执行 */
+    public static void queueMove(EntityMaid maid, BlockPos pos, ResourceKey<Level> dim, MoveArrival arrival) {
+        MOVE_QUEUE.add(new PendingMove(maid, pos, dim, arrival));
+    }
+
+    /** 服务端每 tick 处理延迟队列（移出聊天回调上下文后再执行，避免干扰女仆大脑重建） */
+    public static void tickMoveQueue() {
+        if (MOVE_QUEUE.isEmpty()) {
+            return;
+        }
+        List<PendingMove> copy = new ArrayList<>(MOVE_QUEUE);
+        MOVE_QUEUE.clear();
+        for (PendingMove pm : copy) {
+            if (pm.maid().isAlive()) {
+                orderMove(pm.maid(), pm.pos(), pm.dim(), pm.arrival());
+            }
+        }
     }
 
     /** 判定并执行：近走远传 */

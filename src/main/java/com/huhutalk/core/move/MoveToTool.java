@@ -103,12 +103,16 @@ public class MoveToTool implements ITool<MoveToTool.Result> {
 
         switch (result.targetType()) {
             case "player" -> {
-                MaidMoveData.orderCome(maid, arrival);
+                // 延迟到服务端 tick 执行，脱离聊天回调上下文
+                LivingEntity owner = maid.getOwner();
+                if (owner != null) {
+                    MaidMoveData.queueMove(maid, owner.blockPosition(), owner.level().dimension(), arrival);
+                }
                 return callback.addToolResult("The maid is coming to you.", toolCallId);
             }
             case "coordinate" -> {
                 BlockPos pos = new BlockPos(result.x(), result.y(), result.z());
-                MaidMoveData.orderCoordinate(maid, pos, maid.level().dimension(), arrival);
+                MaidMoveData.queueMove(maid, pos, maid.level().dimension(), arrival);
                 return callback.addToolResult(
                         "The maid is going to %d, %d, %d.".formatted(result.x(), result.y(), result.z()), toolCallId);
             }
@@ -142,25 +146,20 @@ public class MoveToTool implements ITool<MoveToTool.Result> {
                     toolCallId);
         }
         ResourceKey<Level> dim = ResourceKey.create(Registries.DIMENSION, ResourceLocation.parse(wp.dimension()));
-        MaidMoveData.orderCoordinate(maid, new BlockPos(wp.x(), wp.y(), wp.z()), dim, arrival);
+        MaidMoveData.queueMove(maid, new BlockPos(wp.x(), wp.y(), wp.z()), dim, arrival);
         return callback.addToolResult(
                 "The maid is going to waypoint '%s' at %d, %d, %d.".formatted(wp.name(), wp.x(), wp.y(), wp.z()),
                 toolCallId);
     }
 
     private static MoveArrival parseArrival(String arrival, String targetType) {
-        boolean isPlayer = "player".equals(targetType);
-        if (arrival == null || arrival.isBlank()) {
-            return isPlayer ? MoveArrival.BACK : MoveArrival.MEET;
+        if ("player".equals(targetType)) {
+            // 过来 → 到身边并跟随
+            return MoveArrival.BACK;
         }
-        return switch (arrival.toLowerCase()) {
-            case "meet" -> MoveArrival.MEET;
-            case "wait" -> MoveArrival.WAIT_IDLE;
-            case "protect" -> MoveArrival.PROTECT;
-            // 坐标/路径点移动绝不"过来跟随"（那会立即被跟随拽回），一律当作集合点等待
-            case "back", "come" -> isPlayer ? MoveArrival.BACK : MoveArrival.MEET;
-            default -> MoveArrival.NONE;
-        };
+        // 坐标/路径点移动：一律 MEET（去那等玩家，到达后恢复原模式+可跟随），
+        // 仅显式 "protect" 覆盖为攻击。绝不让 LLM 给的 wait/none/back 把它改成 idle/跟随被拽回。
+        return "protect".equalsIgnoreCase(arrival) ? MoveArrival.PROTECT : MoveArrival.MEET;
     }
 
     private static String knownWaypointNames(EntityMaid maid) {

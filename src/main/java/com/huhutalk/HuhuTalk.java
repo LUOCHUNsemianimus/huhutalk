@@ -21,6 +21,7 @@ import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
 import net.neoforged.neoforge.event.server.ServerStoppingEvent;
+import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -44,6 +45,7 @@ public class HuhuTalk {
         NeoForge.EVENT_BUS.register(new TicketManager());
         NeoForge.EVENT_BUS.addListener(RegisterCommandsEvent.class, ModCommands::register);
         NeoForge.EVENT_BUS.addListener(ServerStoppingEvent.class, e -> MaidMoveData.restoreOnServerStop());
+        NeoForge.EVENT_BUS.addListener(ServerTickEvent.Post.class, e -> MaidMoveData.tickMoveQueue());
 
         modEventBus.addListener(RegisterKeyMappingsEvent.class, ModKeyBinds::registerKeybinds);
         modEventBus.addListener(this::clientSetup);
