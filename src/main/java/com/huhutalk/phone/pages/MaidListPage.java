@@ -4,8 +4,11 @@ import com.huhutalk.client.ChatHistoryStorage;
 import com.huhutalk.client.MaidListCache;
 import com.huhutalk.client.MaidStatusCache;
 import com.huhutalk.client.NotificationManager;
+import com.huhutalk.client.SosBindCache;
+import com.huhutalk.core.contact.SosBindData;
 import com.huhutalk.network.C2SRequestMaidListPacket;
 import com.huhutalk.network.C2SRequestMaidStatusPacket;
+import com.huhutalk.network.C2SToggleSosBindPacket;
 import com.huhutalk.network.S2CMaidListPacket;
 import com.huhutalk.phone.IPhonePage;
 import com.huhutalk.phone.PhoneOverlay;
@@ -20,6 +23,9 @@ public class MaidListPage implements IPhonePage {
     private List<S2CMaidListPacket.MaidDisplayInfo> maidList = List.of();
     private int scrollOffset = 0;
     private static final int ITEM_HEIGHT = 48;
+    /** 右侧 SOS 绑定按钮的尺寸 */
+    private static final int BIND_BTN_W = 28;
+    private static final int BIND_BTN_H = 16;
     /** 本次页面打开是否已向服务端按需请求过状态（列表异步到达，需去重） */
     private boolean statusRequested = false;
 
@@ -64,6 +70,9 @@ public class MaidListPage implements IPhonePage {
         String title = "我的女仆";
         int titleW = font.width(title);
         graphics.drawString(font, title, baseX + (w - titleW) / 2, baseY + 3, 0xFFFFFFFF);
+        // 右上角 SOS 绑定计数
+        String sosCount = "SOS " + SosBindCache.count() + "/" + SosBindData.MAX_BOUND;
+        graphics.drawString(font, sosCount, baseX + w - font.width(sosCount) - 4, baseY + 3, 0xFFFF6666);
 
         int listTop = baseY + navH;
         int listBottom = baseY + h;
@@ -110,6 +119,17 @@ public class MaidListPage implements IPhonePage {
                     String num = unread > 99 ? "99+" : String.valueOf(unread);
                     graphics.drawString(font, num, dotX + 3, dotY + 2, 0xFFFFFFFF);
                 }
+
+                // 右侧 SOS 绑定按钮：点击切换绑定（已绑定高亮红，未绑定灰）
+                boolean sosBound = SosBindCache.isBound(info.stableId());
+                int btnLeft = baseX + w - 32;
+                int btnTop = itemY + 19;
+                int btnFill = sosBound ? 0xFFE53935 : 0xFF3A3A3A;
+                graphics.fill(btnLeft, btnTop, btnLeft + BIND_BTN_W, btnTop + BIND_BTN_H, btnFill);
+                graphics.drawString(font, "SOS",
+                        btnLeft + (BIND_BTN_W - font.width("SOS")) / 2,
+                        btnTop + (BIND_BTN_H - font.lineHeight) / 2 + 1,
+                        sosBound ? 0xFFFFFFFF : 0xFFAAAAAA);
             }
         }
         graphics.disableScissor();
@@ -132,6 +152,14 @@ public class MaidListPage implements IPhonePage {
             int itemY = listTop + i * ITEM_HEIGHT - scrollOffset;
             if (relY >= itemY && relY < itemY + ITEM_HEIGHT) {
                 S2CMaidListPacket.MaidDisplayInfo info = maidList.get(i);
+                // SOS 绑定按钮：命中则切换绑定，不进入聊天
+                int btnLeft = w - 32;
+                int btnTop = itemY + 19;
+                if (relX >= btnLeft && relX <= btnLeft + BIND_BTN_W
+                        && relY >= btnTop && relY <= btnTop + BIND_BTN_H) {
+                    PacketDistributor.sendToServer(new C2SToggleSosBindPacket(info.stableId()));
+                    return true;
+                }
                 NotificationManager.clear(info.stableId());
                 PhoneOverlay.pushPage(new ChatPage(info.stableId(), info.name()));
                 return true;

@@ -96,26 +96,26 @@ public final class MaidMoveData {
     }
 
     /**
-     * SOS 紧急呼叫：把女仆立刻传送到主人身边并切到战斗模式保护。
-     * <p>复刻"come"逻辑（近走远传），但作为紧急呼叫<b>一律直接传送</b>，
-     * 到达后把家迁到主人处、开启守家并切换到攻击任务，让其守在玩家身边战斗保护。
+     * SOS 紧急呼叫：把女仆传送到指定锚点（玩家四周的某个落点）并切战斗模式保护玩家。
+     * <p>复刻"come"逻辑（近走远传），但作为紧急呼叫<b>一律直接传送</b>。
+     * <b>不开启守家（home）</b>——守家会让女仆停在原地；SOS 的目的是让女仆
+     * 跟在玩家身边边跟随边战斗保护。传送失败则不做任何状态改动。
+     *
+     * @param anchor 目标落点（由调用方按"围绕玩家四周"计算）
      */
-    public static void orderSOS(EntityMaid maid) {
+    public static void orderSOS(EntityMaid maid, BlockPos anchor) {
         LivingEntity owner = maid.getOwner();
         if (owner == null || owner.isDeadOrDying() || owner.isSpectator()) {
             return;
         }
         // 防重入：清理上一次未完成的移动（恢复原守家 + 清 NBT + 平衡范围计数）
         cancelCurrentMove(maid);
-        BlockPos target = owner.blockPosition();
         ResourceKey<Level> dim = owner.level().dimension();
-        // 紧急呼叫直接传送，不依赖走路
-        if (!teleportMaid(maid, target, dim)) {
-            return;
-        }
-        // 把家迁到主人处并开启守家，切到攻击任务保护玩家
-        relocateHomeToTarget(maid, target);
-        maid.setHomeModeEnable(true);
+        // 紧急呼叫直接传送，不依赖走路（内部已强制加载目标区块 + 安全落地）
+        teleportMaid(maid, anchor, dim);
+        // 不守家：跟随玩家 + 切战斗模式保护（attack 任务会跟随主人作战）
+        maid.setHomeModeEnable(false);
+        maid.clearRestriction();
         TaskManager.findTask(ATTACK_TASK).ifPresent(maid::setTask);
     }
 
@@ -374,24 +374,44 @@ public final class MaidMoveData {
         finishArrival(maid, arrivalName, prevTask == null ? "" : prevTask.getUid().toString(), "");
     }
 
-    /** 同维度/跨维度传送到目标点，返回是否成功 */
-    private static boolean teleportMaid(EntityMaid maid, BlockPos targetPos, ResourceKey<Level> targetDim) {
+    /** 同维度/跨维度传送到目标点。
+     *  <p>修复远距离传送失败：先<b>强制加载目标区块</b>（避免传送到未加载区块失败/卡住），
+     *  再找一个安全落地高度（落回地面，避免卡进方块）。目标维度不可用则直接放弃。
+     */
+    private static void teleportMaid(EntityMaid maid, BlockPos targetPos, ResourceKey<Level> targetDim) {
         if (!(maid.level() instanceof ServerLevel maidLevel)) {
-            return false;
+            return;
         }
         ServerLevel targetLevel = maidLevel.getServer().getLevel(targetDim);
         if (targetLevel == null) {
-            return false;
+            return;
         }
-        double x = targetPos.getX() + 0.5;
-        double z = targetPos.getZ() + 0.5;
-        double y = targetPos.getY();
+        // 强制加载目标区块：getChunk 会同步加载/生成该区块，确保远距离可落地
+        targetLevel.getChunk(targetPos.getX() >> 4, targetPos.getZ() >> 4);
+        BlockPos landing = findSafeLanding(targetLevel, targetPos);
+        double x = landing.getX() + 0.5;
+        double z = landing.getZ() + 0.5;
+        double y = landing.getY();
         if (targetLevel == maidLevel) {
             maid.teleportTo(x, y, z);
         } else {
             maid.teleportTo(targetLevel, x, y, z, Set.of(), maid.getYRot(), maid.getXRot());
         }
-        return true;
+    }
+
+    /** 在目标点上方找第一个可安全站立的落地高度（目标 Y 向上抬 8 格，再向下扫到实心方块上方）。
+     *  <p>避免把女仆传进实心方块/压进地下；找不到则退回原目标点（调用方继续兜底）。 */
+    private static BlockPos findSafeLanding(ServerLevel level, BlockPos pos) {
+        int x = pos.getX();
+        int z = pos.getZ();
+        int top = Math.min(level.getMaxBuildHeight() - 1, pos.getY() + 8);
+        for (int scan = top; scan > level.getMinBuildHeight(); scan--) {
+            // 脚下是实心方块 → 站立在 (scan) 处
+            if (!level.isEmptyBlock(new BlockPos(x, scan - 1, z))) {
+                return new BlockPos(x, scan, z);
+            }
+        }
+        return pos;
     }
 
     /** 统一的到达收尾：按到达动作处理 home 与任务切换 */

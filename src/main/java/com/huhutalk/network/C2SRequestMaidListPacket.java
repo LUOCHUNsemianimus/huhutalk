@@ -2,6 +2,7 @@ package com.huhutalk.network;
 
 import com.huhutalk.core.contact.MaidContactBook;
 import com.huhutalk.core.contact.MaidContactEntry;
+import com.huhutalk.core.contact.SosBindData;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
@@ -45,6 +46,9 @@ public record C2SRequestMaidListPacket() implements CustomPacketPayload {
                 }
 
                 context.reply(new S2CMaidListPacket(displayInfos));
+                // 一并下发该玩家的 SOS 绑定列表，供客户端显示"已绑定 SOS"徽标
+                context.reply(new S2CSosBindPacket(
+                        SosBindData.get(serverPlayer.getServer()).getBound(serverPlayer.getUUID().toString())));
             }
         });
     }

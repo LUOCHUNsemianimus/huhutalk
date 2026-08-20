@@ -172,7 +172,8 @@ public class MainPage implements IPhonePage {
     /** 发送 SOS 紧急呼叫包，并显示短暂提示 */
     private void sendSos() {
         PacketDistributor.sendToServer(new C2SSOSPacket());
-        sosMessage = "🚨 已紧急呼叫全部女仆!";
+        int bound = com.huhutalk.client.SosBindCache.count();
+        sosMessage = "🚨 已呼叫 " + bound + " 位 SOS 女仆赶来保护!";
         sosFlashUntil = System.currentTimeMillis() + 3000;
     }
 

@@ -23,6 +23,7 @@ public class ClientCacheEvents {
         NotificationManager.onWorldChanged(worldKey);
         MaidListCache.clear();
         MaidStatusCache.clear();
+        SosBindCache.clear();
         PhoneOverlay.resetForNewWorld();
         // 同步 JourneyMap 路径点给服务端（可选软依赖，未装时自动跳过）
         WaypointSync.sendWaypoints();

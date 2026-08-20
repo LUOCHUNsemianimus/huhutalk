@@ -16,6 +16,7 @@ import com.huhutalk.network.C2SRequestMaidListPacket;
 import com.huhutalk.network.C2SRequestMaidStatusPacket;
 import com.huhutalk.network.C2SSOSPacket;
 import com.huhutalk.network.C2SSyncWaypointsPacket;
+import com.huhutalk.network.C2SToggleSosBindPacket;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.fml.event.lifecycle.FMLClientSetupEvent;
@@ -73,6 +74,8 @@ public class HuhuTalk {
         registrar.playToServer(C2SRequestMaidStatusPacket.TYPE, C2SRequestMaidStatusPacket.STREAM_CODEC, C2SRequestMaidStatusPacket::handle);
         // 客户端 → 服务端：SOS 紧急呼叫
         registrar.playToServer(C2SSOSPacket.TYPE, C2SSOSPacket.STREAM_CODEC, C2SSOSPacket::handle);
+        // 客户端 → 服务端：切换 SOS 绑定
+        registrar.playToServer(C2SToggleSosBindPacket.TYPE, C2SToggleSosBindPacket.STREAM_CODEC, C2SToggleSosBindPacket::handle);
         // 客户端 → 服务端：同步 JourneyMap 路径点
         registrar.playToServer(C2SSyncWaypointsPacket.TYPE, C2SSyncWaypointsPacket.STREAM_CODEC, C2SSyncWaypointsPacket::handle);
         // 注意：S2C 包在 ClientPayloadSetup 中注册

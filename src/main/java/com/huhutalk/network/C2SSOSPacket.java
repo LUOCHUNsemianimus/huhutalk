@@ -1,30 +1,38 @@
 package com.huhutalk.network;
 
 import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
+import com.huhutalk.common.MaidStableIdHelper;
 import com.huhutalk.common.PhoneHelper;
+import com.huhutalk.core.contact.SosBindData;
 import com.huhutalk.core.move.MaidMoveData;
+import net.minecraft.core.BlockPos;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.entity.Entity;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.List;
 import java.util.UUID;
 
 /**
  * 客户端 → 服务端：SOS 紧急呼叫。
- * <p>复刻"come"逻辑：把玩家名下所有<b>已佩戴手机且已加载</b>的女仆立刻传送到身边，
- * 并切到战斗模式守家保护（近走远传的远距离直达 + {@link MaidMoveData#orderSOS}）。
- * 用于手机紧急呼叫（战斗保护）。
+ * <p>只把玩家<b>已绑定</b>（{@link SosBindData}，最多 4 只）且已佩戴手机、已加载的女仆
+ * 传到玩家四周前后左右，并切战斗模式跟随保护（{@link MaidMoveData#orderSOS}）。
+ * 不误召大量非战斗女仆。
  */
 public record C2SSOSPacket() implements CustomPacketPayload {
     public static final Type<C2SSOSPacket> TYPE =
             new Type<>(ResourceLocation.fromNamespaceAndPath("huhutalk", "sos"));
+
+    /** 围绕玩家的落点（前后左右各一），按绑定顺序依次分配 */
+    private static final BlockPos[] SURROUND_OFFSETS = {
+            new BlockPos(0, 0, 3), new BlockPos(0, 0, -3),
+            new BlockPos(3, 0, 0), new BlockPos(-3, 0, 0)
+    };
 
     public static final StreamCodec<RegistryFriendlyByteBuf, C2SSOSPacket> STREAM_CODEC =
             StreamCodec.of((buf, packet) -> {}, buf -> new C2SSOSPacket());
@@ -40,17 +48,24 @@ public record C2SSOSPacket() implements CustomPacketPayload {
                 return;
             }
             UUID ownerId = serverPlayer.getUUID();
+            List<String> bound = SosBindData.get(serverPlayer.getServer()).getBound(ownerId.toString());
+            BlockPos base = serverPlayer.blockPosition();
+
             int summoned = 0;
-            for (ServerLevel level : serverPlayer.getServer().getAllLevels()) {
-                for (Entity entity : level.getAllEntities()) {
-                    if (entity instanceof EntityMaid maid
-                            && ownerId.equals(maid.getOwnerUUID())
-                            && PhoneHelper.hasPhone(maid)
-                            && maid.isAlive()) {
-                        MaidMoveData.orderSOS(maid);
-                        summoned++;
-                    }
+            int count = Math.min(bound.size(), SURROUND_OFFSETS.length);
+            for (int i = 0; i < count; i++) {
+                EntityMaid maid = MaidStableIdHelper.findMaid(serverPlayer.getServer(), bound.get(i));
+                // 只召已加载、存活、有手机、且仍归该玩家所有的女仆
+                if (maid == null || !maid.isAlive() || !PhoneHelper.hasPhone(maid)) {
+                    continue;
                 }
+                if (maid.getOwnerUUID() != null && !ownerId.equals(maid.getOwnerUUID())) {
+                    continue;
+                }
+                // 分配到玩家四周的不同落点
+                BlockPos anchor = base.offset(SURROUND_OFFSETS[i]);
+                MaidMoveData.orderSOS(maid, anchor);
+                summoned++;
             }
             serverPlayer.sendSystemMessage(
                     Component.literal("[HuhuTalk] 🚨 紧急呼叫：" + summoned + " 位女仆已赶来保护你"));
