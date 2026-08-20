@@ -53,9 +53,20 @@ public class ClientPayloadSetup {
 
     private static void handleInfo(S2CMaidChatInfoPacket packet, IPayloadContext context) {
         context.enqueueWork(() -> {
-            ChatHistoryStorage.appendMessage(packet.stableId(), "[提示] " + packet.info(), false, true);
             IPhonePage current = PhoneOverlay.getCurrentPage();
-            if (current instanceof ChatPage chatPage && chatPage.getStableId().equals(packet.stableId())) {
+            ChatPage chatPage = (current instanceof ChatPage cp && cp.getStableId().equals(packet.stableId())) ? cp : null;
+
+            if (packet.queued()) {
+                // 消息入离线队列：只标红"!"，不显示"女仆不在线"提示文字
+                if (chatPage != null) {
+                    chatPage.onQueued();
+                }
+                return;
+            }
+
+            // 普通提示（如未佩戴手机）：正常显示
+            ChatHistoryStorage.appendMessage(packet.stableId(), "[提示] " + packet.info(), false, true);
+            if (chatPage != null) {
                 chatPage.onReceiveMessage("[提示] " + packet.info(), true);
             }
             NotificationManager.addUnread(packet.stableId());

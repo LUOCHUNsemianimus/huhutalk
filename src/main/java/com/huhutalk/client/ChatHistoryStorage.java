@@ -55,8 +55,44 @@ public class ChatHistoryStorage {
     public static void appendMessage(String stableId, String text, boolean isPlayer, boolean isError) {
         currentHistory()
                 .computeIfAbsent(stableId, k -> new ArrayList<>())
-                .add(new ChatMessageEntry(text, isPlayer, isError));
+                .add(new ChatMessageEntry(text, isPlayer, isError, false));
         saveToDisk(currentWorldKey); // 写入即落盘
+    }
+
+    /** 把最后一条"玩家发送"的消息标为未送达（入离线队列），供红"!"显示。返回是否命中 */
+    public static boolean markLastSentPending(String stableId) {
+        List<ChatMessageEntry> list = currentHistory().get(stableId);
+        if (list == null || list.isEmpty()) {
+            return false;
+        }
+        for (int i = list.size() - 1; i >= 0; i--) {
+            ChatMessageEntry e = list.get(i);
+            if (e.isPlayer()) {
+                list.set(i, new ChatMessageEntry(e.text(), true, e.isError(), true));
+                saveToDisk(currentWorldKey);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 清除某女仆所有未送达标记（女仆回复到达即视为送达） */
+    public static void clearPending(String stableId) {
+        List<ChatMessageEntry> list = currentHistory().get(stableId);
+        if (list == null || list.isEmpty()) {
+            return;
+        }
+        boolean changed = false;
+        for (int i = 0; i < list.size(); i++) {
+            ChatMessageEntry e = list.get(i);
+            if (e.pending()) {
+                list.set(i, new ChatMessageEntry(e.text(), e.isPlayer(), e.isError(), false));
+                changed = true;
+            }
+        }
+        if (changed) {
+            saveToDisk(currentWorldKey);
+        }
     }
 
     public static List<ChatMessageEntry> getMessages(String stableId) {
@@ -148,6 +184,6 @@ public class ChatHistoryStorage {
         }
     }
 
-    public record ChatMessageEntry(String text, boolean isPlayer, boolean isError) {
+    public record ChatMessageEntry(String text, boolean isPlayer, boolean isError, boolean pending) {
     }
 }

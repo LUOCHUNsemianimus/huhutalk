@@ -36,7 +36,7 @@ public class MaidChatHandler {
         // 女仆已加载但未佩戴手机 → 已关机，无法远程联系
         if (!PhoneHelper.hasPhone(maid)) {
             PacketDistributor.sendToPlayer(player,
-                    new S2CMaidChatInfoPacket(stableId, "该女仆没有佩戴手机，暂时无法联系。"));
+                    new S2CMaidChatInfoPacket(stableId, "该女仆没有佩戴手机，暂时无法联系。", false));
             return;
         }
 
@@ -116,7 +116,7 @@ public class MaidChatHandler {
         String infoText = entry.getStatus() == MaidStatus.DEAD
                 ? "女仆已死亡，消息会等她复活后代为转达。"
                 : "女仆暂不在线，消息已离线保存。";
-        PacketDistributor.sendToPlayer(player, new S2CMaidChatInfoPacket(stableId, infoText));
+        PacketDistributor.sendToPlayer(player, new S2CMaidChatInfoPacket(stableId, infoText, true));
     }
 
     private static List<LLMMessage> buildMessages(MaidAIChatManager manager, String userMessage) {

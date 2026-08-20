@@ -39,16 +39,50 @@ public class ChatPage implements IPhonePage {
     private int cursorIndex = 0;
     private boolean bottomPanelOpen = false;
     private int inputScrollOffset = 0;
+    /** 是否正在等待女仆回复（用于"对方正在输入…"） */
+    private boolean waitingResponse = false;
 
     public ChatPage(String stableId, String maidName) {
         this.stableId = stableId;
         this.maidName = maidName;
         for (ChatHistoryStorage.ChatMessageEntry e : ChatHistoryStorage.getMessages(stableId)) {
-            messages.add(new ChatMessage(e.text(), e.isPlayer(), e.isError()));
+            messages.add(new ChatMessage(e.text(), e.isPlayer(), e.isError(), e.pending()));
         }
         this.currentInput = ChatHistoryStorage.getDraft(stableId);
         this.cursorIndex = currentInput.length();
         NotificationManager.clear(stableId);
+    }
+
+    public boolean isWaitingResponse() { return waitingResponse; }
+    public void setWaitingResponse(boolean waiting) { this.waitingResponse = waiting; }
+
+    /** 把最后一条"玩家发送"的消息标红"!"（消息入离线队列、尚未送达）。本地+落盘 */
+    public void markLastSentPending() {
+        for (int i = messages.size() - 1; i >= 0; i--) {
+            ChatMessage m = messages.get(i);
+            if (m.isPlayer()) {
+                messages.set(i, new ChatMessage(m.text(), true, m.isError(), true));
+                break;
+            }
+        }
+        ChatHistoryStorage.markLastSentPending(stableId);
+    }
+
+    /** 清除所有未送达标记（女仆回复到达即视为送达）。本地+落盘 */
+    public void clearPending() {
+        for (int i = 0; i < messages.size(); i++) {
+            ChatMessage m = messages.get(i);
+            if (m.pending()) {
+                messages.set(i, new ChatMessage(m.text(), m.isPlayer(), m.isError(), false));
+            }
+        }
+        ChatHistoryStorage.clearPending(stableId);
+    }
+
+    /** 消息入离线队列：停止"输入中"并标红"!"（不显示提示文字） */
+    public void onQueued() {
+        this.waitingResponse = false;
+        markLastSentPending();
     }
 
     public String getStableId() { return stableId; }
@@ -85,16 +119,20 @@ public class ChatPage implements IPhonePage {
     }
 
     public void onReceiveMessage(String text, boolean isError) {
-        messages.add(new ChatMessage(text, false, isError));
+        messages.add(new ChatMessage(text, false, isError, false));
+        // 收到女仆回复/提示 → 视为送达，清除未送达标记
+        clearPending();
+        this.waitingResponse = false;
     }
 
     private void sendCurrentMessage() {
         if (currentInput.isBlank()) return;
         String text = currentInput;
-        messages.add(new ChatMessage(text, true, false));
+        messages.add(new ChatMessage(text, true, false, false));
         ChatHistoryStorage.appendMessage(stableId, text, true, false);
         ChatHistoryStorage.setDraft(stableId, "");
         PacketDistributor.sendToServer(new C2SMaidChatPacket(stableId, text));
+        this.waitingResponse = true; // 进入"对方正在输入…"状态
         currentInput = "";
         cursorIndex = 0;
         inputScrollOffset = 0;
@@ -224,8 +262,10 @@ public class ChatPage implements IPhonePage {
 
         g.fill(baseX, baseY, baseX + w, baseY + navH(), 0xFF333333);
         g.drawString(font, "< 返回", baseX + 4, baseY + 3, 0xFFFFFFFF);
-        int nameW = font.width(maidName);
-        g.drawString(font, maidName, baseX + (w - nameW) / 2, baseY + 3, 0xFFFFFFFF);
+        // 等待女仆回复时显示"对方正在输入…"，否则显示女仆名字
+        String titleText = waitingResponse ? "对方正在输入…" : maidName;
+        int nameW = font.width(titleText);
+        g.drawString(font, titleText, baseX + (w - nameW) / 2, baseY + 3, waitingResponse ? 0xFFAAAAAA : 0xFFFFFFFF);
         g.drawString(font, "⚙", baseX + w - 16, baseY + 3, 0xFFFFFFFF);
 
         int msgTop = baseY + navH();
@@ -340,6 +380,10 @@ public class ChatPage implements IPhonePage {
                 ty += lineH;
             }
             drawAvatarPlaceholder(g, baseX + phoneW - AVATAR - 2, yTop, true);
+            // 未送达（入离线队列）的玩家消息标红"!"
+            if (m.pending()) {
+                g.drawString(font, "!", bubbleLeft - 8, yTop + 2, 0xFFFF3333);
+            }
         } else {
             int bubbleLeft = baseX + AVATAR + MARGIN;
             int bubbleRight = bubbleLeft + bubbleW;
@@ -472,6 +516,6 @@ public class ChatPage implements IPhonePage {
         Minecraft.getInstance().setScreen(new PhoneInputScreen(this));
     }
 
-    private record ChatMessage(String text, boolean isPlayer, boolean isError) {
+    private record ChatMessage(String text, boolean isPlayer, boolean isError, boolean pending) {
     }
 }
