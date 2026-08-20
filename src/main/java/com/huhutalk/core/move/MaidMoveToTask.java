@@ -113,7 +113,11 @@ public class MaidMoveToTask extends Behavior<EntityMaid> {
         maid.getNavigation().stop();
         maid.getBrain().eraseMemory(MemoryModuleType.WALK_TARGET);
         maid.getBrain().eraseMemory(MemoryModuleType.LOOK_TARGET);
-        notifyArrived(maid);
+        // 只通知一次（标记持久化，避免大脑重复触发导致刷屏）
+        if (!MaidMoveData.wasArrivedNotified(maid)) {
+            notifyArrived(maid);
+            MaidMoveData.markArrivedNotified(maid);
+        }
     }
 
     /** 到达后通知主人（发到手机，不触发 LLM，不烧 token） */

@@ -42,6 +42,7 @@ public final class MaidMoveData {
     private static final String Z = "z";
     private static final String ARRIVAL = "arrival";
     private static final String PREV_TASK = "prevTask";
+    private static final String NOTIFIED = "arrivedNotified";
 
     /** 同维度下"走"的最大水平距离（格），超出则传送 */
     public static final int WALK_DIST = 64;
@@ -249,6 +250,15 @@ public final class MaidMoveData {
 
     public static void clear(EntityMaid maid) {
         maid.getPersistentData().remove(KEY);
+    }
+
+    /** 到达后是否已发过"我到了"通知（避免重复刷屏） */
+    public static boolean wasArrivedNotified(EntityMaid maid) {
+        return maid.getPersistentData().getCompound(KEY).getBoolean(NOTIFIED);
+    }
+
+    public static void markArrivedNotified(EntityMaid maid) {
+        maid.getPersistentData().getCompound(KEY).putBoolean(NOTIFIED, true);
     }
 
     /** 走路到达/中止后收尾（读 NBT → 恢复守家 → 清理 → 恢复范围 → 切任务） */
