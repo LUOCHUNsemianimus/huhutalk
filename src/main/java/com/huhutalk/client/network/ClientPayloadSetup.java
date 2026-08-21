@@ -6,12 +6,14 @@ import com.huhutalk.client.MaidListCache;
 import com.huhutalk.client.MaidStatusCache;
 import com.huhutalk.client.NotificationManager;
 import com.huhutalk.client.SosBindCache;
+import com.huhutalk.client.SosTaskCache;
 import com.huhutalk.network.S2CMaidChatErrorPacket;
 import com.huhutalk.network.S2CMaidChatInfoPacket;
 import com.huhutalk.network.S2CMaidChatResponsePacket;
 import com.huhutalk.network.S2CMaidListPacket;
 import com.huhutalk.network.S2CMaidStatusPacket;
 import com.huhutalk.network.S2CSosBindPacket;
+import com.huhutalk.network.S2CSosTaskListPacket;
 import com.huhutalk.phone.IPhonePage;
 import com.huhutalk.phone.PhoneOverlay;
 import com.huhutalk.phone.pages.ChatPage;
@@ -32,6 +34,7 @@ public class ClientPayloadSetup {
         registrar.playToClient(S2CMaidListPacket.TYPE, S2CMaidListPacket.STREAM_CODEC, ClientPayloadSetup::handleMaidList);
         registrar.playToClient(S2CMaidStatusPacket.TYPE, S2CMaidStatusPacket.STREAM_CODEC, ClientPayloadSetup::handleStatus);
         registrar.playToClient(S2CSosBindPacket.TYPE, S2CSosBindPacket.STREAM_CODEC, ClientPayloadSetup::handleSosBind);
+        registrar.playToClient(S2CSosTaskListPacket.TYPE, S2CSosTaskListPacket.STREAM_CODEC, ClientPayloadSetup::handleSosTaskList);
     }
 
     private static void handleResponse(S2CMaidChatResponsePacket packet, IPayloadContext context) {
@@ -93,7 +96,13 @@ public class ClientPayloadSetup {
 
     private static void handleSosBind(S2CSosBindPacket packet, IPayloadContext context) {
         context.enqueueWork(() -> {
-            SosBindCache.set(packet.stableIds());
+            SosBindCache.set(packet.bindings());
+        });
+    }
+
+    private static void handleSosTaskList(S2CSosTaskListPacket packet, IPayloadContext context) {
+        context.enqueueWork(() -> {
+            SosTaskCache.set(packet.taskUids());
         });
     }
 }

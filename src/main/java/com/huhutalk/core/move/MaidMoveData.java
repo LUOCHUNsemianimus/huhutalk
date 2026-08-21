@@ -104,6 +104,15 @@ public final class MaidMoveData {
      * @param anchor 目标落点（由调用方按"围绕玩家四周"计算）
      */
     public static void orderSOS(EntityMaid maid, BlockPos anchor) {
+        orderSOS(maid, anchor, null);
+    }
+
+    /**
+     * SOS 紧急呼叫（可指定到点后的工作模式）。
+     * <p>行为同 {@link #orderSOS(EntityMaid, BlockPos)}，但到点后按 {@code taskUid}
+     * 切换工作模式（兼容弓兵等不同攻击方式，也支持任意工作模式）。为 null/空时默认近战 {@link #ATTACK_TASK}。
+     */
+    public static void orderSOS(EntityMaid maid, BlockPos anchor, String taskUid) {
         LivingEntity owner = maid.getOwner();
         if (owner == null || owner.isDeadOrDying() || owner.isSpectator()) {
             return;
@@ -113,10 +122,14 @@ public final class MaidMoveData {
         ResourceKey<Level> dim = owner.level().dimension();
         // 紧急呼叫直接传送，不依赖走路（内部已强制加载目标区块 + 安全落地）
         teleportMaid(maid, anchor, dim);
-        // 不守家：跟随玩家 + 切战斗模式保护（attack 任务会跟随主人作战）
+        // 不守家：跟随玩家 + 切工作模式保护（攻击类任务会跟随主人作战）
         maid.setHomeModeEnable(false);
         maid.clearRestriction();
-        TaskManager.findTask(ATTACK_TASK).ifPresent(maid::setTask);
+        if (taskUid == null || taskUid.isEmpty()) {
+            TaskManager.findTask(ATTACK_TASK).ifPresent(maid::setTask);
+        } else {
+            setTaskByUid(maid, taskUid);
+        }
     }
 
     // ============ 延迟队列（供 LLM 工具使用，脱离聊天回调上下文） ============

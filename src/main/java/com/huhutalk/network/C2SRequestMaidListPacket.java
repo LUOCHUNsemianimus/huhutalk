@@ -46,9 +46,9 @@ public record C2SRequestMaidListPacket() implements CustomPacketPayload {
                 }
 
                 context.reply(new S2CMaidListPacket(displayInfos));
-                // 一并下发该玩家的 SOS 绑定列表，供客户端显示"已绑定 SOS"徽标
+                // 一并下发该玩家的 SOS 绑定列表（含工作模式），供客户端显示徽标与模式选择
                 context.reply(new S2CSosBindPacket(
-                        SosBindData.get(serverPlayer.getServer()).getBound(serverPlayer.getUUID().toString())));
+                        SosBindData.get(serverPlayer.getServer()).toEntries(serverPlayer.getUUID().toString())));
             }
         });
     }

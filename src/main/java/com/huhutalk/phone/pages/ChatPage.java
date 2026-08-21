@@ -44,6 +44,18 @@ public class ChatPage implements IPhonePage {
     /** 是否正在等待女仆回复（用于"对方正在输入…"） */
     private boolean waitingResponse = false;
 
+    // ==================== 断句逐条显示（任务2） ====================
+    /** 每个短句之间的显示间隔（毫秒） */
+    private static final long SPLIT_INTERVAL_MS = 800;
+    /** 待逐条显示的短句队列（整段回复按逗号拆分后填充） */
+    private final List<String> splitQueue = new ArrayList<>();
+    /** 下一条要显示的短句在 splitQueue 中的下标 */
+    private int splitIndex = 0;
+    /** 上一条短句显示的时间戳（毫秒） */
+    private long lastSplitTime = 0;
+    /** 是否正在断句逐条显示（期间"对方正在输入…"保持） */
+    private boolean splitting = false;
+
     public ChatPage(String stableId, String maidName) {
         this.stableId = stableId;
         this.maidName = maidName;
@@ -86,6 +98,10 @@ public class ChatPage implements IPhonePage {
     /** 消息入离线队列：停止"输入中"并标红"!"（不显示提示文字） */
     public void onQueued() {
         this.waitingResponse = false;
+        // 入离线队列 → 女仆未响应，中断任何断句显示
+        this.splitting = false;
+        this.splitQueue.clear();
+        this.splitIndex = 0;
         markLastSentPending();
     }
 
@@ -123,10 +139,83 @@ public class ChatPage implements IPhonePage {
     }
 
     public void onReceiveMessage(String text, boolean isError) {
-        messages.add(new ChatMessage(text, false, isError, false));
         // 收到女仆回复/提示 → 视为送达，清除未送达标记
         clearPending();
-        this.waitingResponse = false;
+        // 错误/提示消息：整段显示，不拆句
+        if (isError) {
+            messages.add(new ChatMessage(text, false, true, false));
+            this.waitingResponse = false;
+            this.splitting = false;
+            this.splitQueue.clear();
+            this.splitIndex = 0;
+            return;
+        }
+        // 正常女仆回复：按逗号断句，逐条显示（仅在手机页面渲染层处理，历史存储仍存整段）
+        List<String> segments = splitByComma(text);
+        if (segments.size() <= 1) {
+            // 无逗号可拆 → 整段显示
+            messages.add(new ChatMessage(text, false, false, false));
+            this.waitingResponse = false;
+            this.splitting = false;
+            this.splitQueue.clear();
+            this.splitIndex = 0;
+            return;
+        }
+        // 进入断句模式：重置队列，第一条立即显示，之后每 0.8s 追加一条
+        splitQueue.clear();
+        splitQueue.addAll(segments);
+        splitIndex = 0;
+        splitting = true;
+        waitingResponse = true; // 断句期间保持"对方正在输入…"
+        // 立即追加第一条
+        messages.add(new ChatMessage(splitQueue.get(0), false, false, false));
+        splitIndex = 1;
+        lastSplitTime = System.currentTimeMillis();
+    }
+
+    /**
+     * 每帧推进断句显示：时间到则追加下一条短句；全部显示完才结束"正在输入…"。
+     * <p>在 render 每帧调用，与"对方正在输入…"标题耦合。
+     */
+    private void advanceSplitting() {
+        if (!splitting) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        // 逐条追加，直到间隔未到为止
+        while (splitIndex < splitQueue.size() && now - lastSplitTime >= SPLIT_INTERVAL_MS) {
+            messages.add(new ChatMessage(splitQueue.get(splitIndex), false, false, false));
+            splitIndex++;
+            lastSplitTime = now;
+        }
+        // 全部显示完 → 结束"正在输入…"
+        if (splitIndex >= splitQueue.size()) {
+            splitting = false;
+            waitingResponse = false;
+        }
+    }
+
+    /** 按逗号（中英文）断句，去除每段首尾空白与空段 */
+    private static List<String> splitByComma(String text) {
+        List<String> result = new ArrayList<>();
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if (c == ',' || c == '，') {
+                String seg = sb.toString().trim();
+                if (!seg.isEmpty()) {
+                    result.add(seg);
+                }
+                sb.setLength(0);
+            } else {
+                sb.append(c);
+            }
+        }
+        String tail = sb.toString().trim();
+        if (!tail.isEmpty()) {
+            result.add(tail);
+        }
+        return result;
     }
 
     private void sendCurrentMessage() {
@@ -261,6 +350,8 @@ public class ChatPage implements IPhonePage {
 
     @Override
     public void render(GuiGraphics g, int baseX, int baseY, float partialTick) {
+        // 每帧推进断句显示（任务2）
+        advanceSplitting();
         Font font = Minecraft.getInstance().font;
         int w = phoneW();
 

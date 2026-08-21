@@ -5,7 +5,6 @@ import com.github.tartaricacid.touhoulittlemaid.ai.manager.entity.MaidAIChatMana
 import com.github.tartaricacid.touhoulittlemaid.ai.manager.response.ResponseChat;
 import com.github.tartaricacid.touhoulittlemaid.ai.service.llm.LLMMessage;
 import com.huhutalk.network.S2CMaidChatErrorPacket;
-import com.huhutalk.network.S2CMaidChatResponsePacket;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -34,8 +33,8 @@ public class HuhuTalkChatCallback extends LLMCallback {
             if (getMaid().level() instanceof ServerLevel serverLevel) {
                 MinecraftServer server = serverLevel.getServer();
                 server.submit(() -> {
-                    PacketDistributor.sendToPlayer(sender,
-                            new S2CMaidChatResponsePacket(stableId, replyText));
+                    // 按玩家所在维度应用信号延迟：主世界满格 / 其余维度中等 / 地狱差
+                    SignalDelayManager.sendDelayedReply(sender, stableId, replyText);
                 });
             }
         }

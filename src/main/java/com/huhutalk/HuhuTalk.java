@@ -6,6 +6,7 @@ import com.huhutalk.core.status.MaidStatusTicker;
 import com.huhutalk.client.keybind.ModKeyBinds;
 import com.huhutalk.command.ModCommands;
 import com.huhutalk.core.event.FilmTransformHandler;
+import com.huhutalk.core.chat.SignalDelayManager;
 import com.huhutalk.core.load.TicketManager;
 import com.huhutalk.core.move.MaidMoveData;
 import com.huhutalk.init.HuhuTalkBlocks;
@@ -14,6 +15,8 @@ import com.huhutalk.init.HuhuTalkItems;
 import com.huhutalk.network.C2SMaidChatPacket;
 import com.huhutalk.network.C2SRequestMaidListPacket;
 import com.huhutalk.network.C2SRequestMaidStatusPacket;
+import com.huhutalk.network.C2SRequestSosTaskListPacket;
+import com.huhutalk.network.C2SSetSosModePacket;
 import com.huhutalk.network.C2SSOSPacket;
 import com.huhutalk.network.C2SSyncWaypointsPacket;
 import com.huhutalk.network.C2SToggleSosBindPacket;
@@ -51,6 +54,8 @@ public class HuhuTalk {
         NeoForge.EVENT_BUS.addListener(RegisterCommandsEvent.class, ModCommands::register);
         NeoForge.EVENT_BUS.addListener(ServerStoppingEvent.class, e -> MaidMoveData.restoreOnServerStop());
         NeoForge.EVENT_BUS.addListener(ServerTickEvent.Post.class, e -> MaidMoveData.tickMoveQueue());
+        // 信号延迟队列：每 tick 对账，到点投递延迟的 AI 聊天回复
+        NeoForge.EVENT_BUS.addListener(ServerTickEvent.Post.class, e -> SignalDelayManager.tick(e.getServer()));
 
         modEventBus.addListener(RegisterKeyMappingsEvent.class, ModKeyBinds::registerKeybinds);
         modEventBus.addListener(this::clientSetup);
@@ -76,6 +81,10 @@ public class HuhuTalk {
         registrar.playToServer(C2SSOSPacket.TYPE, C2SSOSPacket.STREAM_CODEC, C2SSOSPacket::handle);
         // 客户端 → 服务端：切换 SOS 绑定
         registrar.playToServer(C2SToggleSosBindPacket.TYPE, C2SToggleSosBindPacket.STREAM_CODEC, C2SToggleSosBindPacket::handle);
+        // 客户端 → 服务端：设置 SOS 绑定女仆的工作模式
+        registrar.playToServer(C2SSetSosModePacket.TYPE, C2SSetSosModePacket.STREAM_CODEC, C2SSetSosModePacket::handle);
+        // 客户端 → 服务端：请求可用工作模式列表（SOS 绑定页渲染用）
+        registrar.playToServer(C2SRequestSosTaskListPacket.TYPE, C2SRequestSosTaskListPacket.STREAM_CODEC, C2SRequestSosTaskListPacket::handle);
         // 客户端 → 服务端：同步 JourneyMap 路径点
         registrar.playToServer(C2SSyncWaypointsPacket.TYPE, C2SSyncWaypointsPacket.STREAM_CODEC, C2SSyncWaypointsPacket::handle);
         // 注意：S2C 包在 ClientPayloadSetup 中注册

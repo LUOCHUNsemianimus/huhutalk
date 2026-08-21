@@ -40,8 +40,8 @@ public record C2SToggleSosBindPacket(String stableId) implements CustomPacketPay
             String playerUuid = serverPlayer.getUUID().toString();
             SosBindData data = SosBindData.get(serverPlayer.getServer());
             boolean bound = data.toggle(playerUuid, packet.stableId());
-            // 回推最新绑定列表，客户端据此刷新 UI
-            context.reply(new S2CSosBindPacket(data.getBound(playerUuid)));
+            // 回推最新绑定列表（含工作模式），客户端据此刷新 UI
+            context.reply(new S2CSosBindPacket(data.toEntries(playerUuid)));
             if (bound) {
                 serverPlayer.sendSystemMessage(Component.literal("[HuhuTalk] ✅ 已把该女仆加入 SOS 呼叫"));
             } else {

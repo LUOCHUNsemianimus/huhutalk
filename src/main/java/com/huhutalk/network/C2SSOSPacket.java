@@ -53,8 +53,10 @@ public record C2SSOSPacket() implements CustomPacketPayload {
 
             int summoned = 0;
             int count = Math.min(bound.size(), SURROUND_OFFSETS.length);
+            SosBindData sos = SosBindData.get(serverPlayer.getServer());
             for (int i = 0; i < count; i++) {
-                EntityMaid maid = MaidStableIdHelper.findMaid(serverPlayer.getServer(), bound.get(i));
+                String stableId = bound.get(i);
+                EntityMaid maid = MaidStableIdHelper.findMaid(serverPlayer.getServer(), stableId);
                 // 只召已加载、存活、有手机、且仍归该玩家所有的女仆
                 if (maid == null || !maid.isAlive() || !PhoneHelper.hasPhone(maid)) {
                     continue;
@@ -64,7 +66,9 @@ public record C2SSOSPacket() implements CustomPacketPayload {
                 }
                 // 分配到玩家四周的不同落点
                 BlockPos anchor = base.offset(SURROUND_OFFSETS[i]);
-                MaidMoveData.orderSOS(maid, anchor);
+                // 按该女仆绑定的工作模式切换（默认近战，兼容弓兵等新增攻击模式）
+                String taskUid = sos.getTaskUid(ownerId.toString(), stableId);
+                MaidMoveData.orderSOS(maid, anchor, taskUid);
                 summoned++;
             }
             serverPlayer.sendSystemMessage(
