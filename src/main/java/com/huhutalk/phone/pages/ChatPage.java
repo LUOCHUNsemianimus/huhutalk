@@ -46,6 +46,10 @@ public class ChatPage implements IPhonePage {
     private int inputScrollOffset = 0;
     /** 是否正在等待女仆回复（用于"对方正在输入…"） */
     private boolean waitingResponse = false;
+    /** 消息区纵向滚动偏移（像素），滚轮上滚看更早消息 */
+    private int scrollOffset = 0;
+    /** 滚轮滚动速度（像素/格） */
+    private static final int SCROLL_SPEED = 12;
 
     // ==================== 断句逐条显示（任务2） ====================
     /** 每个字消耗的"打字"时间（毫秒），按字数线性计费 */
@@ -155,6 +159,8 @@ public class ChatPage implements IPhonePage {
     public void onReceiveMessage(String text, boolean isError) {
         // 收到女仆回复/提示 → 视为送达，清除未送达标记
         clearPending();
+        // 回到最新消息（让新回复可见）
+        scrollOffset = 0;
         // 错误/提示消息：整段显示，不拆句
         if (isError) {
             messages.add(new ChatMessage(text, false, true, false));
@@ -228,6 +234,7 @@ public class ChatPage implements IPhonePage {
         currentInput = "";
         cursorIndex = 0;
         inputScrollOffset = 0;
+        scrollOffset = 0; // 发送后回到最新消息，确保新消息可见
     }
 
     // ==================== 布局常量 ====================
@@ -373,8 +380,18 @@ public class ChatPage implements IPhonePage {
 
         int msgTop = baseY + navH();
         int msgBottom = inputTop(baseY) - 2;
+        int viewH = Math.max(0, msgBottom - msgTop);
+
+        // 计算消息区总高度，用于滚动钳制（底部锚定，滚上滚看更早消息）
+        int totalH = 0;
+        for (ChatMessage m : messages) {
+            totalH += bubbleHeight(font, m, w) + 4;
+        }
+        int maxScroll = Math.max(0, totalH - viewH);
+        scrollOffset = Math.max(0, Math.min(scrollOffset, maxScroll));
+
         g.enableScissor(baseX, msgTop, baseX + w, msgBottom);
-        int y = msgBottom - 4;
+        int y = msgBottom - 4 + scrollOffset;
         for (int i = messages.size() - 1; i >= 0 && y > msgTop; i--) {
             ChatMessage m = messages.get(i);
             int bubbleH = drawBubble(g, font, baseX, y, w, m);
@@ -453,6 +470,14 @@ public class ChatPage implements IPhonePage {
                     iconCenterY - font.lineHeight / 2 + 1,
                     0xFFFFFFFF);
         }
+    }
+
+    /** 计算某条消息气泡的高度（与 drawBubble 的换行/行高逻辑一致），用于滚动钳制 */
+    private int bubbleHeight(Font font, ChatMessage m, int phoneW) {
+        int maxTextW = phoneW - AVATAR * 2 - MARGIN * 4;
+        List<FormattedCharSequence> lines = font.split(Component.literal(m.text()), maxTextW);
+        int lineH = font.lineHeight + 1;
+        return lines.size() * lineH + 4;
     }
 
     private int drawBubble(GuiGraphics g, Font font, int baseX, int yBottom, int phoneW, ChatMessage m) {
@@ -624,6 +649,23 @@ public class ChatPage implements IPhonePage {
             return true;
         }
         return false;
+    }
+
+    @Override
+    public boolean mouseScrolled(double relX, double relY, double scrollDelta) {
+        Font font = Minecraft.getInstance().font;
+        int w = phoneW();
+        int msgTop = navH();
+        int msgBottom = inputTop(0) - 2;
+        int viewH = Math.max(0, msgBottom - msgTop);
+        int totalH = 0;
+        for (ChatMessage m : messages) {
+            totalH += bubbleHeight(font, m, w) + 4;
+        }
+        int maxScroll = Math.max(0, totalH - viewH);
+        // 滚轮上滚（scrollDelta>0）→ 增加偏移看更早消息；下滚回到最新
+        scrollOffset = Math.max(0, Math.min(scrollOffset + (int)(scrollDelta * SCROLL_SPEED), maxScroll));
+        return true;
     }
 
     private void activateInput() {
