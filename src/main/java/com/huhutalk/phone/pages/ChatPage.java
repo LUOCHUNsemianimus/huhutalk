@@ -8,6 +8,7 @@ import com.huhutalk.network.C2SRequestMaidStatusPacket;
 import com.huhutalk.phone.IPhonePage;
 import com.huhutalk.phone.PhoneInputScreen;
 import com.huhutalk.phone.PhoneOverlay;
+import com.huhutalk.util.MessageSplitter;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
@@ -27,6 +28,8 @@ public class ChatPage implements IPhonePage {
     private static final int AVATAR = 12;
     private static final int MARGIN = 6;
     private static final int MAX_VISIBLE_INPUT_LINES = 3;
+    /** 状态小字缩放（半字号，避免从标题栏凸出） */
+    private static final float STATUS_SCALE = 0.5f;
 
     private static final String[] BOTTOM_ICONS = {"语", "表", "图", "拍", "+"};
     private static final int[] BOTTOM_ICON_COLORS = {
@@ -65,7 +68,7 @@ public class ChatPage implements IPhonePage {
             // 历史中的女仆正常回复：按断句规则拆成多条气泡显示（与实时收到时一致），
             // 避免重新进入世界后整段回复被合成一个大块。错误/玩家消息保持原样。
             if (!e.isPlayer() && !e.isError()) {
-                List<String> segments = splitByComma(e.text());
+                List<String> segments = MessageSplitter.split(e.text());
                 for (String seg : segments) {
                     messages.add(new ChatMessage(seg, false, false, false));
                 }
@@ -162,7 +165,7 @@ public class ChatPage implements IPhonePage {
             return;
         }
         // 正常女仆回复：按逗号断句，逐条显示（仅在手机页面渲染层处理，历史存储仍存整段）
-        List<String> segments = splitByComma(text);
+        List<String> segments = MessageSplitter.split(text);
         if (segments.size() <= 1) {
             // 无逗号可拆 → 整段显示
             messages.add(new ChatMessage(text, false, false, false));
@@ -212,40 +215,6 @@ public class ChatPage implements IPhonePage {
     private static long typingMillis(String segment) {
         int len = segment == null ? 0 : segment.length();
         return Math.min(len * CHAR_TYPING_MS, MAX_TYPING_MS);
-    }
-
-    /**
-     * 断句：在逗号、感叹号、问号（含中英文）处断句。
-     * 逗号被消耗；感叹号/问号作为<b>短句末尾字符保留</b>（不删除）。
-     * 去除每段首尾空白与空段。
-     */
-    private static List<String> splitByComma(String text) {
-        List<String> result = new ArrayList<>();
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < text.length(); i++) {
-            char c = text.charAt(i);
-            if (c == ',' || c == '，') {
-                // 逗号：作为断点消耗掉，不保留
-                flushSegment(result, sb);
-            } else if (c == '!' || c == '！' || c == '?' || c == '？') {
-                // 感叹号/问号：作为句尾字符保留，且作为断点
-                sb.append(c);
-                flushSegment(result, sb);
-            } else {
-                sb.append(c);
-            }
-        }
-        flushSegment(result, sb);
-        return result;
-    }
-
-    /** 把当前累积的短句清理后加入结果（去首尾空白、去空段） */
-    private static void flushSegment(List<String> result, StringBuilder sb) {
-        String seg = sb.toString().trim();
-        if (!seg.isEmpty()) {
-            result.add(seg);
-        }
-        sb.setLength(0);
     }
 
     private void sendCurrentMessage() {
@@ -394,11 +363,11 @@ public class ChatPage implements IPhonePage {
         String titleText = waitingResponse ? "对方正在输入…" : maidName;
         int nameW = font.width(titleText);
         g.drawString(font, titleText, baseX + (w - nameW) / 2, baseY + 3, waitingResponse ? 0xFFAAAAAA : scheme.topBarText());
-        // 状态小字（女仆当前状态，低频推送）
+        // 状态小字（女仆当前状态，低频推送；半字号，避免从标题栏凸出）
         String status = MaidStatusCache.get(stableId);
         if (!waitingResponse && !status.isEmpty()) {
-            int sw = font.width(status);
-            g.drawString(font, status, baseX + (w - sw) / 2, baseY + 11, 0xFFAAAAAA);
+            drawScaledText(g, font, status, baseX + (w - font.width(status) * STATUS_SCALE) / 2f,
+                    baseY + 11, 0xFFAAAAAA, STATUS_SCALE);
         }
         g.drawString(font, "⚙", baseX + w - 16, baseY + 3, 0xFFFFFFFF);
 
@@ -537,6 +506,15 @@ public class ChatPage implements IPhonePage {
 
     private void drawAvatarPlaceholder(GuiGraphics g, int x, int y, boolean isPlayer) {
         g.fill(x, y, x + AVATAR, y + AVATAR, isPlayer ? 0xFF8888FF : 0xFFFF8888);
+    }
+
+    /** 以任意倍率绘制文本（无阴影）。坐标按 1/scale 换算，保证缩放后落在原位 */
+    private static void drawScaledText(GuiGraphics g, Font font, String text, float x, float y, int color, float scale) {
+        float inv = 1.0f / scale;
+        g.pose().pushPose();
+        g.pose().scale(scale, scale, 1.0f);
+        g.drawString(font, text, x * inv, y * inv, color, false);
+        g.pose().popPose();
     }
 
     private List<String> wrapToLines(Font font, String text, int maxWidth) {

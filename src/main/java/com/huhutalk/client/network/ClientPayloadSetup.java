@@ -10,6 +10,7 @@ import com.huhutalk.client.SosTaskCache;
 import com.huhutalk.network.S2CMaidChatErrorPacket;
 import com.huhutalk.network.S2CMaidChatInfoPacket;
 import com.huhutalk.network.S2CMaidChatResponsePacket;
+import com.huhutalk.network.S2CMaidDeliveredPacket;
 import com.huhutalk.network.S2CMaidListPacket;
 import com.huhutalk.network.S2CMaidStatusPacket;
 import com.huhutalk.network.S2CSosBindPacket;
@@ -17,6 +18,7 @@ import com.huhutalk.network.S2CSosTaskListPacket;
 import com.huhutalk.phone.IPhonePage;
 import com.huhutalk.phone.PhoneOverlay;
 import com.huhutalk.phone.pages.ChatPage;
+import com.huhutalk.util.MessageSplitter;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
@@ -31,6 +33,7 @@ public class ClientPayloadSetup {
         registrar.playToClient(S2CMaidChatResponsePacket.TYPE, S2CMaidChatResponsePacket.STREAM_CODEC, ClientPayloadSetup::handleResponse);
         registrar.playToClient(S2CMaidChatErrorPacket.TYPE, S2CMaidChatErrorPacket.STREAM_CODEC, ClientPayloadSetup::handleError);
         registrar.playToClient(S2CMaidChatInfoPacket.TYPE, S2CMaidChatInfoPacket.STREAM_CODEC, ClientPayloadSetup::handleInfo);
+        registrar.playToClient(S2CMaidDeliveredPacket.TYPE, S2CMaidDeliveredPacket.STREAM_CODEC, ClientPayloadSetup::handleDelivered);
         registrar.playToClient(S2CMaidListPacket.TYPE, S2CMaidListPacket.STREAM_CODEC, ClientPayloadSetup::handleMaidList);
         registrar.playToClient(S2CMaidStatusPacket.TYPE, S2CMaidStatusPacket.STREAM_CODEC, ClientPayloadSetup::handleStatus);
         registrar.playToClient(S2CSosBindPacket.TYPE, S2CSosBindPacket.STREAM_CODEC, ClientPayloadSetup::handleSosBind);
@@ -44,7 +47,8 @@ public class ClientPayloadSetup {
             if (current instanceof ChatPage chatPage && chatPage.getStableId().equals(packet.stableId())) {
                 chatPage.onReceiveMessage(packet.responseText(), false);
             } else {
-                NotificationManager.addUnread(packet.stableId());
+                // 未读按断句分段数累加，与聊天页逐条气泡显示保持一致
+                NotificationManager.addUnread(packet.stableId(), MessageSplitter.split(packet.responseText()).size());
             }
         });
     }
@@ -79,6 +83,17 @@ public class ClientPayloadSetup {
                 chatPage.onReceiveMessage("[提示] " + packet.info(), true);
             }
             NotificationManager.addUnread(packet.stableId());
+        });
+    }
+
+    private static void handleDelivered(S2CMaidDeliveredPacket packet, IPayloadContext context) {
+        context.enqueueWork(() -> {
+            // 离线消息已送达女仆 → 清除该女仆所有未送达"!"标记（不等女仆回复）
+            ChatHistoryStorage.clearPending(packet.stableId());
+            IPhonePage current = PhoneOverlay.getCurrentPage();
+            if (current instanceof ChatPage chatPage && chatPage.getStableId().equals(packet.stableId())) {
+                chatPage.clearPending();
+            }
         });
     }
 

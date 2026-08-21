@@ -27,6 +27,12 @@ public class NotificationManager {
         current().merge(stableId, 1, Integer::sum);
     }
 
+    /** 按指定条数累加未读（用于按断句分段计数的女仆回复） */
+    public static void addUnread(String stableId, int count) {
+        if (count <= 0) return;
+        current().merge(stableId, count, Integer::sum);
+    }
+
     public static int getUnread(String stableId) {
         return current().getOrDefault(stableId, 0);
     }

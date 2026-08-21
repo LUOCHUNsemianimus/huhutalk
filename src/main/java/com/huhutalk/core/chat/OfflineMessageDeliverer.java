@@ -3,8 +3,10 @@ package com.huhutalk.core.chat;
 import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
 import com.huhutalk.common.PhoneHelper;
 import com.huhutalk.common.StableIdProvider;
+import com.huhutalk.network.S2CMaidDeliveredPacket;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
+import net.neoforged.neoforge.network.PacketDistributor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -61,6 +63,8 @@ public class OfflineMessageDeliverer {
         if (maid.getOwner() instanceof ServerPlayer master && master.isAlive()) {
             String systemText = buildSystemText(pending, wasDead);
             LOGGER.info("[OfflineDeliverer] 主人 {} 在线，发起主动播报", master.getName().getString());
+            // 消息已从离线队列取出交给女仆 → 通知主人客户端清除未送达"!"（不等女仆回复）
+            PacketDistributor.sendToPlayer(master, new S2CMaidDeliveredPacket(stableId));
             MaidChatHandler.handleSystemInjection(master, stableId, systemText);
         } else {
             LOGGER.info("[OfflineDeliverer] 主人不在线，消息放回等待下次扫描");
