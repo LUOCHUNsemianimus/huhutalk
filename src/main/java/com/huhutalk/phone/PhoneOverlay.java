@@ -1,7 +1,12 @@
 package com.huhutalk.phone;
 
+import com.huhutalk.client.theme.ColorScheme;
+import com.huhutalk.client.theme.PhoneCaseRenderer;
+import com.huhutalk.client.theme.ThemeManager;
+import com.huhutalk.phone.pages.ContactListPage;
 import com.huhutalk.phone.pages.MainPage;
-import com.huhutalk.phone.pages.ChatPage;
+import com.huhutalk.phone.pages.MessageListPage;
+import com.huhutalk.phone.pages.SettingsPage;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
@@ -12,19 +17,33 @@ import org.lwjgl.glfw.GLFW;
 import java.util.Stack;
 
 /**
- * 手机悬浮窗总控（保留页面栈版）。
+ * 手机悬浮窗总控。
  * <p>
- * toggle() 关闭手机时不清空 pageStack，只隐藏。
- * 右键（button==1）= 返回上一页，主界面右键 = 关闭手机。
+ * <b>底部导航</b>：HuhuTalk 内容区底部固定三栏——消息 / 联系人 / 设置。
+ * 每次打开默认进入「消息」页。底部导航仅当处于顶层页（栈深 1）时显示；
+ * 点击女仆进入聊天/详情/信息页（内部页）后导航隐藏，返回后恢复。
  * <p>
- * <b>统一状态栏</b>：在手机顶部叠加渲染"时间 / 信号 / 电量"系统状态栏，
- * 页面整体下移 {@link #STATUSBAR_H} 高度（做加法，页面自身坐标不变），所有页面自动共享。
- * 事件坐标同样向下偏移，页面无感知。
+ * <b>页面栈</b>：栈底始终是当前 tab 的顶层页；内部页 push 叠上，pop 回到 tab 页。
+ * <p>
+ * <b>统一状态栏</b>：手机顶部叠加"时间 / 信号 / 电量"系统状态栏，页面整体下移
+ * {@link #STATUSBAR_H}，事件坐标同步偏移，页面无感知。
+ * <p>
+ * 手机壳在手机外围渲染（纯视觉）。右键 = 返回上一页 / 顶层页右键关闭手机。
  */
 public class PhoneOverlay {
+    /** 底部导航三栏 */
+    public enum Tab {
+        MESSAGE, CONTACT, SETTINGS
+    }
+
     private static boolean visible = false;
     private static boolean altDown = false;
+    /** 是否处于 HuhuTalk App 内容区（显示底部导航）；false = 桌面模式 */
+    private static boolean inChatApp = false;
+
+    /** 顶层 tab 页 + 内部页共用一个栈；栈底为当前 tab 的顶层页 */
     private static final Stack<IPhonePage> pageStack = new Stack<>();
+    private static Tab activeTab = Tab.MESSAGE;
 
     private static int phoneWidth;
     private static int phoneHeight;
@@ -32,32 +51,29 @@ public class PhoneOverlay {
 
     /** 统一状态栏高度（像素） */
     private static final int STATUSBAR_H = 16;
+    /** 底部导航高度（像素） */
+    private static final int BOTTOM_NAV_H = 24;
 
     private static float scale = 1.0f;
-    private static int gridColumns = 2;
-
-    private static boolean animating = false;
-    private static float animProgress = 0f;
-    private static IPhonePage pendingPage;
 
     // ==================== 访问器 ====================
 
     /** 手机内容区宽度 */
     public static int getPhoneWidth() { return phoneWidth; }
-    /** 手机内容区高度（不含状态栏），页面布局均基于此 */
+    /** 手机内容区高度（不含状态栏），页面布局基于此 */
     public static int getPhoneHeight() { return phoneHeight; }
-    /** 统一状态栏高度（像素），页面命中判定需要据此与渲染基准对齐 */
+    /** 统一状态栏高度（像素），页面命中判定据此与渲染基准对齐 */
     public static int getStatusBarHeight() { return STATUSBAR_H; }
+    /** 底部导航高度（像素） */
+    public static int getBottomNavHeight() { return BOTTOM_NAV_H; }
     public static int getPhoneX() { return phoneX; }
     public static int getPhoneY() { return phoneY; }
     public static float getScale() { return scale; }
-    public static int getGridColumns() { return gridColumns; }
+    /** 主界面 APP 网格列数（MainPage 占位用，固定 2） */
+    public static int getGridColumns() { return 2; }
 
     public static void setScale(float newScale) {
         scale = Math.max(0.5f, Math.min(2.0f, newScale));
-    }
-    public static void setGridColumns(int cols) {
-        gridColumns = Math.max(1, Math.min(5, cols));
     }
 
     // ==================== 状态控制 ====================
@@ -76,25 +92,29 @@ public class PhoneOverlay {
         updateCursorMode();
     }
 
-    /** 隐藏手机：保留页面栈，只关闭透明输入屏幕并保存草稿 */
     private static void hide() {
         visible = false;
-        if (!pageStack.isEmpty() && pageStack.peek() instanceof ChatPage chatPage) {
-            chatPage.onPageHide();
-        }
         if (Minecraft.getInstance().screen instanceof PhoneInputScreen) {
             Minecraft.getInstance().setScreen(null);
         }
     }
 
-    /** 显示手机：栈为空才回主界面 */
+    /** 显示手机：每次打开都进入手机桌面（MainPage），不显示底部导航 */
     private static void show() {
         visible = true;
-        if (pageStack.isEmpty()) {
-            IPhonePage main = new MainPage();
-            pageStack.push(main);
-            main.onOpen();
-        }
+        inChatApp = false;
+        pageStack.clear();
+        activeTab = Tab.MESSAGE;
+        pageStack.push(new MainPage());
+    }
+
+    /** 从桌面进入 HuhuTalk App 内容区（默认消息 tab，显示底部导航） */
+    public static void openChatApp() {
+        if (!visible) return;
+        inChatApp = true;
+        activeTab = Tab.MESSAGE;
+        pageStack.clear();
+        pageStack.push(new MessageListPage());
     }
 
     public static boolean isVisible() { return visible; }
@@ -103,6 +123,28 @@ public class PhoneOverlay {
         return pageStack.isEmpty() ? null : pageStack.peek();
     }
 
+    /** 当前是否处于 HuhuTalk App 内的内部页（隐藏底部导航） */
+    public static boolean isInSubPage() {
+        return inChatApp && pageStack.size() > 1;
+    }
+
+    public static Tab getActiveTab() { return activeTab; }
+
+    /** 是否处于 HuhuTalk App 内容区 */
+    public static boolean isInChatApp() { return inChatApp; }
+
+    /** 切换到某个底部 tab（仅 HuhuTalk App 内有效） */
+    public static void switchTab(Tab tab) {
+        if (!inChatApp) return;
+        if (activeTab == tab && pageStack.size() == 1) {
+            return;
+        }
+        activeTab = tab;
+        pageStack.clear();
+        pageStack.push(createTopPage(tab));
+    }
+
+    /** 进入内部页（聊天/详情/信息设置），叠在当前页之上 */
     public static void pushPage(IPhonePage page) {
         if (!visible) return;
         if (!pageStack.isEmpty()) {
@@ -112,13 +154,23 @@ public class PhoneOverlay {
         page.onOpen();
     }
 
+    /** 返回上一页；HuhuTalk App 内顶层页右键返回桌面 */
     public static void popPage() {
-        if (pageStack.size() <= 1) return;
-        IPhonePage closed = pageStack.pop();
-        closed.onClose();
-        if (!pageStack.isEmpty()) {
-            pageStack.peek().onOpen();
+        if (pageStack.isEmpty()) return;
+        if (pageStack.size() > 1) {
+            IPhonePage closed = pageStack.pop();
+            closed.onClose();
+            if (!pageStack.isEmpty()) {
+                pageStack.peek().onOpen();
+            }
+        } else if (inChatApp) {
+            // App 顶层页：返回桌面
+            inChatApp = false;
+            activeTab = Tab.MESSAGE;
+            pageStack.clear();
+            pageStack.push(new MainPage());
         }
+        // 桌面模式栈深 1：不弹出（返回交给右键关闭手机）
     }
 
     public static void setAltDown(boolean down) {
@@ -135,6 +187,15 @@ public class PhoneOverlay {
         }
     }
 
+    /** 创建某个 tab 的顶层页 */
+    private static IPhonePage createTopPage(Tab tab) {
+        return switch (tab) {
+            case MESSAGE -> new MessageListPage();
+            case CONTACT -> new ContactListPage();
+            case SETTINGS -> new SettingsPage();
+        };
+    }
+
     // ==================== 渲染 ====================
 
     public static void render(GuiGraphics graphics, float partialTick) {
@@ -146,81 +207,61 @@ public class PhoneOverlay {
 
         int baseW = screenW / 3;
         phoneWidth = (int)(baseW * scale);
-        // 手机总高度 = 内容区 + 状态栏，二者之和不超过屏高
         int totalHeight = Math.min((int)(phoneWidth * 1.6), screenH - 20);
         phoneHeight = Math.max(20, totalHeight - STATUSBAR_H);
-
         phoneX = screenW - phoneWidth - 10;
         phoneY = screenH - totalHeight - 10;
+
+        // 手机壳（纯视觉，包住整个手机）
+        PhoneCaseRenderer.renderCase(graphics, phoneX, phoneY, phoneWidth, totalHeight);
 
         // 手机背景（含状态栏区域）
         graphics.fill(phoneX, phoneY, phoneX + phoneWidth, phoneY + totalHeight, 0xEE111111);
         graphics.fill(phoneX, phoneY, phoneX + phoneWidth, phoneY + 1, 0xFFFFFFFF);
 
-        // 统一状态栏（时间 / 信号 / 电量）
+        // 统一状态栏
         renderStatusBar(graphics, phoneX, phoneY, phoneWidth);
 
-        // 页面内容区：从状态栏下方开始（baseY 下移 STATUSBAR_H）
+        // 当前页面内容区：从状态栏下方开始
         IPhonePage page = getCurrentPage();
         if (page != null) {
             page.render(graphics, phoneX, phoneY + STATUSBAR_H, partialTick);
         }
+
+        // 底部导航（仅 HuhuTalk App 内且处于顶层页时显示）
+        if (inChatApp && !isInSubPage()) {
+            renderBottomNav(graphics, phoneX, phoneY + totalHeight - BOTTOM_NAV_H, phoneWidth);
+        }
     }
 
-    /**
-     * 统一状态栏：左侧时间、右侧信号（三竖杠）+ 电量（满格装饰）+ 关闭按钮。
-     * 信号强度按玩家所在维度判定（主世界满格 / 其他维度中等 / 地狱差），与信号延迟一致。
-     */
+    /** 统一状态栏：时间 / 信号 / 电量 / 关闭 */
     private static void renderStatusBar(GuiGraphics graphics, int baseX, int baseY, int w) {
         Font font = Minecraft.getInstance().font;
-
-        // 状态栏背景
         graphics.fill(baseX, baseY, baseX + w, baseY + STATUSBAR_H, 0xFF222222);
-
-        // 左侧：时间
         graphics.drawString(font, "12:00", baseX + 4, baseY + 3, 0xFFFFFFFF);
-
-        // 右侧：信号条 + 电量 + 关闭
         int rightX = baseX + w;
-
-        // 关闭按钮（最右）
         graphics.drawString(font, "X", rightX - 10, baseY + 3, 0xFFFF0000);
-
-        // 电量（满格装饰）：电池框 + 满格填充
+        // 电量（满格装饰）
         int batW = 18, batH = 9;
-        int batX = rightX - 30;
-        int batY = baseY + (STATUSBAR_H - batH) / 2;
+        int batX = rightX - 30, batY = baseY + (STATUSBAR_H - batH) / 2;
         graphics.fill(batX, batY, batX + batW, batY + batH, 0xFF000000);
         graphics.fill(batX + batW, batY + 2, batX + batW + 2, batY + batH - 2, 0xFF888888);
         graphics.fill(batX + 1, batY + 1, batX + batW - 1, batY + batH - 1, 0xFF00FF00);
-
-        // 信号：三竖杠（右高左低），按维度染色
+        // 信号三竖杠
         renderSignalBars(graphics, rightX - 52, baseY, STATUSBAR_H);
     }
 
-    /**
-     * 渲染三竖杠信号条（左低右高）。强度三档：
-     * <ul>
-     *   <li>满格（主世界）：三杠全绿</li>
-     *   <li>中等（其他维度）：第一杠灰、后两杠黄</li>
-     *   <li>差（地狱）：前两杠灰、最后一杠红</li>
-     * </ul>
-     */
     private static void renderSignalBars(GuiGraphics graphics, int startX, int baseY, int barAreaH) {
-        // 每杠宽 3、间距 2；高度从低到高递增（左低右高）
         int[] heights = {6, 9, 12};
-        int color;
         ResourceKey<Level> dim = signalDimension();
         for (int i = 0; i < 3; i++) {
             int x = startX + i * 5;
             int h = heights[i];
             int y = baseY + barAreaH - h;
-            color = signalBarColor(dim, i);
-            graphics.fill(x, y, x + 3, y + h, color);
+            graphics.fill(x, y, x + 3, y + h, signalBarColor(dim, i));
         }
     }
 
-    /** 玩家当前所在维度（客户端直接判定）；无玩家时按满格处理 */
     private static ResourceKey<Level> signalDimension() {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player != null && mc.player.level() != null) {
@@ -229,19 +270,38 @@ public class PhoneOverlay {
         return Level.OVERWORLD;
     }
 
-    /** 某根信号杠的颜色：0 为最左（最低），2 为最右（最高） */
     private static int signalBarColor(ResourceKey<Level> dim, int barIndex) {
         boolean full = dim.equals(Level.OVERWORLD);
         boolean nether = dim.equals(Level.NETHER);
         if (full) {
-            return 0xFF00FF00; // 满格：全绿
+            return 0xFF00FF00;
         }
         if (nether) {
-            // 差：前两灰、最后一红
             return barIndex < 2 ? 0xFF888888 : 0xFFFF0000;
         }
-        // 中等：第一灰、后两黄
         return barIndex == 0 ? 0xFF888888 : 0xFFFFFF00;
+    }
+
+    /** 底部导航：消息 / 联系人 / 设置（高亮粉底 + 白字，选中高亮） */
+    private static void renderBottomNav(GuiGraphics graphics, int baseX, int baseY, int w) {
+        ColorScheme scheme = ThemeManager.getActive();
+        Font font = Minecraft.getInstance().font;
+        int h = BOTTOM_NAV_H;
+        graphics.fill(baseX, baseY, baseX + w, baseY + h, scheme.topBarBg());
+
+        String[] labels = {"消息", "联系人", "设置"};
+        int slotW = w / 3;
+        for (int i = 0; i < 3; i++) {
+            boolean active = (i == activeTab.ordinal());
+            int centerX = baseX + i * slotW + slotW / 2;
+            int centerY = baseY + h / 2;
+            int color = active ? scheme.topBarText() : scheme.navText();
+            // 选中项加高亮底
+            if (active) {
+                graphics.fill(baseX + i * slotW + 3, baseY + 3, baseX + i * slotW + slotW - 3, baseY + h - 3, 0x33FFFFFF);
+            }
+            graphics.drawCenteredString(font, labels[i], centerX, centerY - font.lineHeight / 2, color);
+        }
     }
 
     // ==================== 鼠标事件转发 ====================
@@ -253,26 +313,34 @@ public class PhoneOverlay {
         double relX = screenX - phoneX;
         double relY = screenY - phoneY;
         if (relX < 0 || relY < 0 || relX >= phoneWidth || relY >= phoneHeight + STATUSBAR_H) {
-            return false; // 手机外点击不拦截
+            return false;
         }
 
         // 状态栏区域：只处理关闭按钮
         if (relY < STATUSBAR_H) {
-            int w = phoneWidth;
-            // 关闭按钮（右上角 X）
-            if (relX >= w - 14 && relX <= w && relY >= 0 && relY <= STATUSBAR_H) {
-                if (pageStack.size() <= 1) {
-                    hide();
-                    updateCursorMode();
-                }
+            if (relX >= phoneWidth - 14 && relX <= phoneWidth) {
+                hide();
+                updateCursorMode();
             }
-            return true; // 状态栏其余区域不穿透给页面
+            return true;
         }
 
-        // ✅ 右键 = 返回上一页 / 主界面右键关闭手机
+        // 底部导航区域（仅 HuhuTalk App 内顶层页显示时）
+        if (inChatApp && !isInSubPage() && relY >= phoneHeight + STATUSBAR_H - BOTTOM_NAV_H) {
+            int slotW = phoneWidth / 3;
+            int idx = (int)(relX / slotW);
+            if (idx >= 0 && idx < 3) {
+                switchTab(Tab.values()[idx]);
+            }
+            return true;
+        }
+
+        // 右键：App 内部页返回上一页；App 顶层页返回桌面；桌面关闭手机
         if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
-            if (pageStack.size() > 1) {
+            if (isInSubPage()) {
                 popPage();
+            } else if (inChatApp) {
+                popPage(); // 顶层页 → 返回桌面
             } else {
                 hide();
                 updateCursorMode();
@@ -282,7 +350,6 @@ public class PhoneOverlay {
 
         IPhonePage page = getCurrentPage();
         if (page == null) return true;
-        // 页面事件坐标相对内容区：向下偏移状态栏高度
         return page.mouseClicked(relX, relY - STATUSBAR_H, button, action);
     }
 
@@ -293,7 +360,6 @@ public class PhoneOverlay {
         double relX = screenX - phoneX;
         double relY = screenY - phoneY;
         if (relX >= 0 && relY >= 0 && relX < phoneWidth && relY < phoneHeight + STATUSBAR_H) {
-            // 状态栏区域不响应滚动
             if (relY < STATUSBAR_H) {
                 return true;
             }
@@ -302,29 +368,12 @@ public class PhoneOverlay {
         return true;
     }
 
-    // ==================== 动画 tick（预留） ====================
-    public static void tickAnimation() {
-        if (animating) {
-            animProgress += 0.15f;
-            if (animProgress >= 1.0f) {
-                animProgress = 1.0f;
-                animating = false;
-                if (pendingPage != null) {
-                    if (!pageStack.isEmpty()) pageStack.peek().onClose();
-                    pageStack.push(pendingPage);
-                    pendingPage.onOpen();
-                    pendingPage = null;
-                }
-            }
-        }
-    }
-
     /** 进入新世界时调用：关闭手机、清空页面栈 */
     public static void resetForNewWorld() {
         visible = false;
-        while (!pageStack.isEmpty()) {
-            pageStack.pop().onClose();
-        }
+        inChatApp = false;
+        pageStack.clear();
+        activeTab = Tab.MESSAGE;
         if (Minecraft.getInstance().screen instanceof PhoneInputScreen) {
             Minecraft.getInstance().setScreen(null);
         }

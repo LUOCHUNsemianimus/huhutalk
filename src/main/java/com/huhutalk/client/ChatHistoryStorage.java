@@ -59,6 +59,43 @@ public class ChatHistoryStorage {
         saveToDisk(currentWorldKey); // 写入即落盘
     }
 
+    /** 有会话记录的所有女仆 stableId（消息列表页用） */
+    public static List<String> getConversationIds() {
+        return new ArrayList<>(currentHistory().keySet());
+    }
+
+    /** 某女仆是否有任何会话记录 */
+    public static boolean hasConversation(String stableId) {
+        List<ChatMessageEntry> list = currentHistory().get(stableId);
+        return list != null && !list.isEmpty();
+    }
+
+    /** 删除某女仆的整段会话记录（消息列表"删除会话"用）。返回是否删除成功 */
+    public static boolean deleteConversation(String stableId) {
+        List<ChatMessageEntry> removed = currentHistory().remove(stableId);
+        currentDrafts().remove(stableId); // 一并清除草稿
+        if (removed != null && !removed.isEmpty()) {
+            saveToDisk(currentWorldKey);
+            return true;
+        }
+        return false;
+    }
+
+    /** 某会话的最后一条消息文本（无会话返回空串） */
+    public static String getLastMessage(String stableId) {
+        List<ChatMessageEntry> list = currentHistory().get(stableId);
+        if (list == null || list.isEmpty()) {
+            return "";
+        }
+        return list.get(list.size() - 1).text();
+    }
+
+    /** 某会话的消息条数（无会话返回 0） */
+    public static int getConversationCount(String stableId) {
+        List<ChatMessageEntry> list = currentHistory().get(stableId);
+        return list == null ? 0 : list.size();
+    }
+
     /** 把最后一条"玩家发送"的消息标为未送达（入离线队列），供红"!"显示。返回是否命中 */
     public static boolean markLastSentPending(String stableId) {
         List<ChatMessageEntry> list = currentHistory().get(stableId);

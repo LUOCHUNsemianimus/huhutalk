@@ -1,0 +1,159 @@
+package com.huhutalk.phone.pages;
+
+import com.huhutalk.client.settings.HuhuTalkClientSettings;
+import com.huhutalk.client.theme.ColorScheme;
+import com.huhutalk.client.theme.PhoneCaseRenderer;
+import com.huhutalk.client.theme.ThemeManager;
+import com.huhutalk.phone.IPhonePage;
+import com.huhutalk.phone.PhoneOverlay;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
+import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.world.item.ItemStack;
+import org.lwjgl.glfw.GLFW;
+
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
+
+/**
+ * 手机壳方块选择页（从设置页进入）。
+ * <p>
+ * 列出玩家背包里的所有<b>完整方块</b>（非完整方块不允许，用 {@link PhoneCaseRenderer#isFullBlockItem} 过滤），
+ * 点击某个方块即设置为手机壳贴图（存 {@link HuhuTalkClientSettings#setPhoneCaseBlock}），实时生效。
+ * 纯视觉，不影响内部布局。
+ */
+public class PhoneCasePickerPage implements IPhonePage {
+    private static final int NAV_H_RATIO = 8;
+    private static final int ITEM_H = 34;
+    /** 每行方块数 */
+    private static final int COLS = 4;
+
+    private final List<String> blocks = new ArrayList<>();
+    private int scrollOffset = 0;
+
+    public PhoneCasePickerPage() {
+        refreshFromInventory();
+    }
+
+    /** 从背包收集完整方块的 block id（去重，保持出现顺序） */
+    private void refreshFromInventory() {
+        blocks.clear();
+        Set<String> seen = new HashSet<>();
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player != null) {
+            for (ItemStack stack : mc.player.getInventory().items) {
+                if (!PhoneCaseRenderer.isFullBlockItem(stack)) {
+                    continue;
+                }
+                String id = BuiltInRegistries.ITEM.getKey(stack.getItem()).toString();
+                if (seen.add(id)) {
+                    blocks.add(id);
+                }
+            }
+        }
+    }
+
+    @Override
+    public void render(GuiGraphics g, int baseX, int baseY, float partialTick) {
+        int w = PhoneOverlay.getPhoneWidth();
+        int h = PhoneOverlay.getPhoneHeight();
+        int navH = (int)(h * NAV_H_RATIO / 100.0);
+        Font font = Minecraft.getInstance().font;
+        ColorScheme scheme = ThemeManager.getActive();
+
+        // 页面底色 + 标题栏
+        g.fill(baseX, baseY, baseX + w, baseY + h, scheme.pageBg());
+        g.fill(baseX, baseY, baseX + w, baseY + navH, scheme.topBarBg());
+        g.drawString(font, "< 返回", baseX + 4, baseY + 3, scheme.topBarText());
+        int titleW = font.width("选择手机壳方块");
+        g.drawString(font, "选择手机壳方块", baseX + (w - titleW) / 2, baseY + 3, scheme.topBarText());
+        g.drawString(font, "当前：" + currentDisplay(), baseX + 4, baseY + navH + 4, 0xFF333333);
+
+        int gridTop = baseY + navH + 16;
+        int gridBottom = baseY + h - 4;
+        g.enableScissor(baseX, gridTop, baseX + w, gridBottom);
+
+        int margin = 6;
+        int cellW = (w - margin * (COLS + 1)) / COLS;
+        int startY = gridTop - scrollOffset;
+        for (int i = 0; i < blocks.size(); i++) {
+            int row = i / COLS;
+            int col = i % COLS;
+            int x = baseX + margin + col * (cellW + margin);
+            int y = startY + row * (ITEM_H + margin);
+            String id = blocks.get(i);
+            // 当前选中高亮
+            boolean selected = id.equals(HuhuTalkClientSettings.getPhoneCaseBlock());
+            g.fill(x, y, x + cellW, y + ITEM_H, selected ? scheme.accentSoftActive() : 0x33FFFFFF);
+            // 渲染方块物品图标
+            net.minecraft.world.item.Item item = BuiltInRegistries.ITEM.get(net.minecraft.resources.ResourceLocation.parse(id));
+            if (item != null) {
+                g.renderItem(new ItemStack(item), x + 3, y + 3);
+            }
+            // 短名
+            String shortName = shortName(id);
+            g.drawString(font, shortName, x + 22, y + (ITEM_H - font.lineHeight) / 2 + 1, 0xFF333333);
+        }
+        g.disableScissor();
+    }
+
+    private String currentDisplay() {
+        String id = HuhuTalkClientSettings.getPhoneCaseBlock();
+        return id.isBlank() ? "默认" : shortName(id);
+    }
+
+    private String shortName(String id) {
+        int idx = id.indexOf(':');
+        return idx >= 0 ? id.substring(idx + 1) : id;
+    }
+
+    @Override
+    public boolean mouseClicked(double relX, double relY, int button, int action) {
+        if (action != GLFW.GLFW_PRESS) return false;
+        int w = PhoneOverlay.getPhoneWidth();
+        int h = PhoneOverlay.getPhoneHeight();
+        int navH = (int)(h * NAV_H_RATIO / 100.0);
+
+        if (relX >= 0 && relX <= 60 && relY >= 0 && relY <= navH) {
+            PhoneOverlay.popPage();
+            return true;
+        }
+
+        // 点击方块网格
+        int gridTop = navH + 16;
+        int margin = 6;
+        int cellW = (w - margin * (COLS + 1)) / COLS;
+        int row = (int)((relY - gridTop + scrollOffset) / (ITEM_H + margin));
+        int col = (int)((relX - margin) / (cellW + margin));
+        if (relX < margin || relX > w - margin) {
+            return false;
+        }
+        int idx = row * COLS + col;
+        if (idx >= 0 && idx < blocks.size()) {
+            String id = blocks.get(idx);
+            if (HuhuTalkClientSettings.getPhoneCaseBlock().equals(id)) {
+                HuhuTalkClientSettings.setPhoneCaseBlock(""); // 点已选中的 → 恢复默认
+            } else {
+                HuhuTalkClientSettings.setPhoneCaseBlock(id);
+            }
+            return true;
+        }
+        return false;
+    }
+
+    @Override
+    public boolean mouseScrolled(double relX, double relY, double scrollDelta) {
+        int totalRows = (blocks.size() + COLS - 1) / COLS;
+        int visibleRows = Math.max(1, (int)(PhoneOverlay.getPhoneHeight() / (ITEM_H + margin())));
+        int maxScroll = Math.max(0, totalRows * (ITEM_H + margin()) - visibleRows * (ITEM_H + margin()));
+        scrollOffset = Math.max(0, Math.min(scrollOffset + (int)(scrollDelta * (ITEM_H + margin())), maxScroll));
+        return true;
+    }
+
+    private int margin() {
+        return 6;
+    }
+}

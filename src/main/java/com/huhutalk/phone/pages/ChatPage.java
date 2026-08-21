@@ -385,12 +385,15 @@ public class ChatPage implements IPhonePage {
         Font font = Minecraft.getInstance().font;
         int w = phoneW();
 
-        g.fill(baseX, baseY, baseX + w, baseY + navH(), 0xFF333333);
-        g.drawString(font, "< 返回", baseX + 4, baseY + 3, 0xFFFFFFFF);
+        com.huhutalk.client.theme.ColorScheme scheme = com.huhutalk.client.theme.ThemeManager.getActive();
+        // 页面底色（浅珍珠粉），覆盖黑色手机底层
+        g.fill(baseX, baseY + navH(), baseX + w, baseY + phoneH(), scheme.pageBg());
+        g.fill(baseX, baseY, baseX + w, baseY + navH(), scheme.topBarBg());
+        g.drawString(font, "< 返回", baseX + 4, baseY + 3, scheme.topBarText());
         // 等待女仆回复时显示"对方正在输入…"，否则显示女仆名字
         String titleText = waitingResponse ? "对方正在输入…" : maidName;
         int nameW = font.width(titleText);
-        g.drawString(font, titleText, baseX + (w - nameW) / 2, baseY + 3, waitingResponse ? 0xFFAAAAAA : 0xFFFFFFFF);
+        g.drawString(font, titleText, baseX + (w - nameW) / 2, baseY + 3, waitingResponse ? 0xFFAAAAAA : scheme.topBarText());
         // 状态小字（女仆当前状态，低频推送）
         String status = MaidStatusCache.get(stableId);
         if (!waitingResponse && !status.isEmpty()) {
@@ -486,8 +489,11 @@ public class ChatPage implements IPhonePage {
     private int drawBubble(GuiGraphics g, Font font, int baseX, int yBottom, int phoneW, ChatMessage m) {
         boolean isError = m.isError();
         boolean isPlayer = m.isPlayer();
-        int textColor = isPlayer ? 0xFFFFFFFF : 0xFF333333;
-        int bgColor = isError ? 0xFFFFCCCC : (isPlayer ? 0xFF0066CC : 0xFFEFEFEF);
+        com.huhutalk.client.theme.ColorScheme scheme = com.huhutalk.client.theme.ThemeManager.getActive();
+        // 玩家气泡：蓝底白字；女仆气泡：深青底白字；错误气泡：中性浅红
+        int textColor = isPlayer ? scheme.playerText() : (isError ? scheme.errorText() : scheme.maidText());
+        int bgColor = isError ? scheme.errorBubble()
+                : (isPlayer ? scheme.playerBubble() : scheme.maidBubble());
 
         int maxTextW = phoneW - AVATAR * 2 - MARGIN * 4;
         List<FormattedCharSequence> lines = font.split(Component.literal(m.text()), maxTextW);
@@ -613,7 +619,7 @@ public class ChatPage implements IPhonePage {
         }
 
         if (relX >= w - 24 && relX <= w && relY >= 0 && relY <= navH()) {
-            PhoneOverlay.pushPage(new MaidSettingsPage(stableId, maidName));
+            PhoneOverlay.pushPage(new MaidInfoPage(stableId, maidName));
             return true;
         }
 

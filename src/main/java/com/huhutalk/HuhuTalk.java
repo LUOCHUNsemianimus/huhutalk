@@ -13,6 +13,7 @@ import com.huhutalk.init.HuhuTalkBlocks;
 import com.huhutalk.init.HuhuTalkCreativeTabs;
 import com.huhutalk.init.HuhuTalkItems;
 import com.huhutalk.network.C2SMaidChatPacket;
+import com.huhutalk.network.C2SDeleteContactPacket;
 import com.huhutalk.network.C2SRequestMaidListPacket;
 import com.huhutalk.network.C2SRequestMaidStatusPacket;
 import com.huhutalk.network.C2SRequestSosTaskListPacket;
@@ -73,6 +74,8 @@ public class HuhuTalk {
         var registrar = event.registrar(MOD_ID);
         // 客户端 → 服务端：聊天消息
         registrar.playToServer(C2SMaidChatPacket.TYPE, C2SMaidChatPacket.STREAM_CODEC, C2SMaidChatPacket::handle);
+        // 客户端 → 服务端：删除联系人
+        registrar.playToServer(C2SDeleteContactPacket.TYPE, C2SDeleteContactPacket.STREAM_CODEC, C2SDeleteContactPacket::handle);
         // 客户端 → 服务端：请求女仆列表
         registrar.playToServer(C2SRequestMaidListPacket.TYPE, C2SRequestMaidListPacket.STREAM_CODEC, C2SRequestMaidListPacket::handle);
         // 客户端 → 服务端：按需请求女仆状态

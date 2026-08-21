@@ -98,6 +98,15 @@ public class MaidContactBook extends SavedData {
         return entries.get(stableId);
     }
 
+    /** 删除某联系人（仅当确实属于该玩家时由调用方校验）。返回是否删除成功 */
+    public boolean remove(String stableId) {
+        if (entries.remove(stableId) != null) {
+            setDirty();
+            return true;
+        }
+        return false;
+    }
+
     /** 取或建联系人条目（不存在则创建，默认 OFFLINE）。供票据管理器记录坐标/手机档位使用。 */
     public MaidContactEntry getOrCreateEntry(String stableId, String name, String ownerUuid) {
         MaidContactEntry entry = entries.get(stableId);

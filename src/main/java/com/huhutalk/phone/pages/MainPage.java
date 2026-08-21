@@ -138,6 +138,11 @@ public class MainPage implements IPhonePage {
                     sendSos();
                     return true;
                 }
+                // TALK：进入 HuhuTalk App 内容区（消息页 + 底部导航）
+                if ("TALK".equals(app.label)) {
+                    PhoneOverlay.openChatApp();
+                    return true;
+                }
                 if (app.implemented && app.pageFactory != null) {
                     PhoneOverlay.pushPage(app.pageFactory.get());
                 } else {

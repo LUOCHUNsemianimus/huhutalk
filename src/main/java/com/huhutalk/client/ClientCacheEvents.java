@@ -1,6 +1,8 @@
 package com.huhutalk.client;
 
 import com.huhutalk.HuhuTalk;
+import com.huhutalk.client.settings.HuhuTalkClientSettings;
+import com.huhutalk.client.theme.ThemeManager;
 import com.huhutalk.phone.PhoneOverlay;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
@@ -10,7 +12,7 @@ import net.neoforged.neoforge.client.event.ClientTickEvent;
 
 /**
  * 客户端世界切换处理。
- * - 进入世界：切换数据源（保存旧世界、加载新世界）、清空缓存、重置手机
+ * - 进入世界：切换数据源（保存旧世界、加载新世界）、清空缓存、加载全局设置与主题、重置手机
  * - 退出世界：显式落盘聊天历史
  */
 @EventBusSubscriber(modid = HuhuTalk.MOD_ID, value = Dist.CLIENT)
@@ -18,6 +20,9 @@ public class ClientCacheEvents {
 
     @SubscribeEvent
     public static void onPlayerLogin(ClientPlayerNetworkEvent.LoggingIn event) {
+        // 全局设置/主题（本地，跨世界共享）
+        HuhuTalkClientSettings.load();
+        ThemeManager.loadFromSettings();
         String worldKey = WorldKeyHelper.getCurrentWorldKey(event.getPlayer());
         ChatHistoryStorage.onWorldChanged(worldKey); // 内部会保存旧世界 + 加载新世界
         NotificationManager.onWorldChanged(worldKey);
