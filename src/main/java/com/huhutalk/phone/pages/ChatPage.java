@@ -62,7 +62,16 @@ public class ChatPage implements IPhonePage {
         this.stableId = stableId;
         this.maidName = maidName;
         for (ChatHistoryStorage.ChatMessageEntry e : ChatHistoryStorage.getMessages(stableId)) {
-            messages.add(new ChatMessage(e.text(), e.isPlayer(), e.isError(), e.pending()));
+            // 历史中的女仆正常回复：按断句规则拆成多条气泡显示（与实时收到时一致），
+            // 避免重新进入世界后整段回复被合成一个大块。错误/玩家消息保持原样。
+            if (!e.isPlayer() && !e.isError()) {
+                List<String> segments = splitByComma(e.text());
+                for (String seg : segments) {
+                    messages.add(new ChatMessage(seg, false, false, false));
+                }
+            } else {
+                messages.add(new ChatMessage(e.text(), e.isPlayer(), e.isError(), e.pending()));
+            }
         }
         this.currentInput = ChatHistoryStorage.getDraft(stableId);
         this.cursorIndex = currentInput.length();
