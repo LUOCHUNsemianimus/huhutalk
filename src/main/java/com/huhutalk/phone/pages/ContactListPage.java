@@ -106,7 +106,7 @@ public class ContactListPage implements IPhonePage {
             // 空列表：内容区居中提示
             String tip = "暂无联系人";
             graphics.drawString(font, tip, baseX + (w - font.width(tip)) / 2,
-                    (contentTop + contentBottom) / 2 - font.lineHeight / 2, TEXT_SUB);
+                    (contentTop + contentBottom) / 2 - font.lineHeight / 2, TEXT_SUB, false);
             return;
         }
 
@@ -130,7 +130,7 @@ public class ContactListPage implements IPhonePage {
     /** 渲染分组标题行（柔粉底 + 深色分组名） */
     private void renderGroupHeader(GuiGraphics g, Font font, ColorScheme scheme, int baseX, int w, int y, String group) {
         g.fill(baseX, y, baseX + w, y + GROUP_HEADER_H, scheme.accentSoft());
-        g.drawString(font, group, baseX + 10, y + (GROUP_HEADER_H - font.lineHeight) / 2 + 1, TEXT_COLOR);
+        g.drawString(font, group, baseX + 10, y + (GROUP_HEADER_H - font.lineHeight) / 2 + 1, TEXT_COLOR, false);
     }
 
     /** 渲染女仆条目行：头像占位色块（+SOS 角标）、名字、状态 */
@@ -149,12 +149,12 @@ public class ContactListPage implements IPhonePage {
 
         // 名字（深色）
         int nameX = avatarX + AVATAR_SIZE + 6;
-        g.drawString(font, info.name(), nameX, y + (ITEM_HEIGHT - font.lineHeight) / 2 + 1, TEXT_COLOR);
+        g.drawString(font, info.name(), nameX, y + (ITEM_HEIGHT - font.lineHeight) / 2 + 1, TEXT_COLOR, false);
 
         // 状态（右对齐）
         String statusText = statusText(info.status());
         g.drawString(font, statusText, baseX + w - font.width(statusText) - 8,
-                y + (ITEM_HEIGHT - font.lineHeight) / 2 + 1, statusColor(info.status()));
+                y + (ITEM_HEIGHT - font.lineHeight) / 2 + 1, statusColor(info.status()), false);
 
         // 底部分隔线
         g.fill(baseX + 6, y + ITEM_HEIGHT - 1, baseX + w - 6, y + ITEM_HEIGHT, 0x22000000);

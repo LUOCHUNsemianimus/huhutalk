@@ -87,6 +87,20 @@ public class MessageListPage implements IPhonePage {
         return cut + "…";
     }
 
+    /**
+     * 以 0.5 倍字号绘制文本（无阴影）。
+     * <p>MC 字体为位图字体，仅当「合成后的屏幕缩放」为整数时最清晰：
+     * 当前 GUI 缩放为 6，0.5 倍缩放 → 6×0.5＝3（整数），故半字号应仍清晰（待验证）。
+     * 坐标 x/y 与截断宽度按 2 倍换算，保证半字号文本落在原位置且占满原宽度。
+     * 浅底上必须传 shadow=false，否则 MC 默认文字阴影会和黑字粘连。
+     */
+    private static void drawHalfText(GuiGraphics g, Font font, String text, float x, float y, int color) {
+        g.pose().pushPose();
+        g.pose().scale(0.5f, 0.5f, 1.0f);
+        g.drawString(font, text, x * 2f, y * 2f, color, false);
+        g.pose().popPose();
+    }
+
     // ==================== 渲染 ====================
 
     @Override
@@ -124,7 +138,7 @@ public class MessageListPage implements IPhonePage {
             // 空列表：内容区居中提示
             String tip = "暂无消息会话";
             graphics.drawString(font, tip, baseX + (w - font.width(tip)) / 2,
-                    (contentTop + contentBottom) / 2 - font.lineHeight / 2, TEXT_SUB);
+                    (contentTop + contentBottom) / 2 - font.lineHeight / 2, TEXT_SUB, false);
         } else {
             // 裁剪到内容区，防止滚动时溢出到标题栏/底部导航
             graphics.enableScissor(baseX, contentTop, baseX + w, contentBottom);
@@ -155,22 +169,23 @@ public class MessageListPage implements IPhonePage {
         g.fill(avatarX, avatarY, avatarX + AVATAR_SIZE, avatarY + AVATAR_SIZE, scheme.accentSoft());
         String initial = name.isEmpty() ? "?" : name.substring(0, 1);
         g.drawString(font, initial, avatarX + (AVATAR_SIZE - font.width(initial)) / 2,
-                avatarY + (AVATAR_SIZE - font.lineHeight) / 2, TEXT_COLOR);
+                avatarY + (AVATAR_SIZE - font.lineHeight) / 2, TEXT_COLOR, false);
 
         // 右侧文字区起点
         int textX = baseX + 44;
         // 为右侧未读红点 + 删除按钮留出空间
         int textMaxW = w - 44 - 60;
 
-        // 女仆名（深色，超宽截断）
-        g.drawString(font, truncate(font, name, textMaxW), textX, itemY + 6, TEXT_COLOR);
+        // 女仆名（深色，超宽截断；浅底上用无阴影，避免 MC 默认描边粘连）
+        g.drawString(font, truncate(font, name, textMaxW), textX, itemY + 6, TEXT_COLOR, false);
 
-        // 最后一条消息摘要（灰色，超宽截断加"…"）
+        // 最后一条消息摘要（灰色，超宽截断加"…"，字号为女仆名的一半）
         String last = ChatHistoryStorage.getLastMessage(stableId);
         if (last == null || last.isEmpty()) {
             last = "（无消息内容）";
         }
-        g.drawString(font, truncate(font, last, textMaxW), textX,
+        // 半字号：截断宽度翻倍（truncate 按默认字号测量），绘制时 0.5 缩放回原位
+        drawHalfText(g, font, truncate(font, last, textMaxW * 2), textX,
                 itemY + 6 + font.lineHeight + 2, TEXT_SUB);
 
         // 未读红点数（>0 才显示，红底白字，99+ 封顶）
@@ -192,7 +207,7 @@ public class MessageListPage implements IPhonePage {
                 hovered ? scheme.dangerBg() : DELETE_BG);
         g.drawString(font, "×", btnX + (DELETE_BTN_SIZE - font.width("×")) / 2,
                 btnY + (DELETE_BTN_SIZE - font.lineHeight) / 2,
-                hovered ? scheme.dangerText() : DELETE_TEXT);
+                hovered ? scheme.dangerText() : DELETE_TEXT, false);
 
         // 底部分隔线
         g.fill(baseX + 8, itemY + ITEM_HEIGHT - 1, baseX + w - 8, itemY + ITEM_HEIGHT, 0x22000000);
@@ -216,7 +231,7 @@ public class MessageListPage implements IPhonePage {
         // 弹窗文案（可能两行）
         int textY = dlgY + 10;
         for (String line : lines) {
-            g.drawString(font, line, dlgX + 10, textY, TEXT_COLOR);
+            g.drawString(font, line, dlgX + 10, textY, TEXT_COLOR, false);
             textY += font.lineHeight + 2;
         }
 
@@ -227,9 +242,9 @@ public class MessageListPage implements IPhonePage {
         int cancelX = dlgX + 10;
         int delX = dlgX + dlgW - 10 - btnW;
         g.fill(cancelX, btnY, cancelX + btnW, btnY + btnH, 0xFFE0E0E0);
-        g.drawString(font, "取消", cancelX + (btnW - font.width("取消")) / 2, btnY + 6, TEXT_COLOR);
+        g.drawString(font, "取消", cancelX + (btnW - font.width("取消")) / 2, btnY + 6, TEXT_COLOR, false);
         g.fill(delX, btnY, delX + btnW, btnY + btnH, scheme.dangerBg());
-        g.drawString(font, "删除", delX + (btnW - font.width("删除")) / 2, btnY + 6, scheme.dangerText());
+        g.drawString(font, "删除", delX + (btnW - font.width("删除")) / 2, btnY + 6, scheme.dangerText(), false);
     }
 
     // ==================== 鼠标事件 ====================

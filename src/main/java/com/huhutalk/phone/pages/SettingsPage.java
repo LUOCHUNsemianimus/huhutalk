@@ -92,7 +92,7 @@ public class SettingsPage implements IPhonePage {
                                 String label, boolean value, java.util.function.Consumer<Boolean> setter) {
         ColorScheme scheme = ThemeManager.getActive();
         g.fill(baseX + 6, y, baseX + w - 6, y + ROW_H, 0x44FFFFFF);
-        g.drawString(font, label, baseX + 12, y + (ROW_H - font.lineHeight) / 2 + 1, 0xFF333333);
+        g.drawString(font, label, baseX + 12, y + (ROW_H - font.lineHeight) / 2 + 1, 0xFF333333, false);
         // 开关
         int swX = baseX + w - 56, swY = y + 6;
         int swW = 44, swH = ROW_H - 12;
@@ -106,7 +106,7 @@ public class SettingsPage implements IPhonePage {
                                  String label, long value, java.util.function.Consumer<Long> setter) {
         ColorScheme scheme = ThemeManager.getActive();
         g.fill(baseX + 6, y, baseX + w - 6, y + ROW_H, 0x44FFFFFF);
-        g.drawString(font, label + "：" + value, baseX + 12, y + (ROW_H - font.lineHeight) / 2 + 1, 0xFF333333);
+        g.drawString(font, label + "：" + value, baseX + 12, y + (ROW_H - font.lineHeight) / 2 + 1, 0xFF333333, false);
         // - 和 +
         int btnY = y + 5, btnH = ROW_H - 10, btnW = 26;
         int minusX = baseX + w - 66, plusX = baseX + w - 34;
@@ -120,7 +120,7 @@ public class SettingsPage implements IPhonePage {
 
     private int renderThemeRow(GuiGraphics g, Font font, int baseX, int y, int w, ColorScheme scheme) {
         g.fill(baseX + 6, y, baseX + w - 6, y + ROW_H, 0x44FFFFFF);
-        g.drawString(font, "配色方案：" + scheme.displayName(), baseX + 12, y + (ROW_H - font.lineHeight) / 2 + 1, 0xFF333333);
+        g.drawString(font, "配色方案：" + scheme.displayName(), baseX + 12, y + (ROW_H - font.lineHeight) / 2 + 1, 0xFF333333, false);
         // 切换按钮
         int btnW = 44, btnX = baseX + w - btnW - 10, btnY = y + 5, btnH = ROW_H - 10;
         g.fill(btnX, btnY, btnX + btnW, btnY + btnH, scheme.accentSoftActive());
@@ -140,7 +140,7 @@ public class SettingsPage implements IPhonePage {
         String current = HuhuTalkClientSettings.getPhoneCaseBlock();
         String display = current.isBlank() ? "手机壳：默认" : "手机壳：" + current.substring(current.indexOf(':') + 1);
         g.fill(baseX + 6, y, baseX + w - 6, y + ROW_H, 0x44FFFFFF);
-        g.drawString(font, display, baseX + 12, y + (ROW_H - font.lineHeight) / 2 + 1, 0xFF333333);
+        g.drawString(font, display, baseX + 12, y + (ROW_H - font.lineHeight) / 2 + 1, 0xFF333333, false);
         int btnW = 44, btnX = baseX + w - btnW - 10, btnY = y + 5, btnH = ROW_H - 10;
         g.fill(btnX, btnY, btnX + btnW, btnY + btnH, scheme.accentSoftActive());
         g.drawCenteredString(font, "选壳", btnX + btnW / 2, btnY + (btnH - font.lineHeight) / 2, 0xFFFFFFFF);
