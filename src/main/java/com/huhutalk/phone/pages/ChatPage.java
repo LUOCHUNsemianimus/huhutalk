@@ -45,9 +45,11 @@ public class ChatPage implements IPhonePage {
     private boolean waitingResponse = false;
 
     // ==================== 断句逐条显示（任务2） ====================
-    /** 每个短句之间的显示间隔（毫秒） */
-    private static final long SPLIT_INTERVAL_MS = 800;
-    /** 待逐条显示的短句队列（整段回复按逗号拆分后填充） */
+    /** 每个字消耗的"打字"时间（毫秒），按字数线性计费 */
+    private static final long CHAR_TYPING_MS = 500;
+    /** 单个短句"打字"时间上限（毫秒），防止超长句拖太久 */
+    private static final long MAX_TYPING_MS = 2400;
+    /** 待逐条显示的短句队列（整段回复按断句符拆分后填充） */
     private final List<String> splitQueue = new ArrayList<>();
     /** 下一条要显示的短句在 splitQueue 中的下标 */
     private int splitIndex = 0;
@@ -161,29 +163,31 @@ public class ChatPage implements IPhonePage {
             this.splitIndex = 0;
             return;
         }
-        // 进入断句模式：重置队列，第一条立即显示，之后每 0.8s 追加一条
+        // 进入断句模式：重置队列，每条短句按"自己字数 × 0.5s（封顶 2.4s）"逐条显示。
+        // 长句打字慢、短句快；第一条也要等它自己的耗时，因此不提前立即显示。
         splitQueue.clear();
         splitQueue.addAll(segments);
         splitIndex = 0;
         splitting = true;
         waitingResponse = true; // 断句期间保持"对方正在输入…"
-        // 立即追加第一条
-        messages.add(new ChatMessage(splitQueue.get(0), false, false, false));
-        splitIndex = 1;
         lastSplitTime = System.currentTimeMillis();
     }
 
     /**
-     * 每帧推进断句显示：时间到则追加下一条短句；全部显示完才结束"正在输入…"。
-     * <p>在 render 每帧调用，与"对方正在输入…"标题耦合。
+     * 每帧推进断句显示：每条短句出现的延迟 = <b>它自己</b>的字数 × 每字耗时（每字 0.5s、封顶 2.4s）。
+     * 长句打字慢、短句快；全部显示完才结束"正在输入…"。在 render 每帧调用。
      */
     private void advanceSplitting() {
         if (!splitting) {
             return;
         }
         long now = System.currentTimeMillis();
-        // 逐条追加，直到间隔未到为止
-        while (splitIndex < splitQueue.size() && now - lastSplitTime >= SPLIT_INTERVAL_MS) {
+        // 逐条追加：要显示的当前句（splitIndex）决定它何时出现（打字耗时 = 该句自己的字数）
+        while (splitIndex < splitQueue.size()) {
+            long typingMs = typingMillis(splitQueue.get(splitIndex));
+            if (now - lastSplitTime < typingMs) {
+                break;
+            }
             messages.add(new ChatMessage(splitQueue.get(splitIndex), false, false, false));
             splitIndex++;
             lastSplitTime = now;
@@ -195,27 +199,44 @@ public class ChatPage implements IPhonePage {
         }
     }
 
-    /** 按逗号（中英文）断句，去除每段首尾空白与空段 */
+    /** 按字数计费的单句打字耗时：字数 × {@link #CHAR_TYPING_MS}，封顶 {@link #MAX_TYPING_MS} */
+    private static long typingMillis(String segment) {
+        int len = segment == null ? 0 : segment.length();
+        return Math.min(len * CHAR_TYPING_MS, MAX_TYPING_MS);
+    }
+
+    /**
+     * 断句：在逗号、感叹号、问号（含中英文）处断句。
+     * 逗号被消耗；感叹号/问号作为<b>短句末尾字符保留</b>（不删除）。
+     * 去除每段首尾空白与空段。
+     */
     private static List<String> splitByComma(String text) {
         List<String> result = new ArrayList<>();
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < text.length(); i++) {
             char c = text.charAt(i);
             if (c == ',' || c == '，') {
-                String seg = sb.toString().trim();
-                if (!seg.isEmpty()) {
-                    result.add(seg);
-                }
-                sb.setLength(0);
+                // 逗号：作为断点消耗掉，不保留
+                flushSegment(result, sb);
+            } else if (c == '!' || c == '！' || c == '?' || c == '？') {
+                // 感叹号/问号：作为句尾字符保留，且作为断点
+                sb.append(c);
+                flushSegment(result, sb);
             } else {
                 sb.append(c);
             }
         }
-        String tail = sb.toString().trim();
-        if (!tail.isEmpty()) {
-            result.add(tail);
-        }
+        flushSegment(result, sb);
         return result;
+    }
+
+    /** 把当前累积的短句清理后加入结果（去首尾空白、去空段） */
+    private static void flushSegment(List<String> result, StringBuilder sb) {
+        String seg = sb.toString().trim();
+        if (!seg.isEmpty()) {
+            result.add(seg);
+        }
+        sb.setLength(0);
     }
 
     private void sendCurrentMessage() {
