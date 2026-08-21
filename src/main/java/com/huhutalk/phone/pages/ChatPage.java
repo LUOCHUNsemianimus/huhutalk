@@ -320,21 +320,21 @@ public class ChatPage implements IPhonePage {
 
     public boolean isSendButtonHitScreen(double screenX, double screenY) {
         double relX = screenX - PhoneOverlay.getPhoneX();
-        double relY = screenY - PhoneOverlay.getPhoneY();
+        double relY = screenY - PhoneOverlay.getPhoneY() - PhoneOverlay.getStatusBarHeight();
         return relX >= sendX(0) && relX <= sendX(0) + sendW()
                 && relY >= sendY(0) && relY <= sendY(0) + sendH();
     }
 
     public boolean isInputAreaHitScreen(double screenX, double screenY) {
         double relX = screenX - PhoneOverlay.getPhoneX();
-        double relY = screenY - PhoneOverlay.getPhoneY();
+        double relY = screenY - PhoneOverlay.getPhoneY() - PhoneOverlay.getStatusBarHeight();
         return relY >= inputTop(0) && relY <= inputBottom(0)
                 && relX >= 5 && relX <= phoneW() - 5;
     }
 
     public int getCursorIndexAtScreen(double screenX, double screenY) {
         double relX = screenX - PhoneOverlay.getPhoneX();
-        double relY = screenY - PhoneOverlay.getPhoneY();
+        double relY = screenY - PhoneOverlay.getPhoneY() - PhoneOverlay.getStatusBarHeight();
         Font font = Minecraft.getInstance().font;
         int textX = 10;
         int lineH = font.lineHeight + 1;

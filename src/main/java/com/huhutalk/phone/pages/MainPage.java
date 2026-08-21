@@ -65,30 +65,15 @@ public class MainPage implements IPhonePage {
         int h = PhoneOverlay.getPhoneHeight();
         var font = Minecraft.getInstance().font;
 
-        // ============ 顶部状态栏（端口） ============
-        int navH = (int)(h * 0.08);
-        graphics.fill(baseX, baseY, baseX + w, baseY + navH, 0xFF222222);
-
-        // ✅ 左侧：时间占位
-        graphics.drawString(font, "12:00", baseX + 4, baseY + 3, 0xFFFFFFFF);
-
-        // ✅ 中间：信号占位
-        String signal = ">>";
-        graphics.drawString(font, signal, baseX + w / 2 - 4, baseY + 3, 0xFF00FF00);
-
-        // ✅ 右侧：电量占位
-        String battery = "100%";
-        graphics.drawString(font, battery, baseX + w - 44, baseY + 3, 0xFF00FF00);
-
-        // 关闭按钮
-        graphics.drawString(font, "X", baseX + w - 12, baseY + 3, 0xFFFF0000);
+        // 统一状态栏已由 PhoneOverlay 渲染，这里只留顶部小留白
+        int topPad = (int)(h * 0.03);
 
         // ============ APP 图标网格 ============
         int margin = (int)(w * 0.08);
         int cols = PhoneOverlay.getGridColumns();
         int iconW = (w - margin * (cols + 1)) / cols;
         int iconH = (int)(iconW * 0.8);
-        int startY = navH + (int)(h * 0.05);
+        int startY = topPad + (int)(h * 0.05);
 
         for (int i = 0; i < apps.size(); i++) {
             int row = i / cols;
@@ -131,19 +116,14 @@ public class MainPage implements IPhonePage {
 
         int w = PhoneOverlay.getPhoneWidth();
         int h = PhoneOverlay.getPhoneHeight();
-        int navH = (int)(h * 0.08);
-
-        // 关闭按钮（保持原区域，电量显示在左侧不冲突）
-        if (relX >= w - 15 && relX <= w && relY >= 0 && relY <= navH) {
-            PhoneOverlay.toggle();
-            return true;
-        }
+        // 与 render 顶部留白一致
+        int topPad = (int)(h * 0.03);
 
         int margin = (int)(w * 0.08);
         int cols = PhoneOverlay.getGridColumns();
         int iconW = (w - margin * (cols + 1)) / cols;
         int iconH = (int)(iconW * 0.8);
-        int startY = navH + (int)(h * 0.05);
+        int startY = topPad + (int)(h * 0.05);
 
         for (int i = 0; i < apps.size(); i++) {
             int row = i / cols;
