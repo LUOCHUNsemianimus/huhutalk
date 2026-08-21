@@ -99,13 +99,18 @@ public class PhoneOverlay {
         }
     }
 
-    /** 显示手机：每次打开都进入手机桌面（MainPage），不显示底部导航 */
+    /**
+     * 显示手机：保留上次关闭时的页面（页面栈不重置）。
+     * 仅当栈为空（首次打开 / 新世界重置后）才进入手机桌面 MainPage；
+     * 否则回到关闭前所在的页面（含 HuhuTalk 内容区顶层页与内部页）。
+     */
     private static void show() {
         visible = true;
-        inChatApp = false;
-        pageStack.clear();
-        activeTab = Tab.MESSAGE;
-        pageStack.push(new MainPage());
+        if (pageStack.isEmpty()) {
+            inChatApp = false;
+            activeTab = Tab.MESSAGE;
+            pageStack.push(new MainPage());
+        }
     }
 
     /** 从桌面进入 HuhuTalk App 内容区（默认消息 tab，显示底部导航） */
