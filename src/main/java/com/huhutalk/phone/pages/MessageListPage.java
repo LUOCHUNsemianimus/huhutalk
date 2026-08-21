@@ -87,17 +87,27 @@ public class MessageListPage implements IPhonePage {
         return cut + "…";
     }
 
+    /** 从 MaidListCache 查询女仆在线状态；查不到（离线/未加载）返回 null */
+    private static com.huhutalk.common.MaidStatus getMaidStatus(String stableId) {
+        for (S2CMaidListPacket.MaidDisplayInfo info : MaidListCache.getList()) {
+            if (stableId.equals(info.stableId())) {
+                return info.status();
+            }
+        }
+        return null;
+    }
+
     /**
-     * 以 0.5 倍字号绘制文本（无阴影）。
-     * <p>MC 字体为位图字体，仅当「合成后的屏幕缩放」为整数时最清晰：
-     * 当前 GUI 缩放为 6，0.5 倍缩放 → 6×0.5＝3（整数），故半字号应仍清晰（待验证）。
-     * 坐标 x/y 与截断宽度按 2 倍换算，保证半字号文本落在原位置且占满原宽度。
-     * 浅底上必须传 shadow=false，否则 MC 默认文字阴影会和黑字粘连。
+     * 以任意倍率绘制文本（无阴影）。
+     * <p>MC 字体为位图字体，当「合成后的屏幕缩放」为整数时最清晰（如 GUI 缩放 6×0.5＝3）。
+     * 0.75 倍时 6×0.75＝4.5 非整数，清晰度待实测。坐标与截断宽度按 1/scale 换算，
+     * 保证缩放后文本落在原位置且占满原宽度。浅底上必须 shadow=false，避免描边粘连。
      */
-    private static void drawHalfText(GuiGraphics g, Font font, String text, float x, float y, int color) {
+    private static void drawScaledText(GuiGraphics g, Font font, String text, float x, float y, int color, float scale) {
+        float inv = 1.0f / scale;
         g.pose().pushPose();
-        g.pose().scale(0.5f, 0.5f, 1.0f);
-        g.drawString(font, text, x * 2f, y * 2f, color, false);
+        g.pose().scale(scale, scale, 1.0f);
+        g.drawString(font, text, x * inv, y * inv, color, false);
         g.pose().popPose();
     }
 
@@ -171,6 +181,15 @@ public class MessageListPage implements IPhonePage {
         g.drawString(font, initial, avatarX + (AVATAR_SIZE - font.width(initial)) / 2,
                 avatarY + (AVATAR_SIZE - font.lineHeight) / 2, TEXT_COLOR, false);
 
+        // 在线状态小点：在线=绿，离线/死亡/关机=灰；覆盖在头像右下角（不改色块，便于后续换图片）
+        com.huhutalk.common.MaidStatus maidStatus = getMaidStatus(stableId);
+        int dotSize = 9;
+        int dotX = avatarX + AVATAR_SIZE - dotSize - 1;
+        int dotY = avatarY + AVATAR_SIZE - dotSize - 1;
+        boolean online = maidStatus == com.huhutalk.common.MaidStatus.ONLINE;
+        g.fill(dotX - 1, dotY - 1, dotX + dotSize + 1, dotY + dotSize + 1, 0xFF222222); // 细描边，与头像色区分
+        g.fill(dotX, dotY, dotX + dotSize, dotY + dotSize, online ? 0xFF4CAF50 : 0xFF9E9E9E);
+
         // 右侧文字区起点
         int textX = baseX + 44;
         // 为右侧未读红点 + 删除按钮留出空间
@@ -184,9 +203,10 @@ public class MessageListPage implements IPhonePage {
         if (last == null || last.isEmpty()) {
             last = "（无消息内容）";
         }
-        // 半字号：截断宽度翻倍（truncate 按默认字号测量），绘制时 0.5 缩放回原位
-        drawHalfText(g, font, truncate(font, last, textMaxW * 2), textX,
-                itemY + 6 + font.lineHeight + 2, TEXT_SUB);
+        // 小字号摘要：截断宽度按 1/scale 换算（truncate 按默认字号测量），绘制时 scale 缩放回原位
+        final float summaryScale = 0.75f;
+        drawScaledText(g, font, truncate(font, last, (int)(textMaxW / summaryScale)), textX,
+                itemY + 6 + font.lineHeight + 2, TEXT_SUB, summaryScale);
 
         // 未读红点数（>0 才显示，红底白字，99+ 封顶）
         int unread = NotificationManager.getUnread(stableId);
