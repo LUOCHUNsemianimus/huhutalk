@@ -1,10 +1,11 @@
 package com.huhutalk.phone.pages;
 
+import com.huhutalk.client.MaidAvatarManager;
 import com.huhutalk.client.MaidGroupHelper;
 import com.huhutalk.client.MaidListCache;
+import com.huhutalk.client.MaidStatusCache;
 import com.huhutalk.client.SosBindCache;
-import com.huhutalk.client.theme.ColorScheme;
-import com.huhutalk.client.theme.ThemeManager;
+import com.huhutalk.client.settings.HuhuTalkClientSettings;
 import com.huhutalk.common.MaidStatus;
 import com.huhutalk.network.C2SRequestMaidListPacket;
 import com.huhutalk.network.S2CMaidListPacket;
@@ -13,86 +14,93 @@ import com.huhutalk.phone.PhoneOverlay;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.player.AbstractClientPlayer;
+import net.minecraft.resources.ResourceLocation;
 import net.neoforged.neoforge.network.PacketDistributor;
 
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 联系人列表页（底部导航「联系人」tab 顶层页）。
  * <p>
- * 复用 {@link MaidListCache} 中的全量女仆列表，按分组聚合展示：
- * 分组来源为 {@link MaidGroupHelper#resolveGroup}（优先玩家手动分组，未设置则按状态默认分组）。
- * 系统默认分组固定顺序：在线 / 离线 / 已关机 / 死亡（按 {@link MaidGroupHelper#groupSortIndex}），
- * 玩家自定义分组排在最后。分组标题行随内容一起滚动。
- * 点击女仆条目进入 {@link MaidInfoPage}（统一信息设置页）。
+ * 顶栏 #de7e7e，左侧依次：玩家头颅 + 玩家ID + 「联系人」。页面底 #f5ebee。
+ * 女仆条目按分组聚合；条目左为头像（女仆照片）、右为两行（名称 / 在线+工作状态 0.75x）。
+ * 分组标题栏背景与页面一致、标题灰字 0.75x、右侧三角箭头；点击标题栏展开/收起（默认全展开）。
  */
 public class ContactListPage implements IPhonePage {
-    /** 顶部标题栏高度：随字体缩放（跟随 GUI 字体大小） */
+    /** 顶部标题栏高度：随字体缩放 */
     private static int navH() {
         return Minecraft.getInstance().font.lineHeight + 8;
     }
 
-    /** 分组标题行高度 */
-    private static final int GROUP_HEADER_H = 18;
-    /** 女仆条目行高度 */
-    private static final int ITEM_HEIGHT = 34;
-    /** 头像占位色块边长 */
-    private static final int AVATAR_SIZE = 22;
-    /** SOS 角标边长（占头像面积约 1/5，约 6×6 像素） */
-    private static final int SOS_BADGE_SIZE = 6;
-    /** 常规文字深色 */
+    private static final int PAGE_BG = 0xFFF5EBEE;
+    private static final int TOPBAR_BG = 0xFFDE7E7E;
+    private static final int GROUP_TITLE_COLOR = 0xFF9A8A90;
     private static final int TEXT_COLOR = 0xFF333333;
-    /** 次要文字灰色 */
     private static final int TEXT_SUB = 0xFF888888;
-    /** 头像占位色块颜色（蓝灰） */
     private static final int AVATAR_COLOR = 0xFFB0BEC5;
+    private static final int SOS_BADGE = 0xFFE53935;
+    private static final int GROUP_HEADER_H = 20;
+    private static final int ITEM_HEIGHT = 38;
+    /** 状态小字 / 分组标题缩放 */
+    private static final float SMALL_SCALE = 0.75f;
 
-    /** 行类型：分组标题行 */
+    /** 头像边长 = 上行默认字号高度 + 下行 0.75 倍字号高度（与消息列表一致） */
+    private static int avatarSize() {
+        return (int) (Minecraft.getInstance().font.lineHeight * 1.75f);
+    }
+
     private static final int ROW_GROUP = 0;
-    /** 行类型：女仆条目行 */
     private static final int ROW_MAID = 1;
 
-    /** 单行数据：分组标题行取 group，女仆条目行取 maid */
     private record Row(int kind, String group, S2CMaidListPacket.MaidDisplayInfo maid) {}
 
-    /** 列表滚动偏移（像素），分组标题随内容一起滚动 */
+    /** 列表滚动偏移（像素） */
     private int scrollOffset = 0;
+    /** 已收起的分组（其余默认展开） */
+    private final Set<String> collapsedGroups = new HashSet<>();
 
     public ContactListPage() {
-        // 进入联系人页即向服务端请求最新全量女仆列表（检测新增/变化的女仆）
         PacketDistributor.sendToServer(new C2SRequestMaidListPacket());
     }
 
     @Override
     public void onOpen() {
-        // 每次从内部页返回时也刷新一次，确保新增女仆能及时出现
         PacketDistributor.sendToServer(new C2SRequestMaidListPacket());
+        // 为未加载头像的女仆触发拍照，保证条目头像能显示（与消息列表页一致）
+        for (S2CMaidListPacket.MaidDisplayInfo info : MaidListCache.getList()) {
+            triggerCaptureIfNeeded(info.stableId());
+        }
+    }
+
+    private void triggerCaptureIfNeeded(String stableId) {
+        if (MaidAvatarManager.hasAvatar(stableId) || MaidAvatarManager.isCapturing(stableId)) {
+            return;
+        }
+        MaidAvatarManager.captureIfLoaded(stableId);
     }
 
     @Override
-    public void render(GuiGraphics graphics, int baseX, int baseY, float partialTick) {
+    public void render(GuiGraphics g, int baseX, int baseY, float partialTick) {
         int w = PhoneOverlay.getPhoneWidth();
         int h = PhoneOverlay.getPhoneHeight();
         int bottomNavH = PhoneOverlay.getBottomNavHeight();
-        ColorScheme scheme = ThemeManager.getActive();
         Font font = Minecraft.getInstance().font;
-        // 标题栏高度随字体缩放（跟随 GUI 字体大小），而非手机高度百分比
         int navH = navH();
 
-        // 页面底色
-        graphics.fill(baseX, baseY, baseX + w, baseY + h, scheme.pageBg());
+        // 页面底色 #f5ebee
+        g.fill(baseX, baseY, baseX + w, baseY + h, PAGE_BG);
 
-        // 顶部标题栏：主题粉底 + 白字标题
-        graphics.fill(baseX, baseY, baseX + w, baseY + navH, scheme.topBarBg());
-        String title = "联系人";
-        graphics.drawString(font, title, baseX + (w - font.width(title)) / 2,
-                baseY + (navH - font.lineHeight) / 2 + 1, scheme.topBarText());
+        // 顶部标题栏 #de7e7e：玩家头颅 + 玩家ID + 「联系人」（左对齐，固定间距）
+        g.fill(baseX, baseY, baseX + w, baseY + navH, TOPBAR_BG);
+        renderHeader(g, font, baseX, baseY, navH);
 
-        // 内容区：标题栏下方起，底部预留底部导航高度
         int contentTop = baseY + navH;
         int contentBottom = baseY + h - bottomNavH;
 
@@ -102,104 +110,140 @@ public class ContactListPage implements IPhonePage {
             contentH += rowHeight(row);
         }
         int viewH = Math.max(0, contentBottom - contentTop);
-        // 列表变短时把滚动钳制回合法区间，避免出现空白
         int maxScroll = Math.max(0, contentH - viewH);
         scrollOffset = Math.max(0, Math.min(scrollOffset, maxScroll));
 
         if (rows.isEmpty()) {
-            // 空列表：内容区居中提示
             String tip = "暂无联系人";
-            graphics.drawString(font, tip, baseX + (w - font.width(tip)) / 2,
+            g.drawString(font, tip, baseX + (w - font.width(tip)) / 2,
                     (contentTop + contentBottom) / 2 - font.lineHeight / 2, TEXT_SUB, false);
             return;
         }
 
-        // 裁剪到内容区，防止滚动时溢出到标题栏/底部导航
-        graphics.enableScissor(baseX, contentTop, baseX + w, contentBottom);
+        g.enableScissor(baseX, contentTop, baseX + w, contentBottom);
         int y = contentTop - scrollOffset;
         for (Row row : rows) {
             int rowH = rowHeight(row);
             if (y + rowH >= contentTop && y <= contentBottom) {
                 if (row.kind() == ROW_GROUP) {
-                    renderGroupHeader(graphics, font, scheme, baseX, w, y, row.group());
+                    renderGroupHeader(g, font, baseX, w, y, row.group(),
+                            collapsedGroups.contains(row.group()));
                 } else {
-                    renderMaidItem(graphics, font, scheme, baseX, w, y, row.maid());
+                    renderMaidItem(g, font, baseX, w, y, row.maid());
                 }
             }
             y += rowH;
         }
-        graphics.disableScissor();
+        g.disableScissor();
     }
 
-    /** 渲染分组标题行（柔粉底 + 深色分组名） */
-    private void renderGroupHeader(GuiGraphics g, Font font, ColorScheme scheme, int baseX, int w, int y, String group) {
-        g.fill(baseX, y, baseX + w, y + GROUP_HEADER_H, scheme.accentSoft());
-        g.drawString(font, group, baseX + 10, y + (GROUP_HEADER_H - font.lineHeight) / 2 + 1, TEXT_COLOR, false);
+    /** 顶部标题栏：玩家头颅(2D正面) + 玩家ID + 「联系人」，左对齐、固定间距 */
+    private void renderHeader(GuiGraphics g, Font font, int baseX, int baseY, int navH) {
+        Minecraft mc = Minecraft.getInstance();
+        int headSize = navH - 4;
+        int headX = baseX + 6;
+        int headY = baseY + (navH - headSize) / 2;
+        String id = "Player";
+        if (mc.player != null) {
+            id = mc.player.getGameProfile().getName();
+            if (mc.player instanceof AbstractClientPlayer acp) {
+                ResourceLocation skin = acp.getSkin().texture();
+                g.blit(skin, headX, headY, headSize, headSize, 8.0f, 8.0f, 8, 8, 64, 64);
+            } else {
+                g.fill(headX, headY, headX + headSize, headY + headSize, 0xFFFFFFFF);
+            }
+        } else {
+            g.fill(headX, headY, headX + headSize, headY + headSize, 0xFFFFFFFF);
+        }
+        int textY = baseY + (navH - font.lineHeight) / 2 + 1;
+        int x = headX + headSize + 6;
+        g.drawString(font, id, x, textY, 0xFFFFFFFF, false);
+        x += font.width(id) + 6;
+        g.drawString(font, "联系人", x, textY, 0xFFFFFFFF, false);
     }
 
-    /** 渲染女仆条目行：头像占位色块（+SOS 角标）、名字、状态 */
-    private void renderMaidItem(GuiGraphics g, Font font, ColorScheme scheme, int baseX, int w, int y,
+    /** 分组标题行：底色与页面一致、灰字 0.75x、右侧展开/收起三角箭头 */
+    private void renderGroupHeader(GuiGraphics g, Font font, int baseX, int w, int y, String group, boolean collapsed) {
+        // 背景与页面底色一致，无需额外填充
+        int titleH = (int) (font.lineHeight * SMALL_SCALE);
+        drawScaledText(g, font, group, baseX + 10, y + (GROUP_HEADER_H - titleH) / 2, GROUP_TITLE_COLOR, SMALL_SCALE);
+        String arrow = collapsed ? "▸" : "▾";
+        g.drawString(font, arrow, baseX + w - font.width(arrow) - 10,
+                y + (GROUP_HEADER_H - font.lineHeight) / 2 + 1, GROUP_TITLE_COLOR, false);
+    }
+
+    /** 女仆条目：左侧头像(照片)，右侧两行（名称 / 在线+工作状态 0.75x），整体垂直居中 */
+    private void renderMaidItem(GuiGraphics g, Font font, int baseX, int w, int y,
                                 S2CMaidListPacket.MaidDisplayInfo info) {
-        // 头像占位色块（条目左侧）
-        int avatarX = baseX + 6;
-        int avatarY = y + (ITEM_HEIGHT - AVATAR_SIZE) / 2;
-        g.fill(avatarX, avatarY, avatarX + AVATAR_SIZE, avatarY + AVATAR_SIZE, AVATAR_COLOR);
-
-        // SOS 角标：头像右上角 6×6 珊瑚红小方块，仅作"已开启 SOS 呼叫"提醒，不可点击
+        int avatarSize = avatarSize();
+        int avatarX = baseX + 10;
+        int avatarY = y + (ITEM_HEIGHT - avatarSize) / 2;
+        ResourceLocation tex = MaidAvatarManager.getOrLoadTexture(info.stableId());
+        if (tex != null) {
+            int[] d = MaidAvatarManager.getTextureSize(info.stableId());
+            int tw = d != null ? d[0] : avatarSize;
+            int th = d != null ? d[1] : avatarSize;
+            g.blit(tex, avatarX, avatarY, avatarSize, avatarSize, 0.0f, 0.0f, tw, th, tw, th);
+        } else {
+            g.fill(avatarX, avatarY, avatarX + avatarSize, avatarY + avatarSize, AVATAR_COLOR);
+        }
+        // SOS 角标：头像右上角小方块
         if (SosBindCache.isBound(info.stableId())) {
-            g.fill(avatarX + AVATAR_SIZE - SOS_BADGE_SIZE, avatarY,
-                    avatarX + AVATAR_SIZE, avatarY + SOS_BADGE_SIZE, scheme.sosBg());
+            g.fill(avatarX + avatarSize - 6, avatarY, avatarX + avatarSize, avatarY + 6, SOS_BADGE);
         }
 
-        // 名字（深色）
-        int nameX = avatarX + AVATAR_SIZE + 6;
-        g.drawString(font, info.name(), nameX, y + (ITEM_HEIGHT - font.lineHeight) / 2 + 1, TEXT_COLOR, false);
+        // 右侧两行（垂直居中）
+        int nameX = avatarX + avatarSize + 8;
+        int lineH = font.lineHeight;
+        int statusH = (int) (lineH * SMALL_SCALE);
+        int centerY = y + ITEM_HEIGHT / 2;
+        int nameY = centerY - (lineH + statusH) / 2;
+        int statusY = nameY + lineH + 1;
+        g.drawString(font, info.name(), nameX, nameY, TEXT_COLOR, false);
 
-        // 状态（右对齐）
+        // 下行：在线状态 + 工作状态（0.75x），过长截断
         String statusText = statusText(info.status());
-        g.drawString(font, statusText, baseX + w - font.width(statusText) - 8,
-                y + (ITEM_HEIGHT - font.lineHeight) / 2 + 1, statusColor(info.status()), false);
+        String work = MaidStatusCache.get(info.stableId());
+        String line2 = work.isEmpty() ? statusText : statusText + " · " + work;
+        int line2MaxW = Math.max(1, w - (nameX - baseX) - 14);
+        line2 = truncateScaled(font, line2, line2MaxW, SMALL_SCALE);
+        drawScaledText(g, font, line2, nameX, statusY, TEXT_SUB, SMALL_SCALE);
 
         // 底部分隔线
-        g.fill(baseX + 6, y + ITEM_HEIGHT - 1, baseX + w - 6, y + ITEM_HEIGHT, 0x22000000);
+        g.fill(baseX + 10, y + ITEM_HEIGHT - 1, baseX + w - 10, y + ITEM_HEIGHT, 0x22000000);
     }
 
-    /** 将全量女仆列表按分组聚合成行序列（分组标题行 + 女仆条目行） */
+    /** 将全量女仆列表按分组聚合成行序列；已收起的分组只保留标题行 */
     private List<Row> buildRows() {
-        // 分组名 -> 女仆列表（LinkedHashMap 保持首次出现顺序，自定义分组稳定排列）
         Map<String, List<S2CMaidListPacket.MaidDisplayInfo>> groups = new LinkedHashMap<>();
-        // 先预置玩家持久化的自定义分组（即使当前没有女仆在其中也展示空分组）
-        for (String g : com.huhutalk.client.settings.HuhuTalkClientSettings.getCustomGroupNames()) {
+        for (String g : HuhuTalkClientSettings.getCustomGroupNames()) {
             groups.computeIfAbsent(g, k -> new ArrayList<>());
         }
         for (S2CMaidListPacket.MaidDisplayInfo info : MaidListCache.getList()) {
             String group = MaidGroupHelper.resolveGroup(info.stableId(), info.status());
             groups.computeIfAbsent(group, k -> new ArrayList<>()).add(info);
         }
-        // 固定顺序：在线/离线/已关机/死亡/自定义（List.sort 稳定，同权重保持插入顺序）
         List<String> names = new ArrayList<>(groups.keySet());
         names.sort(Comparator.comparingInt(MaidGroupHelper::groupSortIndex));
 
         List<Row> rows = new ArrayList<>();
         for (String group : names) {
             rows.add(new Row(ROW_GROUP, group, null));
-            for (S2CMaidListPacket.MaidDisplayInfo info : groups.get(group)) {
-                rows.add(new Row(ROW_MAID, null, info));
+            if (!collapsedGroups.contains(group)) {
+                for (S2CMaidListPacket.MaidDisplayInfo info : groups.get(group)) {
+                    rows.add(new Row(ROW_MAID, null, info));
+                }
             }
         }
         return rows;
     }
 
-    /** 行高度：分组标题行 / 女仆条目行 */
     private static int rowHeight(Row row) {
         return row.kind() == ROW_GROUP ? GROUP_HEADER_H : ITEM_HEIGHT;
     }
 
-    /** 状态中文名 */
     private static String statusText(MaidStatus status) {
-        if (status == null) {
-            return "离线";
-        }
+        if (status == null) return "离线";
         return switch (status) {
             case ONLINE -> "在线";
             case OFFLINE -> "离线";
@@ -208,17 +252,23 @@ public class ContactListPage implements IPhonePage {
         };
     }
 
-    /** 状态文字颜色（深色系，保证浅粉底色可读） */
-    private static int statusColor(MaidStatus status) {
-        if (status == null) {
-            return 0xFF888888;
-        }
-        return switch (status) {
-            case ONLINE -> 0xFF2E7D32;   // 深绿
-            case OFFLINE -> 0xFF888888;  // 灰
-            case DEAD -> 0xFFC62828;     // 深红
-            case SHUTDOWN -> 0xFF9E9E9E; // 浅灰
-        };
+    /** 按 0.75 倍缩放截断文本，过长补"…" */
+    private static String truncateScaled(Font font, String text, int maxW, float scale) {
+        if (text == null || text.isEmpty()) return text == null ? "" : text;
+        if (maxW <= 0 || font.width(text) * scale <= maxW) return text;
+        int room = Math.max(1, (int) ((maxW - font.width("…") * scale) / scale));
+        String cut = font.plainSubstrByWidth(text, room);
+        return cut + "…";
+    }
+
+    /** 以任意倍率绘制文本（无阴影） */
+    private static void drawScaledText(GuiGraphics g, Font font, String text,
+                                       float x, float y, int color, float scale) {
+        float inv = 1.0f / scale;
+        g.pose().pushPose();
+        g.pose().scale(scale, scale, 1.0f);
+        g.drawString(font, text, x * inv, y * inv, color, false);
+        g.pose().popPose();
     }
 
     @Override
@@ -227,13 +277,11 @@ public class ContactListPage implements IPhonePage {
         int h = PhoneOverlay.getPhoneHeight();
         int navH = navH();
         int bottomNavH = PhoneOverlay.getBottomNavHeight();
-        // 标题栏 / 底部导航区域不响应条目点击
         if (relY < navH || relY >= h - bottomNavH) {
             return false;
         }
 
         List<Row> rows = buildRows();
-        // 与渲染同步钳制滚动偏移，保证命中判定与显示一致
         int contentH = 0;
         for (Row row : rows) {
             contentH += rowHeight(row);
@@ -245,12 +293,19 @@ public class ContactListPage implements IPhonePage {
         for (Row row : rows) {
             int rowH = rowHeight(row);
             if (relY >= y && relY < y + rowH) {
-                if (row.kind() == ROW_MAID) {
-                    S2CMaidListPacket.MaidDisplayInfo info = row.maid();
-                    PhoneOverlay.pushPage(new MaidInfoPage(info.stableId(), info.name()));
+                if (row.kind() == ROW_GROUP) {
+                    // 点击分组标题栏：展开/收起
+                    String group = row.group();
+                    if (collapsedGroups.contains(group)) {
+                        collapsedGroups.remove(group);
+                    } else {
+                        collapsedGroups.add(group);
+                    }
                     return true;
                 }
-                return false; // 分组标题行不响应点击
+                S2CMaidListPacket.MaidDisplayInfo info = row.maid();
+                PhoneOverlay.pushPage(new MaidInfoPage(info.stableId(), info.name()));
+                return true;
             }
             y += rowH;
         }
@@ -270,7 +325,7 @@ public class ContactListPage implements IPhonePage {
         }
         int viewH = Math.max(0, h - navH - bottomNavH);
         int maxScroll = Math.max(0, contentH - viewH);
-        scrollOffset = Math.max(0, Math.min(scrollOffset - (int)(scrollDelta * 10), maxScroll));
+        scrollOffset = Math.max(0, Math.min(scrollOffset - (int) (scrollDelta * 10), maxScroll));
         return true;
     }
 }
