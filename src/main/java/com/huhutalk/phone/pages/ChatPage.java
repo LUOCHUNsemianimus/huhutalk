@@ -9,6 +9,7 @@ import com.huhutalk.network.C2SRequestMaidStatusPacket;
 import com.huhutalk.phone.IPhonePage;
 import com.huhutalk.phone.PhoneInputScreen;
 import com.huhutalk.phone.PhoneOverlay;
+import com.huhutalk.phone.UiShapes;
 import com.huhutalk.util.MessageSplitter;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
@@ -451,7 +452,7 @@ public class ChatPage implements IPhonePage {
         int iBottom = inputBottom(baseY);
         int iW = inputRight(baseX) - inputLeft(baseX);
         int iH = iBottom - iTop;
-        fillRoundedRect(g, inputLeft(baseX), iTop, iW, iH, iH / 2, 0xFFFFF5F8);
+        UiShapes.fillRoundedRect(g, inputLeft(baseX), iTop, iW, iH, iH / 2, 0xFFFFF5F8);
 
         int textX = inputLeft(baseX) + PAD_X;
         int lineH = font.lineHeight + 1;
@@ -494,7 +495,7 @@ public class ChatPage implements IPhonePage {
         int sH = sendH();
         int sX = sendX(baseX);
         int sY = sendY(baseY);
-        fillRoundedRect(g, sX, sY, sW, sH, sH / 2, 0xFFB1CEDE);
+        UiShapes.fillRoundedRect(g, sX, sY, sW, sH, sH / 2, 0xFFB1CEDE);
         String sendLabel = "发送";
         g.drawString(font, sendLabel, sX + (sW - font.width(sendLabel)) / 2,
                 sY + (sH - font.lineHeight) / 2, 0xFFFFFFFF, false);
@@ -508,7 +509,7 @@ public class ChatPage implements IPhonePage {
         int btnR = btnSize / 2;
         for (int i = 0; i < iconCount; i++) {
             int cx = baseX + i * iconSlotW + iconSlotW / 2;
-            fillRoundedRect(g, cx - btnSize / 2, extCenterY - btnSize / 2, btnSize, btnSize, btnR, 0xFFFFF5F8);
+            UiShapes.fillRoundedRect(g, cx - btnSize / 2, extCenterY - btnSize / 2, btnSize, btnSize, btnR, 0xFFFFF5F8);
             String icon = BOTTOM_ICONS[i];
             // 去掉默认字体阴影，避免 emoji 图标发糊
             g.drawString(font, icon, cx - font.width(icon) / 2,
@@ -550,7 +551,7 @@ public class ChatPage implements IPhonePage {
         if (isPlayer) {
             int bubbleRight = baseX + phoneW - AVATAR - MARGIN;
             int bubbleLeft = bubbleRight - bubbleW;
-            fillRoundedRect(g, bubbleLeft, yTop, bubbleW, bubbleH, radius, bgColor);
+            UiShapes.fillRoundedRect(g, bubbleLeft, yTop, bubbleW, bubbleH, radius, bgColor);
             int ty = yTop + 2;
             for (FormattedCharSequence line : lines) {
                 g.drawString(font, line, bubbleLeft + 4, ty, textColor);
@@ -563,7 +564,7 @@ public class ChatPage implements IPhonePage {
             }
         } else {
             int bubbleLeft = baseX + AVATAR + MARGIN;
-            fillRoundedRect(g, bubbleLeft, yTop, bubbleW, bubbleH, radius, bgColor);
+            UiShapes.fillRoundedRect(g, bubbleLeft, yTop, bubbleW, bubbleH, radius, bgColor);
             int ty = yTop + 2;
             for (FormattedCharSequence line : lines) {
                 g.drawString(font, line, bubbleLeft + 4, ty, textColor);
@@ -605,43 +606,6 @@ public class ChatPage implements IPhonePage {
         g.pose().scale(scale, scale, 1.0f);
         g.drawString(font, text, x * inv, y * inv, color, false);
         g.pose().popPose();
-    }
-
-    // ==================== 圆角矩形 / 胶囊绘制辅助（纯渲染，不影响逻辑） ====================
-
-    /**
-     * 填充一个实心圆（逐行扫描），用于圆角/胶囊绘制。
-     * 采用与 {@code MessageListPage#fillCircle} 一致的浮点 floor/ceil 扫描，
-     * 避免整数 sqrt 产生的台阶，圆角更平滑、左右对称。
-     */
-    private static void fillCircle(GuiGraphics g, int cx, int cy, int r, int color) {
-        if (r <= 0) return;
-        float r2 = (float) r * r;
-        for (int y = cy - r; y <= cy + r; y++) {
-            float dy = y - cy;
-            float dx = (float) Math.sqrt(Math.max(0f, r2 - dy * dy));
-            int x0 = (int) Math.floor(cx - dx);
-            int x1 = (int) Math.ceil(cx + dx);
-            g.fill(x0, y, x1, y + 1, color);
-        }
-    }
-
-    /**
-     * 填充圆角矩形方框：中段条带 + 四角四分之一圆。
-     * 圆角半径 r 会被钳制到不超过宽/高的 1/2（避免异常形状）。
-     */
-    private static void fillRoundedRect(GuiGraphics g, int x, int y, int w, int h, int r, int color) {
-        if (w <= 0 || h <= 0) return;
-        r = Math.max(0, Math.min(r, Math.min(w, h) / 2));
-        // 中段垂直条 + 顶部/底部条带
-        g.fill(x, y + r, x + w, y + h - r, color);
-        g.fill(x + r, y, x + w - r, y + r, color);
-        g.fill(x + r, y + h - r, x + w - r, y + h, color);
-        // 四角扇形
-        fillCircle(g, x + r, y + r, r, color);
-        fillCircle(g, x + w - r, y + r, r, color);
-        fillCircle(g, x + r, y + h - r, r, color);
-        fillCircle(g, x + w - r, y + h - r, r, color);
     }
 
     /**

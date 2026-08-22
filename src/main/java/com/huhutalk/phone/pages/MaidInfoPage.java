@@ -46,9 +46,10 @@ import java.util.List;
  * 逻辑（删除/绑定/模式/分组/头像）均沿用原有实现。
  */
 public class MaidInfoPage implements IPhonePage {
-    private static final int CARD_H = 34;
-    private static final int CARD_GAP = 2;            // 组内项间距（紧凑）
+    private static final int CARD_H = 30;             // 组内单行高度（紧凑）
     private static final int CARD_R = 8;
+    private static final int RECT_PAD = 3;            // 大矩形内部上下留白
+    private static final int DIVIDER = 0xFFE5DBE1;    // 组内灰色分隔线
     private static final int GROUP_TITLE_TOP = 14;    // 分组标题距上一组底
     private static final int GROUP_TITLE_TO_CARD = 8; // 分组标题到本组第一项
     private static final int DROPDOWN_ROW_H = 16;
@@ -58,7 +59,6 @@ public class MaidInfoPage implements IPhonePage {
     private static final int PAGE_BG = 0xFFF0E4EA;
     private static final int TOPBAR_BG = 0xFFDE7E7E;
     private static final int CARD_BG = 0xFFFFF5F8;
-    private static final int CARD_ACTIVE_BG = 0xFFFFE4EC; // 当前分组高亮
     private static final int GROUP_TITLE_COLOR = 0xFF9A8A90;
     private static final int DANGER = 0xFFC62828;
 
@@ -184,8 +184,11 @@ public class MaidInfoPage implements IPhonePage {
         int nameX, nameTop, statusTop;
         int manageTitleY;
         int[] cardY = new int[4]; // 管理 4 项
+        int manageRectY, manageRectH;
         int sosTitleY, bindCardY, modeCardY, modeListY, modeListH;
+        int sosRectY, sosRectH;
         int groupTitleY, groupBoxY;
+        int groupRectY, groupRectH;
         List<GroupSlot> groupSlots = new ArrayList<>();
         int contentH;
     }
@@ -213,44 +216,56 @@ public class MaidInfoPage implements IPhonePage {
         L.statusTop = L.nameTop + nameH + 2;
         y += L.headerH + GROUP_TITLE_TOP;
 
-        // 管理 分组
+        // 管理 分组（一个大矩形内 4 行，灰色横线分隔）
         L.manageTitleY = y;
         y += GROUP_TITLE_TO_CARD;
         for (int i = 0; i < 4; i++) {
             L.cardY[i] = y;
-            y += CARD_H + CARD_GAP;
+            y += CARD_H;
         }
-        y += GROUP_TITLE_TOP - CARD_GAP; // 组间留白
+        L.manageRectY = L.cardY[0] - RECT_PAD;
+        L.manageRectH = (L.cardY[3] + CARD_H) - L.manageRectY + RECT_PAD;
+        y = L.cardY[3] + CARD_H + RECT_PAD;
+        y += GROUP_TITLE_TOP;
 
-        // SOS 分组
+        // SOS 分组（大矩形内含 2 行 + 展开时的工作模式列表）
         L.sosTitleY = y;
         y += GROUP_TITLE_TO_CARD;
         L.bindCardY = y;
-        y += CARD_H + CARD_GAP;
+        y += CARD_H;
         L.modeCardY = y;
-        y += CARD_H + CARD_GAP;
+        y += CARD_H;
         L.modeListY = -1;
         L.modeListH = 0;
+        int sosBottom = L.modeCardY + CARD_H;
         if (modeDropdownOpen && SosBindCache.isBound(stableId)) {
-            L.modeListY = L.modeCardY + CARD_H + CARD_GAP;
+            L.modeListY = L.modeCardY + CARD_H;
             L.modeListH = Math.min(DROPDOWN_VISIBLE_ROWS, SosTaskCache.getAll().size()) * DROPDOWN_ROW_H;
-            y = L.modeListY + L.modeListH;
+            sosBottom = L.modeListY + L.modeListH;
         }
+        L.sosRectY = L.bindCardY - RECT_PAD;
+        L.sosRectH = sosBottom - L.sosRectY + RECT_PAD;
+        y = sosBottom + RECT_PAD;
         y += GROUP_TITLE_TOP;
 
-        // 分组设置 分组（折叠栏：点击展开分组选项 + 新建分组）
+        // 分组设置 分组（折叠栏：点击展开分组选项 + 新建分组，都在大矩形内）
         L.groupTitleY = y;
         y += GROUP_TITLE_TO_CARD;
         L.groupBoxY = y;
-        y += CARD_H + CARD_GAP;
+        y += CARD_H;
+        int groupBottom = L.groupBoxY + CARD_H;
         if (groupDropdownOpen) {
             for (String g : groupOptions()) {
                 L.groupSlots.add(new GroupSlot(g, y, CARD_H, false));
-                y += CARD_H + CARD_GAP;
+                y += CARD_H;
             }
             L.groupSlots.add(new GroupSlot("+ 新建分组", y, CARD_H, true));
-            y += CARD_H + CARD_GAP;
+            y += CARD_H;
+            groupBottom = y;
         }
+        L.groupRectY = L.groupBoxY - RECT_PAD;
+        L.groupRectH = groupBottom - L.groupRectY + RECT_PAD;
+        y = groupBottom + RECT_PAD;
         y += 4;
 
         L.contentH = y - (L.navH + 6) + 4;
@@ -329,104 +344,112 @@ public class MaidInfoPage implements IPhonePage {
     }
 
     private void renderManageGroup(GuiGraphics g, Font font, Layout L, int baseX, int baseY) {
-        int cardX = baseX + 10;
-        int cardW = PhoneOverlay.getPhoneWidth() - 20;
+        int rectX = baseX + 10;
+        int rectW = PhoneOverlay.getPhoneWidth() - 20;
         g.drawString(font, "管理", baseX + 12, ly(L, baseY, L.manageTitleY), GROUP_TITLE_COLOR);
+        // 大矩形（含 4 行，灰色横线分隔）
+        int rectY = ly(L, baseY, L.manageRectY);
+        UiShapes.fillRoundedRect(g, rectX, rectY, rectW, L.manageRectH, CARD_R, CARD_BG);
         String[] labels = {"💬 发消息", "🗑 删除记录", "☠ 删除联系人", "📷 更新头像"};
         int[] colors = {TEXT_COLOR, TEXT_COLOR, DANGER, 0xFF2E7D32};
         for (int i = 0; i < 4; i++) {
             int y = ly(L, baseY, L.cardY[i]);
-            UiShapes.fillRoundedRect(g, cardX, y, cardW, CARD_H, CARD_R, CARD_BG);
-            g.drawString(font, labels[i], cardX + 10, y + (CARD_H - font.lineHeight) / 2 + 1, colors[i], false);
-            g.drawString(font, "›", cardX + cardW - 16, y + (CARD_H - font.lineHeight) / 2 + 1, 0xFFB9AAB0, false);
+            g.drawString(font, labels[i], rectX + 12, y + (CARD_H - font.lineHeight) / 2 + 1, colors[i], false);
+            g.drawString(font, "›", rectX + rectW - 16, y + (CARD_H - font.lineHeight) / 2 + 1, 0xFFB9AAB0, false);
+            if (i < 3) drawDivider(g, rectX, rectW, y + CARD_H);
         }
     }
 
     private void renderSosGroup(GuiGraphics g, Font font, Layout L, int baseX, int baseY) {
-        int cardX = baseX + 10;
-        int cardW = PhoneOverlay.getPhoneWidth() - 20;
+        int rectX = baseX + 10;
+        int rectW = PhoneOverlay.getPhoneWidth() - 20;
         g.drawString(font, "SOS 呼叫", baseX + 12, ly(L, baseY, L.sosTitleY), GROUP_TITLE_COLOR);
+        // 大矩形（含 SOS呼叫 / 工作模式 2 行 + 展开时的工作模式列表）
+        int rectY = ly(L, baseY, L.sosRectY);
+        UiShapes.fillRoundedRect(g, rectX, rectY, rectW, L.sosRectH, CARD_R, CARD_BG);
 
-        // SOS 呼叫（绑定开关）卡片
         boolean bound = SosBindCache.isBound(stableId);
+        // SOS 呼叫（绑定开关）
         int bindY = ly(L, baseY, L.bindCardY);
-        UiShapes.fillRoundedRect(g, cardX, bindY, cardW, CARD_H, CARD_R, CARD_BG);
-        g.drawString(font, "🚨 SOS 呼叫", cardX + 10, bindY + (CARD_H - font.lineHeight) / 2 + 1,
+        g.drawString(font, "SOS 呼叫", rectX + 12, bindY + (CARD_H - font.lineHeight) / 2 + 1,
                 bound ? DANGER : TEXT_COLOR, false);
         String bindState = bound ? "已绑定" : "未绑定";
-        g.drawString(font, bindState, cardX + cardW - font.width(bindState) - 14,
+        g.drawString(font, bindState, rectX + rectW - font.width(bindState) - 12,
                 bindY + (CARD_H - font.lineHeight) / 2 + 1, bound ? DANGER : TEXT_SUB, false);
+        drawDivider(g, rectX, rectW, bindY + CARD_H);
 
-        // SOS 工作模式卡片（未绑定时置灰，点击展开原下拉）
+        // 工作模式（未绑定时置灰，点击展开原下拉）
         int modeY = ly(L, baseY, L.modeCardY);
-        UiShapes.fillRoundedRect(g, cardX, modeY, cardW, CARD_H, CARD_R, CARD_BG);
         int modeColor = bound ? TEXT_COLOR : TEXT_SUB;
-        g.drawString(font, "🎯 SOS 工作模式", cardX + 10, modeY + (CARD_H - font.lineHeight) / 2 + 1, modeColor, false);
+        g.drawString(font, "工作模式", rectX + 12, modeY + (CARD_H - font.lineHeight) / 2 + 1, modeColor, false);
         String modeName = bound ? formatTaskName(SosBindCache.getTaskUid(stableId)) : "需先绑定";
-        g.drawString(font, modeName, cardX + cardW - font.width(modeName) - 26,
+        g.drawString(font, modeName, rectX + rectW - font.width(modeName) - 26,
                 modeY + (CARD_H - font.lineHeight) / 2 + 1, modeColor, false);
         g.drawString(font, modeDropdownOpen ? "▲" : "▼",
-                cardX + cardW - 16, modeY + (CARD_H - font.lineHeight) / 2 + 1, 0xFFB9AAB0, false);
+                rectX + rectW - 16, modeY + (CARD_H - font.lineHeight) / 2 + 1, 0xFFB9AAB0, false);
 
+        // 展开的工作模式列表（在 SOS 大矩形内部）
         if (bound && modeDropdownOpen && L.modeListY >= 0) {
-            renderModeList(g, font, L, baseY, cardX, cardW);
-        }
-    }
-
-    private void renderModeList(GuiGraphics g, Font font, Layout L, int baseY, int listX, int listW) {
-        List<String> tasks = SosTaskCache.getAll();
-        int listY = ly(L, baseY, L.modeListY);
-        int listH = L.modeListH;
-        UiShapes.fillRoundedRect(g, listX, listY, listW, listH, 8, 0xFFFFFFFF);
-        int windowStart = clamp(modeCursor - DROPDOWN_VISIBLE_ROWS / 2,
-                0, Math.max(0, tasks.size() - DROPDOWN_VISIBLE_ROWS));
-        for (int i = 0; i < DROPDOWN_VISIBLE_ROWS && windowStart + i < tasks.size(); i++) {
-            int idx = windowStart + i;
-            int rowY = listY + i * DROPDOWN_ROW_H;
-            if (idx == modeCursor) {
-                UiShapes.fillRoundedRect(g, listX + 2, rowY, listW - 4, DROPDOWN_ROW_H, 6, 0xFF4A6FB5);
-                g.drawString(font, formatTaskName(tasks.get(idx)), listX + 8, rowY + 3, 0xFFFFFFFF, false);
-            } else {
-                g.drawString(font, formatTaskName(tasks.get(idx)), listX + 8, rowY + 3, TEXT_COLOR, false);
+            drawDivider(g, rectX, rectW, modeY + CARD_H);
+            List<String> tasks = SosTaskCache.getAll();
+            int listY = ly(L, baseY, L.modeListY);
+            int windowStart = clamp(modeCursor - DROPDOWN_VISIBLE_ROWS / 2,
+                    0, Math.max(0, tasks.size() - DROPDOWN_VISIBLE_ROWS));
+            for (int i = 0; i < DROPDOWN_VISIBLE_ROWS && windowStart + i < tasks.size(); i++) {
+                int idx = windowStart + i;
+                int rowY = listY + i * DROPDOWN_ROW_H;
+                if (idx == modeCursor) {
+                    UiShapes.fillRoundedRect(g, rectX + 4, rowY, rectW - 8, DROPDOWN_ROW_H, 6, 0xFF4A6FB5);
+                    g.drawString(font, formatTaskName(tasks.get(idx)), rectX + 12, rowY + 3, 0xFFFFFFFF, false);
+                } else {
+                    g.drawString(font, formatTaskName(tasks.get(idx)), rectX + 12, rowY + 3, TEXT_COLOR, false);
+                }
+                drawDivider(g, rectX, rectW, rowY + DROPDOWN_ROW_H);
             }
         }
     }
 
     private void renderGroupSection(GuiGraphics g, Font font, Layout L, int baseX, int baseY) {
-        int cardX = baseX + 10;
-        int cardW = PhoneOverlay.getPhoneWidth() - 20;
+        int rectX = baseX + 10;
+        int rectW = PhoneOverlay.getPhoneWidth() - 20;
         g.drawString(font, "分组设置", baseX + 12, ly(L, baseY, L.groupTitleY), GROUP_TITLE_COLOR);
+        // 大矩形（含当前分组折叠栏 + 展开时的选项/新建分组）
+        int rectY = ly(L, baseY, L.groupRectY);
+        UiShapes.fillRoundedRect(g, rectX, rectY, rectW, L.groupRectH, CARD_R, CARD_BG);
 
-        // 折叠栏（当前分组 + 展开箭头）
         String current = currentGroup();
         int boxY = ly(L, baseY, L.groupBoxY);
-        UiShapes.fillRoundedRect(g, cardX, boxY, cardW, CARD_H, CARD_R,
-                groupDropdownOpen ? CARD_ACTIVE_BG : CARD_BG);
-        g.drawString(font, "当前分组：" + current, cardX + 10, boxY + (CARD_H - font.lineHeight) / 2 + 1,
+        g.drawString(font, "当前分组：" + current, rectX + 12, boxY + (CARD_H - font.lineHeight) / 2 + 1,
                 TEXT_COLOR, false);
-        g.drawString(font, groupDropdownOpen ? "▲" : "▼", cardX + cardW - 16,
+        g.drawString(font, groupDropdownOpen ? "▲" : "▼", rectX + rectW - 16,
                 boxY + (CARD_H - font.lineHeight) / 2 + 1, 0xFFB9AAB0, false);
 
-        // 展开时：分组选项 + 新建分组（都在折叠栏内）
-        for (GroupSlot slot : L.groupSlots) {
-            int y = ly(L, baseY, slot.y);
-            if (slot.isNewGroup) {
-                UiShapes.fillRoundedRect(g, cardX, y, cardW, slot.h, CARD_R, 0xFFFFF5F8);
-                g.drawString(font, "＋ 新建分组", cardX + 10, y + (slot.h - font.lineHeight) / 2 + 1,
-                        0xFFB06A6A, false);
-                g.fill(cardX + 2, y + slot.h - 2, cardX + cardW - 2, y + slot.h - 1, 0x22B06A6A);
-            } else {
-                boolean isCurrent = slot.label.equals(current);
-                UiShapes.fillRoundedRect(g, cardX, y, cardW, slot.h, CARD_R,
-                        isCurrent ? CARD_ACTIVE_BG : CARD_BG);
-                g.drawString(font, slot.label, cardX + 10, y + (slot.h - font.lineHeight) / 2 + 1,
-                        isCurrent ? 0xFFB06A6A : TEXT_COLOR, false);
-                if (isCurrent) {
-                    g.drawString(font, "✓", cardX + cardW - 18, y + (slot.h - font.lineHeight) / 2 + 1,
+        // 展开时：分组选项 + 新建分组（都在分组大矩形内，灰色横线分隔）
+        if (groupDropdownOpen) {
+            drawDivider(g, rectX, rectW, boxY + CARD_H);
+            for (GroupSlot slot : L.groupSlots) {
+                int y = ly(L, baseY, slot.y);
+                if (slot.isNewGroup) {
+                    g.drawString(font, "＋ 新建分组", rectX + 12, y + (slot.h - font.lineHeight) / 2 + 1,
                             0xFFB06A6A, false);
+                    g.fill(rectX + 2, y + slot.h - 2, rectX + rectW - 2, y + slot.h - 1, 0x22B06A6A);
+                } else {
+                    boolean isCurrent = slot.label.equals(current);
+                    int c = isCurrent ? 0xFFB06A6A : TEXT_COLOR;
+                    g.drawString(font, slot.label, rectX + 12, y + (slot.h - font.lineHeight) / 2 + 1, c, false);
+                    if (isCurrent) {
+                        g.drawString(font, "✓", rectX + rectW - 18, y + (slot.h - font.lineHeight) / 2 + 1,
+                                0xFFB06A6A, false);
+                    }
                 }
+                drawDivider(g, rectX, rectW, y + slot.h);
             }
         }
+    }
+
+    /** 组内灰色分隔线（两端内缩） */
+    private static void drawDivider(GuiGraphics g, int rectX, int rectW, int y) {
+        g.fill(rectX + 8, y, rectX + rectW - 8, y + 1, DIVIDER);
     }
 
     /** 渲染删除联系人二次确认弹窗 */
