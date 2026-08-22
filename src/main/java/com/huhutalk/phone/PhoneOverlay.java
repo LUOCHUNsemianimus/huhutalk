@@ -56,8 +56,6 @@ public class PhoneOverlay {
 
     /** 统一状态栏高度（像素，0.75 倍） */
     private static final int STATUSBAR_H = 12;
-    /** 底部导航高度（像素） */
-    private static final int BOTTOM_NAV_H = 24;
     /** 手机最小宽度（像素） */
     private static final int MIN_PHONE_W = 60;
     /** 底部水印栏高度（与状态栏同高；圆角半径 = 栏高） */
@@ -75,8 +73,12 @@ public class PhoneOverlay {
     public static int getPhoneHeight() { return phoneHeight; }
     /** 统一状态栏高度（像素），页面命中判定据此与渲染基准对齐 */
     public static int getStatusBarHeight() { return STATUSBAR_H; }
-    /** 底部导航高度（像素） */
-    public static int getBottomNavHeight() { return BOTTOM_NAV_H; }
+    /** 底部导航高度：1.5 倍默认字体高度，容纳"图标+文字" */
+    public static int getBottomNavHeight() { return bottomNavH(); }
+    /** 底部导航（胶囊）高度 */
+    private static int bottomNavH() {
+        return Math.round(Minecraft.getInstance().font.lineHeight * 1.5f);
+    }
     public static int getPhoneX() { return phoneX; }
     public static int getPhoneY() { return phoneY; }
     public static float getScale() { return scale; }
@@ -259,9 +261,9 @@ public class PhoneOverlay {
             page.render(graphics, phoneX, phoneY + STATUSBAR_H, partialTick);
         }
 
-        // 底部导航（仅 HuhuTalk App 内且处于顶层页时显示），位于水印栏上方
+        // 底部导航（仅 HuhuTalk App 内且处于顶层页时显示），悬浮于水印栏上方
         if (inChatApp && !isInSubPage()) {
-            renderBottomNav(graphics, phoneX, phoneY + totalHeight - WATERMARK_H - BOTTOM_NAV_H, phoneWidth);
+            renderBottomNav(graphics, phoneX, phoneY + totalHeight - WATERMARK_H - bottomNavH(), phoneWidth);
         }
 
         // 底部水印栏（圆角底）
@@ -371,25 +373,45 @@ public class PhoneOverlay {
         return barIndex == 0 ? 0xFF888888 : 0xFFFFFF00;
     }
 
-    /** 底部导航：消息 / 联系人 / 设置（高亮粉底 + 白字，选中高亮） */
+    /** 底部导航（Dock）：悬浮胶囊，三个选项横向均分（emoji 上 + 0.75 倍文字下），选中项粉色底 */
     private static void renderBottomNav(GuiGraphics graphics, int baseX, int baseY, int w) {
-        ColorScheme scheme = ThemeManager.getActive();
         Font font = Minecraft.getInstance().font;
-        int h = BOTTOM_NAV_H;
-        graphics.fill(baseX, baseY, baseX + w, baseY + h, scheme.topBarBg());
+        int h = bottomNavH();
+        float r = h / 2f;
+        // 悬浮胶囊：水平留边，半透明背景 + 白色像素描边（先画大 1px 的白胶囊，再盖彩色）
+        int margin = 8;
+        int cx = baseX + margin;
+        int cw = w - margin * 2;
+        fillRoundedRect(graphics, cx - 1, baseY - 1, cw + 2, h + 2, r + 1, r + 1, 0xFFFFFFFF);
+        fillRoundedRect(graphics, cx, baseY, cw, h, r, r, 0xE6D9C3D4); // #d9c3d4，90% 透明度
 
+        String[] emojis = {"✉", "🦊", "⚙"};
         String[] labels = {"消息", "联系人", "设置"};
-        int slotW = w / 3;
+        int slotW = cw / 3;
+        int activeIdx = activeTab.ordinal();
+        float ts = 0.75f; // 文字/图标缩放
+        int lineH = (int)(font.lineHeight * ts);
+
         for (int i = 0; i < 3; i++) {
-            boolean active = (i == activeTab.ordinal());
-            int centerX = baseX + i * slotW + slotW / 2;
-            int centerY = baseY + h / 2;
-            int color = active ? scheme.topBarText() : scheme.navText();
-            // 选中项加高亮底
-            if (active) {
-                graphics.fill(baseX + i * slotW + 3, baseY + 3, baseX + i * slotW + slotW - 3, baseY + h - 3, 0x33FFFFFF);
+            int itemX = cx + i * slotW;
+            int centerX = itemX + slotW / 2;
+            // 选中项底色：#de6f8d 圆角胶囊
+            if (i == activeIdx) {
+                fillRoundedRect(graphics, itemX + 1, baseY + 1, slotW - 2, h - 2, (h - 2) / 2f, (h - 2) / 2f, 0xFFDE6F8D);
             }
-            graphics.drawCenteredString(font, labels[i], centerX, centerY - font.lineHeight / 2, color);
+            // emoji（上）
+            FormattedCharSequence emoji = Component.literal(emojis[i]).getVisualOrderText();
+            drawScaledText(graphics, font, emoji, centerX - font.width(emoji) * ts / 2f, baseY + 1, 0xFFFFFFFF, ts);
+            // 文字（下，0.75 倍）
+            FormattedCharSequence label = Component.literal(labels[i]).getVisualOrderText();
+            drawScaledText(graphics, font, label, centerX - font.width(label) * ts / 2f, baseY + 1 + lineH, 0xFFFFFFFF, ts);
+        }
+
+        // 淡灰竖线分隔三个选项
+        int lineColor = 0x99AAAAAA;
+        for (int i = 1; i < 3; i++) {
+            int lx = cx + i * slotW;
+            graphics.fill(lx, baseY + 3, lx + 1, baseY + h - 3, lineColor);
         }
     }
 
@@ -420,12 +442,18 @@ public class PhoneOverlay {
                 return true;
             }
 
-            // 底部导航区域（仅 HuhuTalk App 内顶层页显示时）
-            if (inChatApp && !isInSubPage() && relY >= phoneHeight + STATUSBAR_H - BOTTOM_NAV_H) {
-                int slotW = phoneWidth / 3;
-                int idx = (int)(relX / slotW);
-                if (idx >= 0 && idx < 3) {
-                    switchTab(Tab.values()[idx]);
+            // 底部导航区域（仅 HuhuTalk App 内顶层页显示时；胶囊范围内可点）
+            if (inChatApp && !isInSubPage() && relY >= phoneHeight + STATUSBAR_H - bottomNavH()) {
+                int navTop = phoneHeight + STATUSBAR_H - bottomNavH();
+                int navBottom = phoneHeight + STATUSBAR_H;
+                int capsuleLeft = 8;
+                int capsuleRight = phoneWidth - 8;
+                if (relX >= capsuleLeft && relX <= capsuleRight && relY >= navTop && relY < navBottom) {
+                    int slotW = (capsuleRight - capsuleLeft) / 3;
+                    int idx = (int)((relX - capsuleLeft) / slotW);
+                    if (idx >= 0 && idx < 3) {
+                        switchTab(Tab.values()[idx]);
+                    }
                 }
                 return true;
             }
