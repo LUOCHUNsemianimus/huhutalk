@@ -73,12 +73,16 @@ public class PhoneOverlay {
     public static int getPhoneHeight() { return phoneHeight; }
     /** 统一状态栏高度（像素），页面命中判定据此与渲染基准对齐 */
     public static int getStatusBarHeight() { return STATUSBAR_H; }
-    /** 底部导航高度：1.5 倍默认字体高度，容纳"图标+文字" */
-    public static int getBottomNavHeight() { return bottomNavH(); }
     /** 底部导航（胶囊）高度 */
     private static int bottomNavH() {
         return Math.round(Minecraft.getInstance().font.lineHeight * 1.5f);
     }
+    /**
+     * 页面底部预留的导航高度。
+     * 返回 0：页面内容区一直延伸到水印栏（真正与下部接壤），
+     * 导航胶囊作为悬浮层覆盖在内容之上（非占用色块）。
+     */
+    public static int getBottomNavHeight() { return 0; }
     public static int getPhoneX() { return phoneX; }
     public static int getPhoneY() { return phoneY; }
     public static float getScale() { return scale; }
@@ -378,12 +382,12 @@ public class PhoneOverlay {
         Font font = Minecraft.getInstance().font;
         int h = bottomNavH();
         float r = h / 2f;
-        // 悬浮胶囊：水平留边，半透明背景 + 白色像素描边（先画大 1px 的白胶囊，再盖彩色）
+        // 悬浮胶囊：水平留边；白描边大胶囊与底小胶囊均 70% 透明度（保留透视感）
         int margin = 8;
         int cx = baseX + margin;
         int cw = w - margin * 2;
-        fillRoundedRect(graphics, cx - 1, baseY - 1, cw + 2, h + 2, r + 1, r + 1, 0xFFFFFFFF);
-        fillRoundedRect(graphics, cx, baseY, cw, h, r, r, 0xE6D9C3D4); // #d9c3d4，90% 透明度
+        fillRoundedRect(graphics, cx - 1, baseY - 1, cw + 2, h + 2, r + 1, r + 1, 0xB3FFFFFF);   // 白描边 70%
+        fillRoundedRect(graphics, cx, baseY, cw, h, r, r, 0xB3D9C3D4);                          // #d9c3d4 70%
 
         String[] emojis = {"✉", "🦊", "⚙"};
         String[] labels = {"消息", "联系人", "设置"};
