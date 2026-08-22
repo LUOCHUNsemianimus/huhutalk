@@ -1,5 +1,6 @@
 package com.huhutalk.phone;
 
+import com.huhutalk.HuhuTalk;
 import com.huhutalk.client.settings.HuhuTalkClientSettings;
 import com.huhutalk.client.theme.ColorScheme;
 import com.huhutalk.client.theme.PhoneCaseRenderer;
@@ -11,8 +12,11 @@ import com.huhutalk.phone.pages.SettingsPage;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
+import net.minecraft.util.FormattedCharSequence;
 import net.minecraft.world.level.Level;
+import net.neoforged.fml.ModList;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.Stack;
@@ -50,12 +54,16 @@ public class PhoneOverlay {
     private static int phoneHeight;
     private static int phoneX, phoneY;
 
-    /** 统一状态栏高度（像素） */
-    private static final int STATUSBAR_H = 16;
+    /** 统一状态栏高度（像素，0.75 倍） */
+    private static final int STATUSBAR_H = 12;
     /** 底部导航高度（像素） */
     private static final int BOTTOM_NAV_H = 24;
     /** 手机最小宽度（像素） */
     private static final int MIN_PHONE_W = 60;
+    /** 底部水印栏高度（与状态栏同高；圆角半径 = 栏高） */
+    private static final int WATERMARK_H = STATUSBAR_H;
+    /** 底部水印栏背景色 */
+    private static final int WATERMARK_BG = 0xFF192A54;
 
     private static float scale = 1.0f;
 
@@ -232,57 +240,114 @@ public class PhoneOverlay {
         int totalHeight = (int)Math.round(screenH * size);
         int width = (int)Math.round(totalHeight * aspect);
         phoneWidth = Math.max(MIN_PHONE_W, Math.min(width, screenW - 20));
-        phoneHeight = Math.max(20, totalHeight - STATUSBAR_H);
+        phoneHeight = Math.max(20, totalHeight - STATUSBAR_H - WATERMARK_H);
         phoneX = screenW - phoneWidth - 10;
         phoneY = Math.max(2, screenH - totalHeight - 10);
 
         // 手机壳（纯视觉，包住整个手机）
         PhoneCaseRenderer.renderCase(graphics, phoneX, phoneY, phoneWidth, totalHeight);
 
-        // 手机背景（含状态栏区域）
-        graphics.fill(phoneX, phoneY, phoneX + phoneWidth, phoneY + totalHeight, 0xEE111111);
-        graphics.fill(phoneX, phoneY, phoneX + phoneWidth, phoneY + 1, 0xFFFFFFFF);
+        // 手机背景（圆角：上圆角=状态栏高，下圆角=水印栏高）
+        fillRoundedRect(graphics, phoneX, phoneY, phoneWidth, totalHeight, STATUSBAR_H, WATERMARK_H, 0xEE111111);
 
-        // 统一状态栏
+        // 统一状态栏（圆角顶）
         renderStatusBar(graphics, phoneX, phoneY, phoneWidth);
 
-        // 当前页面内容区：从状态栏下方开始
+        // 当前页面内容区：从状态栏下方开始，到水印栏上方结束
         IPhonePage page = getCurrentPage();
         if (page != null) {
             page.render(graphics, phoneX, phoneY + STATUSBAR_H, partialTick);
         }
 
-        // 底部导航（仅 HuhuTalk App 内且处于顶层页时显示）
+        // 底部导航（仅 HuhuTalk App 内且处于顶层页时显示），位于水印栏上方
         if (inChatApp && !isInSubPage()) {
-            renderBottomNav(graphics, phoneX, phoneY + totalHeight - BOTTOM_NAV_H, phoneWidth);
+            renderBottomNav(graphics, phoneX, phoneY + totalHeight - WATERMARK_H - BOTTOM_NAV_H, phoneWidth);
+        }
+
+        // 底部水印栏（圆角底）
+        renderWatermark(graphics, phoneX, phoneY + totalHeight - WATERMARK_H, phoneWidth, WATERMARK_H);
+    }
+
+    /** 统一状态栏：时间 / 信号 / 电源 / 关闭（圆角顶；内容 0.75 倍、离开圆角范围） */
+    private static void renderStatusBar(GuiGraphics graphics, int baseX, int baseY, int w) {
+        Font font = Minecraft.getInstance().font;
+        fillRoundedRect(graphics, baseX, baseY, w, STATUSBAR_H, STATUSBAR_H, 0, 0xFF222222);
+        // 时间（向左留出圆角，往中间移一点）
+        drawScaledText(graphics, font, Component.literal("12:00").getVisualOrderText(),
+                baseX + 14, baseY + 3, 0xFFFFFFFF, 0.75f);
+        int rightX = baseX + w;
+        // 关闭 X（离开右圆角）
+        drawScaledText(graphics, font, Component.literal("X").getVisualOrderText(),
+                rightX - 12, baseY + 3, 0xFFFF0000, 0.75f);
+        // 电源：emoji 🔋（离开右圆角，位于 X 左侧）
+        drawScaledText(graphics, font, Component.literal("🔋").getVisualOrderText(),
+                rightX - 32, baseY + 3, 0xFFFFFFFF, 0.75f);
+        // 信号（0.75 倍，离开右圆角，位于电源左侧）
+        renderSignalBars(graphics, rightX - 50, baseY, STATUSBAR_H);
+    }
+
+    /** 底部水印栏：深蓝底 + 白色加粗版本文字（圆角底；文字 0.75 倍、用空格分隔，过宽时缩放适配） */
+    private static void renderWatermark(GuiGraphics graphics, int baseX, int baseY, int w, int h) {
+        Font font = Minecraft.getInstance().font;
+        fillRoundedRect(graphics, baseX, baseY, w, h, 0, WATERMARK_H, WATERMARK_BG);
+        String version = ModList.get().getModContainerById(HuhuTalk.MOD_ID)
+                .map(c -> c.getModInfo().getVersion().toString())
+                .orElse("1.0.1");
+        Component comp = Component.literal("HUHUTALK  VISION " + version)
+                .withStyle(s -> s.withBold(true));
+        FormattedCharSequence seq = comp.getVisualOrderText();
+        float tw = font.width(seq);
+        float scale = Math.max(0.5f, Math.min(0.75f, (w - 8f) / tw));
+        float renderW = tw * scale;
+        float drawX = (baseX + (w - renderW) / 2f) / scale;
+        float drawY = (baseY + (h - font.lineHeight) / 2f + 1) / scale;
+        graphics.pose().pushPose();
+        graphics.pose().scale(scale, scale, 1.0f);
+        graphics.drawString(font, seq, drawX, drawY, 0xFFFFFFFF, false);
+        graphics.pose().popPose();
+    }
+
+    /** 以指定倍率绘制文本（无阴影），坐标按 1/scale 换算保证落位 */
+    private static void drawScaledText(GuiGraphics g, Font font, FormattedCharSequence text, float x, float y, int color, float scale) {
+        float inv = 1f / scale;
+        g.pose().pushPose();
+        g.pose().scale(scale, scale, 1f);
+        g.drawString(font, text, x * inv, y * inv, color, false);
+        g.pose().popPose();
+    }
+
+    /** 绘制圆角矩形（topR/bottomR 为上下圆角半径），逐行 fill 实现 */
+    private static void fillRoundedRect(GuiGraphics g, int x, int y, int w, int h, float topR, float bottomR, int color) {
+        for (int py = y; py < y + h; py++) {
+            int left = 0, right = 0;
+            if (topR > 0 && py < y + topR) {
+                float dy = py - y;
+                float inset = topR - (float)Math.sqrt(Math.max(0f, topR * topR - (topR - dy) * (topR - dy)));
+                int cut = (int)Math.ceil(inset);
+                left = Math.max(left, cut);
+                right = Math.max(right, cut);
+            }
+            if (bottomR > 0 && py >= y + h - bottomR) {
+                float dy = (y + h - py);
+                float inset = bottomR - (float)Math.sqrt(Math.max(0f, bottomR * bottomR - (bottomR - dy) * (bottomR - dy)));
+                int cut = (int)Math.ceil(inset);
+                left = Math.max(left, cut);
+                right = Math.max(right, cut);
+            }
+            g.fill(x + left, py, x + w - right, py + 1, color);
         }
     }
 
-    /** 统一状态栏：时间 / 信号 / 电量 / 关闭 */
-    private static void renderStatusBar(GuiGraphics graphics, int baseX, int baseY, int w) {
-        Font font = Minecraft.getInstance().font;
-        graphics.fill(baseX, baseY, baseX + w, baseY + STATUSBAR_H, 0xFF222222);
-        graphics.drawString(font, "12:00", baseX + 4, baseY + 3, 0xFFFFFFFF);
-        int rightX = baseX + w;
-        graphics.drawString(font, "X", rightX - 10, baseY + 3, 0xFFFF0000);
-        // 电量（满格装饰）
-        int batW = 18, batH = 9;
-        int batX = rightX - 30, batY = baseY + (STATUSBAR_H - batH) / 2;
-        graphics.fill(batX, batY, batX + batW, batY + batH, 0xFF000000);
-        graphics.fill(batX + batW, batY + 2, batX + batW + 2, batY + batH - 2, 0xFF888888);
-        graphics.fill(batX + 1, batY + 1, batX + batW - 1, batY + batH - 1, 0xFF00FF00);
-        // 信号三竖杠
-        renderSignalBars(graphics, rightX - 52, baseY, STATUSBAR_H);
-    }
-
     private static void renderSignalBars(GuiGraphics graphics, int startX, int baseY, int barAreaH) {
-        int[] heights = {6, 9, 12};
+        int[] hs = {5, 7, 9}; // 原 {6,9,12} × 0.75 取整
+        int barW = 2;         // 原 3 × 0.75
+        int spacing = 4;      // 原 5 × 0.75
         ResourceKey<Level> dim = signalDimension();
         for (int i = 0; i < 3; i++) {
-            int x = startX + i * 5;
-            int h = heights[i];
+            int x = startX + i * spacing;
+            int h = hs[i];
             int y = baseY + barAreaH - h;
-            graphics.fill(x, y, x + 3, y + h, signalBarColor(dim, i));
+            graphics.fill(x, y, x + barW, y + h, signalBarColor(dim, i));
         }
     }
 
@@ -335,11 +400,11 @@ public class PhoneOverlay {
 
         double relX = screenX - phoneX;
         double relY = screenY - phoneY;
-        if (relX < 0 || relY < 0 || relX >= phoneWidth || relY >= phoneHeight + STATUSBAR_H) {
+        if (relX < 0 || relY < 0 || relX >= phoneWidth || relY >= phoneHeight + STATUSBAR_H + WATERMARK_H) {
             return false;
         }
 
-        // 状态栏 / 底部导航 / 右键返回：仅在按下时处理
+        // 状态栏 / 底部导航 / 水印栏 / 右键返回：仅在按下时处理
         if (action == GLFW.GLFW_PRESS) {
             // 状态栏区域：只处理关闭按钮
             if (relY < STATUSBAR_H) {
@@ -347,6 +412,11 @@ public class PhoneOverlay {
                     hide();
                     updateCursorMode();
                 }
+                return true;
+            }
+
+            // 底部水印栏区域（最底部）：装饰，不响应点击
+            if (relY >= phoneHeight + STATUSBAR_H) {
                 return true;
             }
 
