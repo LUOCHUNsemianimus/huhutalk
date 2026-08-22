@@ -47,9 +47,10 @@ import java.util.List;
  */
 public class MaidInfoPage implements IPhonePage {
     private static final int CARD_H = 34;
-    private static final int CARD_GAP = 6;
+    private static final int CARD_GAP = 2;            // 组内项间距（紧凑）
     private static final int CARD_R = 8;
-    private static final int GROUP_TITLE_SPACE = 16;
+    private static final int GROUP_TITLE_TOP = 14;    // 分组标题距上一组底
+    private static final int GROUP_TITLE_TO_CARD = 8; // 分组标题到本组第一项
     private static final int DROPDOWN_ROW_H = 16;
     private static final int DROPDOWN_VISIBLE_ROWS = 5;
     private static final int TEXT_COLOR = 0xFF333333;
@@ -71,6 +72,8 @@ public class MaidInfoPage implements IPhonePage {
     private int modeCursor = 0;
     /** 是否处于「删除联系人」二次确认状态（弹确认框） */
     private boolean confirmDeletePending = false;
+    /** 分组设置折叠栏是否展开 */
+    private boolean groupDropdownOpen = false;
     /** 短暂提示（toast）：文本 + 到期时间戳 */
     private String flashText = "";
     private long flashUntil = 0;
@@ -182,7 +185,7 @@ public class MaidInfoPage implements IPhonePage {
         int manageTitleY;
         int[] cardY = new int[4]; // 管理 4 项
         int sosTitleY, bindCardY, modeCardY, modeListY, modeListH;
-        int groupTitleY;
+        int groupTitleY, groupBoxY;
         List<GroupSlot> groupSlots = new ArrayList<>();
         int contentH;
     }
@@ -194,7 +197,7 @@ public class MaidInfoPage implements IPhonePage {
         Layout L = new Layout();
         L.navH = lineH + 8;
 
-        int y = L.navH + 8;
+        int y = L.navH + 6;
 
         // 头部：大头像高度 = 名称(1.75x) + 状态(1.25x) 文字高度之和
         int nameH = (int) (lineH * 1.75f);
@@ -208,46 +211,49 @@ public class MaidInfoPage implements IPhonePage {
         L.nameX = L.avatarX + L.avatarSize + 12;
         L.nameTop = L.avatarY + (L.avatarSize - (nameH + statusH)) / 2;
         L.statusTop = L.nameTop + nameH + 2;
-        y += L.headerH + 4;
+        y += L.headerH + GROUP_TITLE_TOP;
 
         // 管理 分组
         L.manageTitleY = y;
-        y += GROUP_TITLE_SPACE;
+        y += GROUP_TITLE_TO_CARD;
         for (int i = 0; i < 4; i++) {
             L.cardY[i] = y;
             y += CARD_H + CARD_GAP;
         }
-        y += 6;
+        y += GROUP_TITLE_TOP - CARD_GAP; // 组间留白
 
         // SOS 分组
         L.sosTitleY = y;
-        y += GROUP_TITLE_SPACE;
+        y += GROUP_TITLE_TO_CARD;
         L.bindCardY = y;
         y += CARD_H + CARD_GAP;
-        L.modeCardY = -1;
-        L.modeListY = -1;
-        L.modeListH = 0;
         L.modeCardY = y;
         y += CARD_H + CARD_GAP;
+        L.modeListY = -1;
+        L.modeListH = 0;
         if (modeDropdownOpen && SosBindCache.isBound(stableId)) {
             L.modeListY = L.modeCardY + CARD_H + CARD_GAP;
             L.modeListH = Math.min(DROPDOWN_VISIBLE_ROWS, SosTaskCache.getAll().size()) * DROPDOWN_ROW_H;
-            y = L.modeListY + L.modeListH + 4;
+            y = L.modeListY + L.modeListH;
         }
-        y += 6;
+        y += GROUP_TITLE_TOP;
 
-        // 分组设置 分组
+        // 分组设置 分组（折叠栏：点击展开分组选项 + 新建分组）
         L.groupTitleY = y;
-        y += GROUP_TITLE_SPACE;
-        for (String g : groupOptions()) {
-            L.groupSlots.add(new GroupSlot(g, y, CARD_H, false));
+        y += GROUP_TITLE_TO_CARD;
+        L.groupBoxY = y;
+        y += CARD_H + CARD_GAP;
+        if (groupDropdownOpen) {
+            for (String g : groupOptions()) {
+                L.groupSlots.add(new GroupSlot(g, y, CARD_H, false));
+                y += CARD_H + CARD_GAP;
+            }
+            L.groupSlots.add(new GroupSlot("+ 新建分组", y, CARD_H, true));
             y += CARD_H + CARD_GAP;
         }
-        L.groupSlots.add(new GroupSlot("+ 新建分组", y, CARD_H, true));
-        y += CARD_H + CARD_GAP;
         y += 4;
 
-        L.contentH = y - (L.navH + 8) + 4;
+        L.contentH = y - (L.navH + 6) + 4;
         return L;
     }
 
@@ -391,11 +397,20 @@ public class MaidInfoPage implements IPhonePage {
         int cardW = PhoneOverlay.getPhoneWidth() - 20;
         g.drawString(font, "分组设置", baseX + 12, ly(L, baseY, L.groupTitleY), GROUP_TITLE_COLOR);
 
+        // 折叠栏（当前分组 + 展开箭头）
         String current = currentGroup();
+        int boxY = ly(L, baseY, L.groupBoxY);
+        UiShapes.fillRoundedRect(g, cardX, boxY, cardW, CARD_H, CARD_R,
+                groupDropdownOpen ? CARD_ACTIVE_BG : CARD_BG);
+        g.drawString(font, "当前分组：" + current, cardX + 10, boxY + (CARD_H - font.lineHeight) / 2 + 1,
+                TEXT_COLOR, false);
+        g.drawString(font, groupDropdownOpen ? "▲" : "▼", cardX + cardW - 16,
+                boxY + (CARD_H - font.lineHeight) / 2 + 1, 0xFFB9AAB0, false);
+
+        // 展开时：分组选项 + 新建分组（都在折叠栏内）
         for (GroupSlot slot : L.groupSlots) {
             int y = ly(L, baseY, slot.y);
             if (slot.isNewGroup) {
-                // 新建分组按钮：虚线感 → 用淡色描边卡片
                 UiShapes.fillRoundedRect(g, cardX, y, cardW, slot.h, CARD_R, 0xFFFFF5F8);
                 g.drawString(font, "＋ 新建分组", cardX + 10, y + (slot.h - font.lineHeight) / 2 + 1,
                         0xFFB06A6A, false);
@@ -520,13 +535,19 @@ public class MaidInfoPage implements IPhonePage {
             return true;
         }
 
-        // 分组设置：分组选项 / 新建分组
+        // 分组设置：折叠栏（点击展开/收起）
+        if (hit(relX, ly, cardX, L.groupBoxY, cardW, CARD_H)) {
+            groupDropdownOpen = !groupDropdownOpen;
+            return true;
+        }
+        // 展开时的分组选项 / 新建分组（都在折叠栏内部）
         for (GroupSlot slot : L.groupSlots) {
             if (!hit(relX, ly, cardX, slot.y, cardW, slot.h)) continue;
             if (slot.isNewGroup) {
                 Minecraft.getInstance().setScreen(new PhoneGroupNameInputScreen(this));
             } else {
                 HuhuTalkClientSettings.setMaidGroup(stableId, slot.label);
+                groupDropdownOpen = false;
                 showFlash("已分到「" + slot.label + "」");
             }
             return true;
