@@ -3,16 +3,24 @@ package com.huhutalk.network;
 import com.huhutalk.core.contact.MaidContactBook;
 import com.huhutalk.core.contact.MaidContactEntry;
 import com.huhutalk.core.contact.SosBindData;
+import com.huhutalk.common.StableIdProvider;
+import com.github.tartaricacid.touhoulittlemaid.api.entity.IMaid;
+import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.StreamCodec;
 import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.Entity;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 public record C2SRequestMaidListPacket() implements CustomPacketPayload {
     public static final CustomPacketPayload.Type<C2SRequestMaidListPacket> TYPE =
@@ -32,6 +40,9 @@ public record C2SRequestMaidListPacket() implements CustomPacketPayload {
                 MaidContactBook book = MaidContactBook.get(serverPlayer.getServer());
                 List<S2CMaidListPacket.MaidDisplayInfo> displayInfos = new ArrayList<>();
 
+                // 一次性扫描已加载女仆，建立 stableId -> TLM modelId 映射（仅在线女仆有实体）
+                Map<String, String> modelIdMap = buildModelIdMap(serverPlayer.getServer());
+
                 // 从全局联系人簿中取出属于该玩家的所有条目（包括离线/死亡）
                 for (MaidContactEntry entry : book.getAllEntries().values()) {
                     if (entry.getOwnerUuid().equals(serverPlayer.getUUID().toString())) {
@@ -40,7 +51,8 @@ public record C2SRequestMaidListPacket() implements CustomPacketPayload {
                                 entry.getName(),
                                 entry.getStatus(),
                                 entry.getDeathCount(),
-                                entry.getDimension()
+                                entry.getDimension(),
+                                modelIdMap.getOrDefault(entry.getStableId(), "")
                         ));
                     }
                 }
@@ -51,5 +63,26 @@ public record C2SRequestMaidListPacket() implements CustomPacketPayload {
                         SosBindData.get(serverPlayer.getServer()).toEntries(serverPlayer.getUUID().toString())));
             }
         });
+    }
+
+    /** 扫描所有已加载女仆，返回 stableId -> TLM modelId 的映射 */
+    private static Map<String, String> buildModelIdMap(MinecraftServer server) {
+        Map<String, String> map = new HashMap<>();
+        if (server == null) {
+            return map;
+        }
+        for (ServerLevel level : server.getAllLevels()) {
+            for (Entity entity : level.getAllEntities()) {
+                if (entity instanceof EntityMaid maid
+                        && maid instanceof StableIdProvider sp
+                        && maid instanceof IMaid im) {
+                    String stableId = sp.getStableId();
+                    if (stableId != null && !stableId.isEmpty()) {
+                        map.put(stableId, im.getModelId());
+                    }
+                }
+            }
+        }
+        return map;
     }
 }

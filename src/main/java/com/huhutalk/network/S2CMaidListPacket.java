@@ -26,9 +26,9 @@ public record S2CMaidListPacket(List<MaidDisplayInfo> maids) implements CustomPa
         return TYPE;
     }
 
-    /** 显示用条目，全部使用 stableId 作为唯一键 */
+    /** 显示用条目，全部使用 stableId 作为唯一键；modelId 为 TLM 女仆模型 id（离线/未知时为空串） */
     public record MaidDisplayInfo(String stableId, String name, MaidStatus status,
-                                  int deathCount, String dimension) {
+                                  int deathCount, String dimension, String modelId) {
         public static final StreamCodec<RegistryFriendlyByteBuf, MaidDisplayInfo> STREAM_CODEC =
                 StreamCodec.composite(
                         ByteBufCodecs.STRING_UTF8,
@@ -41,6 +41,8 @@ public record S2CMaidListPacket(List<MaidDisplayInfo> maids) implements CustomPa
                         MaidDisplayInfo::deathCount,
                         ByteBufCodecs.STRING_UTF8,
                         MaidDisplayInfo::dimension,
+                        ByteBufCodecs.STRING_UTF8,
+                        MaidDisplayInfo::modelId,
                         MaidDisplayInfo::new
                 );
     }

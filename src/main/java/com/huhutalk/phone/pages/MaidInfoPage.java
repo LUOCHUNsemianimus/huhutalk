@@ -1,6 +1,7 @@
 package com.huhutalk.phone.pages;
 
 import com.huhutalk.client.ChatHistoryStorage;
+import com.huhutalk.client.MaidAvatarManager;
 import com.huhutalk.client.MaidGroupHelper;
 import com.huhutalk.client.MaidListCache;
 import com.huhutalk.client.MaidStatusCache;
@@ -123,6 +124,16 @@ public class MaidInfoPage implements IPhonePage {
         flashUntil = System.currentTimeMillis() + 2000;
     }
 
+    /** 点击"更新头像"：对在场女仆拍照生成头像，并给出各环节反馈 */
+    private void updateAvatar() {
+        int result = MaidAvatarManager.captureIfLoaded(stableId);
+        switch (result) {
+            case 1 -> showFlash("📷 头像已更新");
+            case 2 -> showFlash("⚠ 拍照失败，请查看日志");
+            default -> showFlash("⚠ 女仆不在场，无法拍照");
+        }
+    }
+
     /** 把 taskUid 转为可读名称：优先用语言键 task.namespace.path，缺失时回退显示路径 */
     private static String formatTaskName(String uid) {
         try {
@@ -157,7 +168,7 @@ public class MaidInfoPage implements IPhonePage {
     private static final class Layout {
         int navH;                 // 标题栏高度
         int statusY;              // 状态小字顶 y
-        int btn1Y, btn2Y, btn3Y;  // 三个核心操作按钮顶 y
+        int btn1Y, btn2Y, btn3Y, btn4Y; // 核心操作按钮顶 y（btn4=更新头像）
         int sosLabelY;            // SOS 区域标题
         int bindBtnY;             // SOS 绑定开关顶 y
         int modeLabelY, modeBoxY, modeListY, modeListH; // 工作模式下拉（未绑定全为 -1/0）
@@ -174,11 +185,12 @@ public class MaidInfoPage implements IPhonePage {
         L.statusY = y;
         y += 18;
 
-        // 三个核心操作按钮
+        // 核心操作按钮（前三个 + 更新头像）
         L.btn1Y = y;
         L.btn2Y = L.btn1Y + ACTION_BTN_H + BTN_GAP;
         L.btn3Y = L.btn2Y + ACTION_BTN_H + BTN_GAP;
-        y = L.btn3Y + ACTION_BTN_H + 12;
+        L.btn4Y = L.btn3Y + ACTION_BTN_H + BTN_GAP;
+        y = L.btn4Y + ACTION_BTN_H + 12;
 
         // SOS 区域：标题 + 绑定开关
         L.sosLabelY = y;
@@ -287,7 +299,7 @@ public class MaidInfoPage implements IPhonePage {
         }
     }
 
-    /** 渲染三个核心操作按钮（💬 发消息 / 🗑 删除聊天记录 / ☠ 删除联系人） */
+    /** 渲染核心操作按钮（💬 发消息 / 🗑 删除聊天记录 / ☠ 删除联系人 / 📷 更新头像） */
     private void renderActionButtons(GuiGraphics g, Font font, ColorScheme scheme,
                                      int baseX, int w, Layout L, int baseY) {
         int btnX = baseX + 10;
@@ -307,6 +319,11 @@ public class MaidInfoPage implements IPhonePage {
                 scheme.dangerBg());
         g.drawString(font, "☠ 删除联系人", btnX + 8,
                 ly(L, baseY, L.btn3Y) + (ACTION_BTN_H - font.lineHeight) / 2 + 1, scheme.dangerText());
+        // 📷 更新头像：蓝绿色
+        g.fill(btnX, ly(L, baseY, L.btn4Y), btnX + btnW, ly(L, baseY, L.btn4Y) + ACTION_BTN_H,
+                0xFF2E7D32);
+        g.drawString(font, "📷 更新头像", btnX + 8,
+                ly(L, baseY, L.btn4Y) + (ACTION_BTN_H - font.lineHeight) / 2 + 1, 0xFFFFFFFF);
     }
 
     /** 渲染 SOS 区域：标题 + 绑定开关 +（已绑定时）工作模式下拉 */
@@ -485,6 +502,11 @@ public class MaidInfoPage implements IPhonePage {
         if (hit(relX, ly, boxX, L.btn3Y, boxW, ACTION_BTN_H)) {
             // 危险操作：先进入二次确认状态
             confirmDeletePending = true;
+            return true;
+        }
+        // 📷 更新头像
+        if (hit(relX, ly, boxX, L.btn4Y, boxW, ACTION_BTN_H)) {
+            updateAvatar();
             return true;
         }
 

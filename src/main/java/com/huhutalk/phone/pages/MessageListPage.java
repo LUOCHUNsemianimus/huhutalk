@@ -1,6 +1,7 @@
 package com.huhutalk.phone.pages;
 
 import com.huhutalk.client.ChatHistoryStorage;
+import com.huhutalk.client.MaidAvatarManager;
 import com.huhutalk.client.MaidListCache;
 import com.huhutalk.client.NotificationManager;
 import com.huhutalk.client.theme.ColorScheme;
@@ -65,6 +66,10 @@ public class MessageListPage implements IPhonePage {
     public MessageListPage() {
         // 进入消息页即向服务端请求最新女仆列表（用于名字映射、检测新增会话）
         PacketDistributor.sendToServer(new C2SRequestMaidListPacket());
+        // 打开时对已加载且未缓存头像的女仆触发拍照（先验证离屏渲染）
+        for (String stableId : ChatHistoryStorage.getConversationIds()) {
+            triggerCaptureIfNeeded(stableId);
+        }
     }
 
     // ==================== 数据 ====================
@@ -95,14 +100,35 @@ public class MessageListPage implements IPhonePage {
         return cut + "…";
     }
 
-    /** 从 MaidListCache 查询女仆在线状态；查不到（离线/未加载）返回 null */
-    private static com.huhutalk.common.MaidStatus getMaidStatus(String stableId) {
+    /** 从 MaidListCache 查询女仆完整条目（含 status / modelId）；查不到返回 null */
+    private static S2CMaidListPacket.MaidDisplayInfo getMaidInfo(String stableId) {
         for (S2CMaidListPacket.MaidDisplayInfo info : MaidListCache.getList()) {
             if (stableId.equals(info.stableId())) {
-                return info.status();
+                return info;
             }
         }
         return null;
+    }
+
+    /** 渲染女仆头像：使用已缓存的头像纹理；无缓存则画占位色块 */
+    private void renderMaidHead(GuiGraphics g, int x, int y, int size, String stableId) {
+        ResourceLocation tex = MaidAvatarManager.getOrLoadTexture(stableId);
+        if (tex != null) {
+            int[] d = MaidAvatarManager.getTextureSize(stableId);
+            int w = d != null ? d[0] : size;
+            int h = d != null ? d[1] : size;
+            g.blit(tex, x, y, size, size, 0.0f, 0.0f, w, h, w, h);
+        } else {
+            g.fill(x, y, x + size, y + size, 0xFFB0BEC5);
+        }
+    }
+
+    /** 触发未缓存头像的女仆拍照（女仆必须在场且未在拍照中） */
+    private void triggerCaptureIfNeeded(String stableId) {
+        if (MaidAvatarManager.hasAvatar(stableId) || MaidAvatarManager.isCapturing(stableId)) {
+            return;
+        }
+        MaidAvatarManager.captureIfLoaded(stableId);
     }
 
     /**
@@ -209,14 +235,12 @@ public class MessageListPage implements IPhonePage {
         int centerY = itemY + itemH / 2;
         int top = centerY - avatarSize / 2;
 
-        // 头像占位色块（柔粉底 + 名字首字）
-        g.fill(avatarX, top, avatarX + avatarSize, top + avatarSize, scheme.accentSoft());
-        String initial = name.isEmpty() ? "?" : name.substring(0, 1);
-        g.drawString(font, initial, avatarX + (avatarSize - font.width(initial)) / 2,
-                top + (avatarSize - font.lineHeight) / 2, TEXT_COLOR, false);
+        // 头像：使用缓存的头像纹理，否则占位色块
+        S2CMaidListPacket.MaidDisplayInfo info = getMaidInfo(stableId);
+        renderMaidHead(g, avatarX, top, avatarSize, stableId);
 
         // 在线状态小方块：边长 = 原圆点直径的一半，居中于头像右下角；在线绿 / 其余灰
-        com.huhutalk.common.MaidStatus maidStatus = getMaidStatus(stableId);
+        com.huhutalk.common.MaidStatus maidStatus = info == null ? null : info.status();
         boolean online = maidStatus == com.huhutalk.common.MaidStatus.ONLINE;
         float dotR = Math.max(2.5f, avatarSize * 0.22f);
         int sq = Math.max(3, Math.round(dotR));
