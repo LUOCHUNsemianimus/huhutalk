@@ -26,6 +26,10 @@ public final class HuhuTalkClientSettings {
     private static String themeId = "pearl_pink";
     /** 手机壳方块 id（如 "minecraft:iron_block"），空串表示默认无自定义壳 */
     private static String phoneCaseBlock = "";
+    /** 手机屏幕比例（宽:高），可选 "20:9" / "9:16" / "4:3" */
+    private static String phoneAspect = "20:9";
+    /** 手机屏幕高度占实际屏幕高度的比例（0.5 ~ 1.0） */
+    private static float phoneSize = 0.6f;
     /** 消息免打扰（DND）：开启后女仆消息不再弹未读红点/通知 */
     private static boolean dndEnabled = false;
     /** 消息断句动画开关 */
@@ -44,6 +48,8 @@ public final class HuhuTalkClientSettings {
 
     public static String getThemeId() { return themeId; }
     public static String getPhoneCaseBlock() { return phoneCaseBlock; }
+    public static String getPhoneAspect() { return phoneAspect; }
+    public static float getPhoneSize() { return phoneSize; }
     public static boolean isDndEnabled() { return dndEnabled; }
     public static boolean isMessageAnimationEnabled() { return messageAnimation; }
     public static long getCharTypingMs() { return charTypingMs; }
@@ -69,6 +75,27 @@ public final class HuhuTalkClientSettings {
     public static void setPhoneCaseBlock(String blockId) {
         phoneCaseBlock = blockId == null ? "" : blockId;
         save();
+    }
+
+    /** 设置屏幕比例（非法值回退 "20:9"） */
+    public static void setPhoneAspect(String aspect) {
+        if (aspect == null || aspect.isBlank()) {
+            phoneAspect = "20:9";
+        } else {
+            phoneAspect = aspect;
+        }
+        save();
+    }
+
+    /** 设置屏幕高度比例（钳制到 0.5~1.0） */
+    public static void setPhoneSize(float size) {
+        phoneSize = Math.max(0.5f, Math.min(1.0f, size));
+        save();
+    }
+
+    /** 拖动滑块过程中的高频更新：只改内存，不落盘（松开时由调用方 save） */
+    public static void setPhoneSizeRaw(float size) {
+        phoneSize = Math.max(0.5f, Math.min(1.0f, size));
     }
 
     public static void setDndEnabled(boolean enabled) {
@@ -122,6 +149,8 @@ public final class HuhuTalkClientSettings {
             }
             themeId = data.themeId != null ? data.themeId : "pearl_pink";
             phoneCaseBlock = data.phoneCaseBlock != null ? data.phoneCaseBlock : "";
+            if (data.phoneAspect != null && !data.phoneAspect.isBlank()) phoneAspect = data.phoneAspect;
+            if (data.phoneSize > 0f) phoneSize = Math.max(0.5f, Math.min(1.0f, data.phoneSize));
             dndEnabled = data.dndEnabled;
             messageAnimation = data.messageAnimation;
             if (data.charTypingMs > 0) charTypingMs = data.charTypingMs;
@@ -141,6 +170,8 @@ public final class HuhuTalkClientSettings {
             SettingsData data = new SettingsData();
             data.themeId = themeId;
             data.phoneCaseBlock = phoneCaseBlock;
+            data.phoneAspect = phoneAspect;
+            data.phoneSize = phoneSize;
             data.dndEnabled = dndEnabled;
             data.messageAnimation = messageAnimation;
             data.charTypingMs = charTypingMs;
@@ -158,6 +189,8 @@ public final class HuhuTalkClientSettings {
     private static class SettingsData {
         String themeId;
         String phoneCaseBlock;
+        String phoneAspect;
+        float phoneSize;
         boolean dndEnabled;
         boolean messageAnimation;
         long charTypingMs;

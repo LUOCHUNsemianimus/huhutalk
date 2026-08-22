@@ -33,8 +33,6 @@ import java.util.Map;
  * 列表支持鼠标滚轮滚动；空列表时内容区居中提示「暂无消息会话」。
  */
 public class MessageListPage implements IPhonePage {
-    /** 顶部标题栏高度比例（h * 0.08） */
-    private static final int NAV_H_RATIO = 8;
     /** 会话条目行高度 */
     private static final int ITEM_HEIGHT = 44;
     /** 头像占位色块边长 */
@@ -110,10 +108,11 @@ public class MessageListPage implements IPhonePage {
     public void render(GuiGraphics graphics, int baseX, int baseY, float partialTick) {
         int w = PhoneOverlay.getPhoneWidth();
         int h = PhoneOverlay.getPhoneHeight();
-        int navH = (int)(h * NAV_H_RATIO / 100.0);
         int bottomNavH = PhoneOverlay.getBottomNavHeight();
         ColorScheme scheme = ThemeManager.getActive();
         Font font = Minecraft.getInstance().font;
+        // 标题栏高度随字体缩放（跟随 GUI 字体大小），而非手机高度百分比
+        int navH = navH();
 
         // 页面底色（浅珍珠粉）
         graphics.fill(baseX, baseY, baseX + w, baseY + h, scheme.pageBg());
@@ -219,7 +218,7 @@ public class MessageListPage implements IPhonePage {
         if (button != GLFW.GLFW_MOUSE_BUTTON_LEFT) return false;
         if (action != GLFW.GLFW_PRESS) return false;
         int h = PhoneOverlay.getPhoneHeight();
-        int navH = (int)(h * NAV_H_RATIO / 100.0);
+        int navH = navH();
         int bottomNavH = PhoneOverlay.getBottomNavHeight();
 
         // 标题栏 / 底部导航区域不响应条目点击
@@ -246,7 +245,7 @@ public class MessageListPage implements IPhonePage {
     @Override
     public boolean mouseScrolled(double relX, double relY, double scrollDelta) {
         int h = PhoneOverlay.getPhoneHeight();
-        int navH = (int)(h * NAV_H_RATIO / 100.0);
+        int navH = navH();
         int bottomNavH = PhoneOverlay.getBottomNavHeight();
         int viewH = Math.max(0, h - navH - bottomNavH);
 
@@ -254,6 +253,11 @@ public class MessageListPage implements IPhonePage {
         int maxScroll = Math.max(0, ids.size() * ITEM_HEIGHT - viewH);
         scrollOffset = Math.max(0, Math.min(scrollOffset - (int)(scrollDelta * 10), maxScroll));
         return true;
+    }
+
+    /** 顶部标题栏高度：随字体缩放（跟随 GUI 字体大小），保证与消息条目一致 */
+    private static int navH() {
+        return Minecraft.getInstance().font.lineHeight + 8;
     }
 
     // ==================== 绘图辅助 ====================

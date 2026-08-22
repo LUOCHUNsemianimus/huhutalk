@@ -29,12 +29,20 @@ import java.util.List;
  * 使用滚动列表 + 简单开关/按钮交互。
  */
 public class SettingsPage implements IPhonePage {
-    private static final int NAV_H_RATIO = 8;
     private static final int ROW_H = 30;
+    /** 可选屏幕比例（宽:高） */
+    private static final List<String> ASPECT_OPTIONS = List.of("20:9", "9:16", "4:3");
 
     /** 滚动偏移（像素） */
     private int scrollOffset = 0;
     private int contentHeight = 0;
+    /** 是否正在拖动屏幕大小滑块 */
+    private boolean sizeDragging = false;
+
+    /** 顶部标题栏高度：随字体缩放（跟随 GUI 字体大小） */
+    private static int navH() {
+        return Minecraft.getInstance().font.lineHeight + 8;
+    }
 
     public SettingsPage() {
     }
@@ -43,9 +51,10 @@ public class SettingsPage implements IPhonePage {
     public void render(GuiGraphics g, int baseX, int baseY, float partialTick) {
         int w = PhoneOverlay.getPhoneWidth();
         int h = PhoneOverlay.getPhoneHeight();
-        int navH = (int)(h * NAV_H_RATIO / 100.0);
         Font font = Minecraft.getInstance().font;
         ColorScheme scheme = ThemeManager.getActive();
+        // 标题栏高度随字体缩放（跟随 GUI 字体大小），而非手机高度百分比
+        int navH = navH();
 
         // 页面底色
         g.fill(baseX, baseY, baseX + w, baseY + h, scheme.pageBg());
@@ -82,6 +91,10 @@ public class SettingsPage implements IPhonePage {
         y = renderSosRow(g, font, baseX, y, w);
         // 手机壳
         y = renderCaseRow(g, font, baseX, y, w);
+        // 屏幕比例
+        y = renderAspectRow(g, font, baseX, y, w);
+        // 屏幕大小（拖动滑块）
+        y = renderSizeRow(g, font, baseX, y, w);
 
         contentHeight = y - (topY - scrollOffset) + scrollOffset;
 
@@ -147,12 +160,70 @@ public class SettingsPage implements IPhonePage {
         return y + ROW_H;
     }
 
+    /** 屏幕比例行：显示当前比例，点"切换"在 20:9 / 9:16 / 4:3 间循环 */
+    private int renderAspectRow(GuiGraphics g, Font font, int baseX, int y, int w) {
+        ColorScheme scheme = ThemeManager.getActive();
+        g.fill(baseX + 6, y, baseX + w - 6, y + ROW_H, 0x44FFFFFF);
+        g.drawString(font, "屏幕比例：" + HuhuTalkClientSettings.getPhoneAspect(),
+                baseX + 12, y + (ROW_H - font.lineHeight) / 2 + 1, 0xFF333333, false);
+        int btnW = 44, btnX = baseX + w - btnW - 10, btnY = y + 5, btnH = ROW_H - 10;
+        g.fill(btnX, btnY, btnX + btnW, btnY + btnH, scheme.accentSoftActive());
+        g.drawCenteredString(font, "切换", btnX + btnW / 2, btnY + (btnH - font.lineHeight) / 2, 0xFFFFFFFF);
+        return y + ROW_H;
+    }
+
+    /** 屏幕大小行：底部横向滑块，可拖动调整高度比例（0.5~1.0）；拖动中实时更新 */
+    private int renderSizeRow(GuiGraphics g, Font font, int baseX, int y, int w) {
+        ColorScheme scheme = ThemeManager.getActive();
+        g.fill(baseX + 6, y, baseX + w - 6, y + ROW_H, 0x44FFFFFF);
+        float size = HuhuTalkClientSettings.getPhoneSize();
+        g.drawString(font, "屏幕大小：" + Math.round(size * 100) + "%",
+                baseX + 12, y + 4, 0xFF333333, false);
+
+        int trackLeft = baseX + 12;
+        int trackRight = baseX + w - 12;
+        int trackY = y + ROW_H - 12;
+        g.fill(trackLeft, trackY, trackRight, trackY + 3, 0xFFAAAAAA);
+        int handleX = trackLeft + (int)((size - 0.5f) / 0.5f * (trackRight - trackLeft));
+        g.fill(handleX - 4, trackY - 4, handleX + 4, trackY + 7, scheme.accentSoftActive());
+
+        // 拖动中：轮询鼠标位置实时更新（不落盘，松开时再 save）
+        if (sizeDragging) {
+            Minecraft mc = Minecraft.getInstance();
+            double mx = mc.mouseHandler.xpos() * mc.getWindow().getGuiScaledWidth() / mc.getWindow().getScreenWidth();
+            updateSizeFromRelX(mx - baseX, w);
+        }
+        return y + ROW_H;
+    }
+
+    /** 根据手机相对横坐标设置高度比例（钳制 0.5~1.0，不落盘） */
+    private void updateSizeFromRelX(double relX, int w) {
+        float f = 0.5f + (float)((relX - 12) / (double)(w - 24)) * 0.5f;
+        HuhuTalkClientSettings.setPhoneSizeRaw(f);
+    }
+
+    /** 循环切换到下一种屏幕比例 */
+    private void cycleAspect() {
+        String cur = HuhuTalkClientSettings.getPhoneAspect();
+        int idx = ASPECT_OPTIONS.indexOf(cur);
+        int next = (idx + 1) % ASPECT_OPTIONS.size();
+        HuhuTalkClientSettings.setPhoneAspect(ASPECT_OPTIONS.get(idx < 0 ? 0 : next));
+    }
+
     @Override
     public boolean mouseClicked(double relX, double relY, int button, int action) {
+        // 松开：结束滑块拖动并落盘
+        if (action == GLFW.GLFW_RELEASE) {
+            if (sizeDragging) {
+                sizeDragging = false;
+                HuhuTalkClientSettings.save();
+            }
+            return true;
+        }
         if (action != GLFW.GLFW_PRESS) return false;
         int w = PhoneOverlay.getPhoneWidth();
         int h = PhoneOverlay.getPhoneHeight();
-        int navH = (int)(h * NAV_H_RATIO / 100.0);
+        int navH = navH();
 
         int topY = navH + 4;
         int rowIndex = (int)((relY - topY + scrollOffset) / ROW_H);
@@ -206,6 +277,19 @@ public class SettingsPage implements IPhonePage {
             if (colX >= w - 60 && colX <= w - 10) {
                 PhoneOverlay.pushPage(new PhoneCasePickerPage());
             }
+            return true;
+        }
+        // 第 7 行：屏幕比例切换
+        if (rowIndex == 7 && relY >= rowY && relY < rowY + ROW_H) {
+            if (colX >= w - 60 && colX <= w - 10) {
+                cycleAspect();
+            }
+            return true;
+        }
+        // 第 8 行：屏幕大小滑块（按下开始拖动）
+        if (rowIndex == 8 && relY >= rowY && relY < rowY + ROW_H) {
+            sizeDragging = true;
+            updateSizeFromRelX(relX, w);
             return true;
         }
         return false;

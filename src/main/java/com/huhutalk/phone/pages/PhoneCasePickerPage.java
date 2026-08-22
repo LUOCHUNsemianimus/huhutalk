@@ -26,10 +26,14 @@ import java.util.Set;
  * 纯视觉，不影响内部布局。
  */
 public class PhoneCasePickerPage implements IPhonePage {
-    private static final int NAV_H_RATIO = 8;
     private static final int ITEM_H = 34;
     /** 每行方块数 */
     private static final int COLS = 4;
+
+    /** 顶部标题栏高度：随字体缩放 */
+    private static int navH() {
+        return Minecraft.getInstance().font.lineHeight + 8;
+    }
 
     private final List<String> blocks = new ArrayList<>();
     private int scrollOffset = 0;
@@ -60,9 +64,10 @@ public class PhoneCasePickerPage implements IPhonePage {
     public void render(GuiGraphics g, int baseX, int baseY, float partialTick) {
         int w = PhoneOverlay.getPhoneWidth();
         int h = PhoneOverlay.getPhoneHeight();
-        int navH = (int)(h * NAV_H_RATIO / 100.0);
         Font font = Minecraft.getInstance().font;
         ColorScheme scheme = ThemeManager.getActive();
+        // 标题栏高度随字体缩放
+        int navH = navH();
 
         // 页面底色 + 标题栏
         g.fill(baseX, baseY, baseX + w, baseY + h, scheme.pageBg());
@@ -115,7 +120,7 @@ public class PhoneCasePickerPage implements IPhonePage {
         if (action != GLFW.GLFW_PRESS) return false;
         int w = PhoneOverlay.getPhoneWidth();
         int h = PhoneOverlay.getPhoneHeight();
-        int navH = (int)(h * NAV_H_RATIO / 100.0);
+        int navH = navH();
 
         if (relX >= 0 && relX <= 60 && relY >= 0 && relY <= navH) {
             PhoneOverlay.popPage();

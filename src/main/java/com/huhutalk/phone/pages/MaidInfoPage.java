@@ -41,8 +41,6 @@ import java.util.List;
  * 整个内容区可滚动（鼠标滚轮），下拉展开时滚轮优先用于选择（需鼠标位于下拉区域内）。
  */
 public class MaidInfoPage implements IPhonePage {
-    /** 顶部标题栏高度比例（h * 0.08） */
-    private static final int NAV_H_RATIO = 8;
     /** 下拉列表单行高度 */
     private static final int DROPDOWN_ROW_H = 16;
     /** 下拉列表最大可见行数 */
@@ -171,7 +169,7 @@ public class MaidInfoPage implements IPhonePage {
     private Layout computeLayout() {
         int h = PhoneOverlay.getPhoneHeight();
         Layout L = new Layout();
-        L.navH = (int)(h * NAV_H_RATIO / 100.0);
+        L.navH = Minecraft.getInstance().font.lineHeight + 8; // 标题栏随字体缩放
         int y = L.navH + 8;
         L.statusY = y;
         y += 18;

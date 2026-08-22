@@ -241,7 +241,7 @@ public class ChatPage implements IPhonePage {
 
     private int phoneW() { return PhoneOverlay.getPhoneWidth(); }
     private int phoneH() { return PhoneOverlay.getPhoneHeight(); }
-    private int navH() { return (int)(phoneH() * 0.08); }
+    private int navH() { return Minecraft.getInstance().font.lineHeight + 8; }
     private int bottomNavH() { return (int)(phoneH() * 0.09); }
     private int bottomPanelH() { return bottomPanelOpen ? (int)(phoneH() * 0.18) : 0; }
     private int inputH() {

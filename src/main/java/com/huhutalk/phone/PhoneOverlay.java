@@ -1,5 +1,6 @@
 package com.huhutalk.phone;
 
+import com.huhutalk.client.settings.HuhuTalkClientSettings;
 import com.huhutalk.client.theme.ColorScheme;
 import com.huhutalk.client.theme.PhoneCaseRenderer;
 import com.huhutalk.client.theme.ThemeManager;
@@ -53,6 +54,8 @@ public class PhoneOverlay {
     private static final int STATUSBAR_H = 16;
     /** 底部导航高度（像素） */
     private static final int BOTTOM_NAV_H = 24;
+    /** 手机最小宽度（像素） */
+    private static final int MIN_PHONE_W = 60;
 
     private static float scale = 1.0f;
 
@@ -71,6 +74,19 @@ public class PhoneOverlay {
     public static float getScale() { return scale; }
     /** 主界面 APP 网格列数（MainPage 占位用，固定 2） */
     public static int getGridColumns() { return 2; }
+
+    /** 屏幕比例字符串 → 返回 宽/高 比值；未知值回退 20:9。各选项均按实际手机形状编码 */
+    public static float aspectRatio(String aspect) {
+        if (aspect == null) {
+            return 9f / 20f;
+        }
+        return switch (aspect) {
+            case "20:9" -> 9f / 20f;   // 高20 宽9 → 窄高竖屏
+            case "9:16" -> 9f / 16f;   // 高16 宽9 → 标准竖屏
+            case "4:3" -> 4f / 3f;     // 宽4 高3 → 接近方形
+            default -> 9f / 20f;
+        };
+    }
 
     public static void setScale(float newScale) {
         scale = Math.max(0.5f, Math.min(2.0f, newScale));
@@ -210,12 +226,15 @@ public class PhoneOverlay {
         int screenW = mc.getWindow().getGuiScaledWidth();
         int screenH = mc.getWindow().getGuiScaledHeight();
 
-        int baseW = screenW / 3;
-        phoneWidth = (int)(baseW * scale);
-        int totalHeight = Math.min((int)(phoneWidth * 1.6), screenH - 20);
+        // 手机尺寸 = 屏幕比例（高:宽，aspectRatio 返回宽/高）× 高度比例（占实际屏幕高 0.5~1.0）
+        float size = HuhuTalkClientSettings.getPhoneSize();
+        float aspect = aspectRatio(HuhuTalkClientSettings.getPhoneAspect());
+        int totalHeight = (int)Math.round(screenH * size);
+        int width = (int)Math.round(totalHeight * aspect);
+        phoneWidth = Math.max(MIN_PHONE_W, Math.min(width, screenW - 20));
         phoneHeight = Math.max(20, totalHeight - STATUSBAR_H);
         phoneX = screenW - phoneWidth - 10;
-        phoneY = screenH - totalHeight - 10;
+        phoneY = Math.max(2, screenH - totalHeight - 10);
 
         // 手机壳（纯视觉，包住整个手机）
         PhoneCaseRenderer.renderCase(graphics, phoneX, phoneY, phoneWidth, totalHeight);
@@ -313,7 +332,6 @@ public class PhoneOverlay {
 
     public static boolean handleMouseClicked(double screenX, double screenY, int button, int action) {
         if (!visible) return false;
-        if (action != GLFW.GLFW_PRESS) return false;
 
         double relX = screenX - phoneX;
         double relY = screenY - phoneY;
@@ -321,38 +339,42 @@ public class PhoneOverlay {
             return false;
         }
 
-        // 状态栏区域：只处理关闭按钮
-        if (relY < STATUSBAR_H) {
-            if (relX >= phoneWidth - 14 && relX <= phoneWidth) {
-                hide();
-                updateCursorMode();
+        // 状态栏 / 底部导航 / 右键返回：仅在按下时处理
+        if (action == GLFW.GLFW_PRESS) {
+            // 状态栏区域：只处理关闭按钮
+            if (relY < STATUSBAR_H) {
+                if (relX >= phoneWidth - 14 && relX <= phoneWidth) {
+                    hide();
+                    updateCursorMode();
+                }
+                return true;
             }
-            return true;
+
+            // 底部导航区域（仅 HuhuTalk App 内顶层页显示时）
+            if (inChatApp && !isInSubPage() && relY >= phoneHeight + STATUSBAR_H - BOTTOM_NAV_H) {
+                int slotW = phoneWidth / 3;
+                int idx = (int)(relX / slotW);
+                if (idx >= 0 && idx < 3) {
+                    switchTab(Tab.values()[idx]);
+                }
+                return true;
+            }
+
+            // 右键：App 内部页返回上一页；App 顶层页返回桌面；桌面关闭手机
+            if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
+                if (isInSubPage()) {
+                    popPage();
+                } else if (inChatApp) {
+                    popPage(); // 顶层页 → 返回桌面
+                } else {
+                    hide();
+                    updateCursorMode();
+                }
+                return true;
+            }
         }
 
-        // 底部导航区域（仅 HuhuTalk App 内顶层页显示时）
-        if (inChatApp && !isInSubPage() && relY >= phoneHeight + STATUSBAR_H - BOTTOM_NAV_H) {
-            int slotW = phoneWidth / 3;
-            int idx = (int)(relX / slotW);
-            if (idx >= 0 && idx < 3) {
-                switchTab(Tab.values()[idx]);
-            }
-            return true;
-        }
-
-        // 右键：App 内部页返回上一页；App 顶层页返回桌面；桌面关闭手机
-        if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
-            if (isInSubPage()) {
-                popPage();
-            } else if (inChatApp) {
-                popPage(); // 顶层页 → 返回桌面
-            } else {
-                hide();
-                updateCursorMode();
-            }
-            return true;
-        }
-
+        // 按下与松开都转发给页面（页面自行按 action 区分；松开用于结束拖拽）
         IPhonePage page = getCurrentPage();
         if (page == null) return true;
         return page.mouseClicked(relX, relY - STATUSBAR_H, button, action);
