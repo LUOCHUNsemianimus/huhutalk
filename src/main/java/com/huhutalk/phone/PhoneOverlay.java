@@ -75,7 +75,7 @@ public class PhoneOverlay {
     /** 主界面 APP 网格列数（MainPage 占位用，固定 2） */
     public static int getGridColumns() { return 2; }
 
-    /** 屏幕比例字符串 → 返回 宽/高 比值；未知值回退 20:9。各选项均按实际手机形状编码 */
+    /** 屏幕比例字符串 → 返回 宽/高 比值；未知值回退 20:9。约定：长边为高、短边为宽，故 宽/高 = 后数/前数 */
     public static float aspectRatio(String aspect) {
         if (aspect == null) {
             return 9f / 20f;
@@ -83,7 +83,7 @@ public class PhoneOverlay {
         return switch (aspect) {
             case "20:9" -> 9f / 20f;   // 高20 宽9 → 窄高竖屏
             case "9:16" -> 9f / 16f;   // 高16 宽9 → 标准竖屏
-            case "4:3" -> 4f / 3f;     // 宽4 高3 → 接近方形
+            case "4:3" -> 3f / 4f;     // 高4 宽3 → 竖长略窄
             default -> 9f / 20f;
         };
     }
