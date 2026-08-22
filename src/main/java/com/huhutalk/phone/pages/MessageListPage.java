@@ -12,6 +12,8 @@ import com.huhutalk.phone.PhoneOverlay;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.player.AbstractClientPlayer;
+import net.minecraft.resources.ResourceLocation;
 import net.neoforged.neoforge.network.PacketDistributor;
 import org.lwjgl.glfw.GLFW;
 
@@ -33,24 +35,32 @@ import java.util.Map;
  * 列表支持鼠标滚轮滚动；空列表时内容区居中提示「暂无消息会话」。
  */
 public class MessageListPage implements IPhonePage {
-    /** 会话条目行高度 */
-    private static final int ITEM_HEIGHT = 44;
-    /** 头像占位色块边长 */
-    private static final int AVATAR_SIZE = 28;
-    /** 头像角上状态/未读圆点半径（当前圆半径 7 的 2/3） */
-    private static final float CORNER_DOT_R = 7f * 2f / 3f;
     /** 常规文字深色 */
     private static final int TEXT_COLOR = 0xFF333333;
     /** 次要文字灰色（摘要/提示） */
     private static final int TEXT_SUB = 0xFF888888;
     /** 未读红点背景 / 未送达红"!" */
     private static final int UNREAD_BG = 0xFFE53935;
-    /** 在线状态圆点颜色：在线绿 / 其余灰 */
-    private static final int STATUS_ONLINE = 0xFF4CAF50;
+    /** 在线状态小方块颜色：在线绿 / 其余灰 */
+    private static final int STATUS_ONLINE = 0xFF6FD444;
     private static final int STATUS_OFFLINE = 0xFF9E9E9E;
+    /** 页面背景色 */
+    private static final int PAGE_BG = 0xFFF5EBF2;
+    /** 顶部标题栏背景色 */
+    private static final int TOPBAR_BG = 0xFFDE6F8D;
 
     /** 列表滚动偏移（像素） */
     private int scrollOffset = 0;
+
+    /** 头像边长 = 上行 ID 文字高度 + 下行预览文字高度 */
+    private static int avatarSize(Font font) {
+        return (int)(font.lineHeight * 1.75f);
+    }
+
+    /** 会话条目行高度 = 头像高度 + 上下留白 */
+    private static int itemH(Font font) {
+        return avatarSize(font) + 12;
+    }
 
     public MessageListPage() {
         // 进入消息页即向服务端请求最新女仆列表（用于名字映射、检测新增会话）
@@ -69,12 +79,19 @@ public class MessageListPage implements IPhonePage {
         return map;
     }
 
-    /** 文本超宽截断：保留最长前缀并追加"…" */
+    /** 文本超宽截断：保留最长前缀并追加"…"；宽度太小导致首个字符也放不下时，退化为直接截到 maxWidth */
     private static String truncate(Font font, String text, int maxWidth) {
-        if (text == null || text.isEmpty() || font.width(text) <= maxWidth) {
+        if (text == null || text.isEmpty()) {
+            return text == null ? "" : text;
+        }
+        if (maxWidth <= 0 || font.width(text) <= maxWidth) {
             return text;
         }
-        String cut = font.plainSubstrByWidth(text, Math.max(0, maxWidth - font.width("…")));
+        int room = Math.max(1, maxWidth - font.width("…"));
+        String cut = font.plainSubstrByWidth(text, room);
+        if (cut.isEmpty()) {
+            cut = font.plainSubstrByWidth(text, maxWidth);
+        }
         return cut + "…";
     }
 
@@ -114,26 +131,25 @@ public class MessageListPage implements IPhonePage {
         // 标题栏高度随字体缩放（跟随 GUI 字体大小），而非手机高度百分比
         int navH = navH();
 
-        // 页面底色（浅珍珠粉）
-        graphics.fill(baseX, baseY, baseX + w, baseY + h, scheme.pageBg());
+        // 页面底色
+        graphics.fill(baseX, baseY, baseX + w, baseY + h, PAGE_BG);
 
-        // 顶部标题栏：主题粉底 + 白字标题「消息」
-        graphics.fill(baseX, baseY, baseX + w, baseY + navH, scheme.topBarBg());
-        String title = "消息";
-        graphics.drawString(font, title, baseX + (w - font.width(title)) / 2,
-                baseY + (navH - font.lineHeight) / 2 + 1, scheme.topBarText());
+        // 顶部标题栏：#de6f8d，左侧玩家头颅 + ID，左对齐垂直居中
+        graphics.fill(baseX, baseY, baseX + w, baseY + navH, TOPBAR_BG);
+        renderPlayerHeader(graphics, baseX, baseY, navH);
 
-        // 内容区：标题栏下方起，底部预留底部导航高度
+        // 内容区：标题栏下方起
         int contentTop = baseY + navH;
         int contentBottom = baseY + h - bottomNavH;
         int viewH = Math.max(0, contentBottom - contentTop);
+        int itemH = itemH(font);
 
         // 会话数据每次渲染重新读取：删除会话后条目自动消失
         List<String> ids = ChatHistoryStorage.getConversationIds();
         Map<String, String> names = buildNameMap();
 
         // 列表变短时把滚动钳制回合法区间，避免出现空白
-        int maxScroll = Math.max(0, ids.size() * ITEM_HEIGHT - viewH);
+        int maxScroll = Math.max(0, ids.size() * itemH - viewH);
         scrollOffset = Math.max(0, Math.min(scrollOffset, maxScroll));
 
         if (ids.isEmpty()) {
@@ -142,12 +158,12 @@ public class MessageListPage implements IPhonePage {
             graphics.drawString(font, tip, baseX + (w - font.width(tip)) / 2,
                     (contentTop + contentBottom) / 2 - font.lineHeight / 2, TEXT_SUB, false);
         } else {
-            // 裁剪到内容区，防止滚动时溢出到标题栏/底部导航
+            // 裁剪到内容区，防止滚动时溢出到标题栏
             graphics.enableScissor(baseX, contentTop, baseX + w, contentBottom);
             for (int i = 0; i < ids.size(); i++) {
                 String stableId = ids.get(i);
-                int itemY = contentTop + i * ITEM_HEIGHT - scrollOffset;
-                if (itemY + ITEM_HEIGHT < contentTop || itemY > contentBottom) {
+                int itemY = contentTop + i * itemH - scrollOffset;
+                if (itemY + itemH < contentTop || itemY > contentBottom) {
                     continue;
                 }
                 renderEntry(graphics, font, scheme, baseX, w, itemY,
@@ -157,49 +173,82 @@ public class MessageListPage implements IPhonePage {
         }
     }
 
-    /** 渲染单个会话条目：头像、名字、摘要、状态圆点、未读红点、未送达"!"、分隔线 */
+    /** 顶部标题栏左侧：玩家头颅（2D 正面）+ 玩家 ID，左对齐、垂直居中 */
+    private void renderPlayerHeader(GuiGraphics g, int baseX, int baseY, int navH) {
+        Minecraft mc = Minecraft.getInstance();
+        Font font = mc.font;
+        int headSize = navH - 4;
+        int headX = baseX + 6;
+        int headY = baseY + (navH - headSize) / 2;
+        String id;
+        if (mc.player != null) {
+            id = mc.player.getGameProfile().getName();
+            // 只渲染皮肤纹理中的"头颅正面"8×8 区域（非立体模型）
+            if (mc.player instanceof AbstractClientPlayer acp) {
+                ResourceLocation skin = acp.getSkin().texture();
+                g.blit(skin, headX, headY, headSize, headSize, 8.0f, 8.0f, 8, 8, 64, 64);
+            } else {
+                g.fill(headX, headY, headX + headSize, headY + headSize, 0xFFFFFFFF);
+            }
+        } else {
+            id = "Player";
+            g.fill(headX, headY, headX + headSize, headY + headSize, 0xFFFFFFFF);
+        }
+        if (id.isEmpty()) {
+            id = "Player";
+        }
+        g.drawString(font, id, headX + headSize + 5, baseY + (navH - font.lineHeight) / 2 + 1, 0xFFFFFFFF, false);
+    }
+
+    /** 渲染单个会话条目：头像、名字、摘要、状态方块、未读红点、未送达"!"、分隔线 */
     private void renderEntry(GuiGraphics g, Font font, ColorScheme scheme, int baseX, int w,
                              int itemY, String stableId, String name) {
-        // 头像占位色块（条目左侧，柔粉底 + 名字首字）
-        int avatarX = baseX + 8;
-        int avatarY = itemY + (ITEM_HEIGHT - AVATAR_SIZE) / 2;
-        g.fill(avatarX, avatarY, avatarX + AVATAR_SIZE, avatarY + AVATAR_SIZE, scheme.accentSoft());
-        String initial = name.isEmpty() ? "?" : name.substring(0, 1);
-        g.drawString(font, initial, avatarX + (AVATAR_SIZE - font.width(initial)) / 2,
-                avatarY + (AVATAR_SIZE - font.lineHeight) / 2, TEXT_COLOR, false);
+        int itemH = itemH(font);
+        int avatarSize = avatarSize(font);
+        int avatarX = baseX + 6;
+        int centerY = itemY + itemH / 2;
+        int top = centerY - avatarSize / 2;
 
-        // 在线状态圆点：圆心在头像右下角，半入半出形成"气泡"感；在线绿 / 其余灰
+        // 头像占位色块（柔粉底 + 名字首字）
+        g.fill(avatarX, top, avatarX + avatarSize, top + avatarSize, scheme.accentSoft());
+        String initial = name.isEmpty() ? "?" : name.substring(0, 1);
+        g.drawString(font, initial, avatarX + (avatarSize - font.width(initial)) / 2,
+                top + (avatarSize - font.lineHeight) / 2, TEXT_COLOR, false);
+
+        // 在线状态小方块：边长 = 原圆点直径的一半，居中于头像右下角；在线绿 / 其余灰
         com.huhutalk.common.MaidStatus maidStatus = getMaidStatus(stableId);
         boolean online = maidStatus == com.huhutalk.common.MaidStatus.ONLINE;
-        fillCircle(g, avatarX + AVATAR_SIZE, avatarY + AVATAR_SIZE, CORNER_DOT_R,
-                online ? STATUS_ONLINE : STATUS_OFFLINE);
+        float dotR = Math.max(2.5f, avatarSize * 0.22f);
+        int sq = Math.max(3, Math.round(dotR));
+        int sqX = avatarX + avatarSize - sq / 2;
+        int sqY = top + avatarSize - sq / 2;
+        g.fill(sqX, sqY, sqX + sq, sqY + sq, online ? STATUS_ONLINE : STATUS_OFFLINE);
 
-        // 未读红色小圆点：圆心在头像右上角，数字缩到很小
+        // 未读红色小圆点：圆心在头像右上角
         int unread = NotificationManager.getUnread(stableId);
         if (unread > 0) {
-            float cx = avatarX + AVATAR_SIZE;
-            float cy = avatarY;
-            fillCircle(g, cx, cy, CORNER_DOT_R, UNREAD_BG);
+            float s = 0.3f;
+            fillCircle(g, avatarX + avatarSize, top, dotR, UNREAD_BG);
             String num = unread > 99 ? "99+" : String.valueOf(unread);
-            float s = 0.4f;
-            drawScaledText(g, font, num, cx - font.width(num) * s / 2f, cy - font.lineHeight * s / 2f, 0xFFFFFFFF, s);
+            drawScaledText(g, font, num, avatarX + avatarSize - font.width(num) * s / 2f,
+                    top - font.lineHeight * s / 2f, 0xFFFFFFFF, s);
         }
 
-        // 右侧文字区起点（头像右侧；右侧无删除按钮，可多用宽度）
-        int textX = baseX + 44;
-        int textMaxW = w - 44 - 12;
+        // 右侧文字区（头像右侧，尽量给足宽度）
+        int textX = avatarX + avatarSize + 6;
+        int textMaxW = Math.max(1, w - textX - 8);
 
-        // 女仆名（深色，超宽截断；浅底上用无阴影，避免 MC 默认描边粘连）
-        g.drawString(font, truncate(font, name, textMaxW), textX, itemY + 6, TEXT_COLOR, false);
+        // 上行：联系人 ID（默认字号）
+        g.drawString(font, truncate(font, name, textMaxW), textX, top, TEXT_COLOR, false);
 
-        // 最后一条消息摘要（灰色，超宽截断加"…"，小字号）
+        // 下行：最后一条消息预览（0.75 倍）
         String last = ChatHistoryStorage.getLastMessage(stableId);
         if (last == null || last.isEmpty()) {
             last = "（无消息内容）";
         }
         final float summaryScale = 0.75f;
         String preview = truncate(font, last, (int)(textMaxW / summaryScale));
-        int previewY = itemY + 6 + font.lineHeight + 2;
+        int previewY = top + font.lineHeight;
         drawScaledText(g, font, preview, textX, previewY, TEXT_SUB, summaryScale);
 
         // 未送达红"!"：标在预览右侧
@@ -208,7 +257,7 @@ public class MessageListPage implements IPhonePage {
         }
 
         // 底部分隔线
-        g.fill(baseX + 8, itemY + ITEM_HEIGHT - 1, baseX + w - 8, itemY + ITEM_HEIGHT, 0x22000000);
+        g.fill(baseX + 6, itemY + itemH - 1, baseX + w - 6, itemY + itemH, 0x22000000);
     }
 
     // ==================== 鼠标事件 ====================
@@ -220,6 +269,7 @@ public class MessageListPage implements IPhonePage {
         int h = PhoneOverlay.getPhoneHeight();
         int navH = navH();
         int bottomNavH = PhoneOverlay.getBottomNavHeight();
+        int itemH = itemH(Minecraft.getInstance().font);
 
         // 标题栏 / 底部导航区域不响应条目点击
         if (relY < navH || relY >= h - bottomNavH) {
@@ -229,8 +279,8 @@ public class MessageListPage implements IPhonePage {
         List<String> ids = ChatHistoryStorage.getConversationIds();
         Map<String, String> names = buildNameMap();
         for (int i = 0; i < ids.size(); i++) {
-            int itemY = navH + i * ITEM_HEIGHT - scrollOffset;
-            if (relY < itemY || relY >= itemY + ITEM_HEIGHT) {
+            int itemY = navH + i * itemH - scrollOffset;
+            if (relY < itemY || relY >= itemY + itemH) {
                 continue;
             }
             String stableId = ids.get(i);
@@ -250,7 +300,8 @@ public class MessageListPage implements IPhonePage {
         int viewH = Math.max(0, h - navH - bottomNavH);
 
         List<String> ids = ChatHistoryStorage.getConversationIds();
-        int maxScroll = Math.max(0, ids.size() * ITEM_HEIGHT - viewH);
+        int itemH = itemH(Minecraft.getInstance().font);
+        int maxScroll = Math.max(0, ids.size() * itemH - viewH);
         scrollOffset = Math.max(0, Math.min(scrollOffset - (int)(scrollDelta * 10), maxScroll));
         return true;
     }

@@ -77,6 +77,10 @@ public class PhoneOverlay {
     private static int bottomNavH() {
         return Math.round(Minecraft.getInstance().font.lineHeight * 1.5f);
     }
+    /** 底部导航上抬量：0.25 倍默认字体高，使其浮在水印栏上方留出空隙 */
+    private static int navRaise() {
+        return Math.round(Minecraft.getInstance().font.lineHeight * 0.25f);
+    }
     /**
      * 页面底部预留的导航高度。
      * 返回 0：页面内容区一直延伸到水印栏（真正与下部接壤），
@@ -265,9 +269,9 @@ public class PhoneOverlay {
             page.render(graphics, phoneX, phoneY + STATUSBAR_H, partialTick);
         }
 
-        // 底部导航（仅 HuhuTalk App 内且处于顶层页时显示），悬浮于水印栏上方
+        // 底部导航（仅 HuhuTalk App 内且处于顶层页时显示），悬浮于水印栏上方并上抬留出空隙
         if (inChatApp && !isInSubPage()) {
-            renderBottomNav(graphics, phoneX, phoneY + totalHeight - WATERMARK_H - bottomNavH(), phoneWidth);
+            renderBottomNav(graphics, phoneX, phoneY + totalHeight - WATERMARK_H - bottomNavH() - navRaise(), phoneWidth);
         }
 
         // 底部水印栏（圆角底）
@@ -446,20 +450,22 @@ public class PhoneOverlay {
                 return true;
             }
 
-            // 底部导航区域（仅 HuhuTalk App 内顶层页显示时；胶囊范围内可点）
-            if (inChatApp && !isInSubPage() && relY >= phoneHeight + STATUSBAR_H - bottomNavH()) {
-                int navTop = phoneHeight + STATUSBAR_H - bottomNavH();
-                int navBottom = phoneHeight + STATUSBAR_H;
-                int capsuleLeft = 8;
-                int capsuleRight = phoneWidth - 8;
-                if (relX >= capsuleLeft && relX <= capsuleRight && relY >= navTop && relY < navBottom) {
-                    int slotW = (capsuleRight - capsuleLeft) / 3;
-                    int idx = (int)((relX - capsuleLeft) / slotW);
-                    if (idx >= 0 && idx < 3) {
-                        switchTab(Tab.values()[idx]);
+            // 底部导航区域（仅 HuhuTalk App 内顶层页显示时；胶囊范围内可点，已随胶囊上抬）
+            if (inChatApp && !isInSubPage()) {
+                int navTop = phoneHeight + STATUSBAR_H - bottomNavH() - navRaise();
+                int navBottom = phoneHeight + STATUSBAR_H - navRaise();
+                if (relY >= navTop && relY < navBottom) {
+                    int capsuleLeft = 8;
+                    int capsuleRight = phoneWidth - 8;
+                    if (relX >= capsuleLeft && relX <= capsuleRight) {
+                        int slotW = (capsuleRight - capsuleLeft) / 3;
+                        int idx = (int)((relX - capsuleLeft) / slotW);
+                        if (idx >= 0 && idx < 3) {
+                            switchTab(Tab.values()[idx]);
+                        }
                     }
+                    return true;
                 }
-                return true;
             }
 
             // 右键：App 内部页返回上一页；App 顶层页返回桌面；桌面关闭手机
