@@ -163,6 +163,12 @@ public final class MaidAvatarManager {
         return like != null && capture(like) ? 1 : 2;
     }
 
+    /** 公共可复用方法：直接传 EntityMaid 拍照生成头像（其他类也可调用） */
+    public static boolean capture(EntityMaid maid) {
+        EntityMaidLike like = toLike(maid);
+        return like != null && capture(like);
+    }
+
     /**
      * 离屏渲染女仆头部/上半身，拍照存为 PNG。
      * 成功后会清掉内存中的旧纹理缓存，下次读取重新加载。
@@ -198,12 +204,18 @@ public final class MaidAvatarManager {
             RenderSystem.setProjectionMatrix(
                     new Matrix4f().setOrtho(0.0F, size, 0.0F, size, 1000.0F, 3000.0F),
                     VertexSorting.DISTANCE_TO_ORIGIN);
+            // 模型视图：把相机拉回，使 z≈0 的内容落在投影 near/far 内（与 GUI 一致，否则被裁掉）
+            var mv = RenderSystem.getModelViewStack();
+            mv.pushMatrix();
+            mv.setTranslation(0.0F, 0.0F, -2000.0F);
+            RenderSystem.applyModelViewMatrix();
 
             PoseStack pose = new PoseStack();
+            // 与 renderEntityInInventory 一致：把完整女仆抬进画面，再裁上半身当头像
             pose.translate(size / 2.0, size / 2.0, 50.0);
-            float f = size * 0.30F / maid.getScale(); // 让头部/上半身铺满
+            float f = size * 0.9F / maid.getScale(); // 放大到接近铺满（裁上半身，溢出无妨）
             pose.scale(f, f, -f);
-            pose.translate(0.0F, -maid.getBbHeight() * 0.95F, 0.0F);
+            pose.translate(0.0F, maid.getBbHeight() * 0.5F, 0.0F);
             pose.mulPose(new Quaternionf().rotateZ((float) Math.PI));
 
             Lighting.setupForEntityInInventory();
@@ -213,6 +225,10 @@ public final class MaidAvatarManager {
             RenderSystem.runAsFancy(() -> dispatcher.render(maid.asEntity(), 0.0, 0.0, 0.0, 0.0F, 1.0F, pose,
                     mc.renderBuffers().bufferSource(), 15728880));
             mc.renderBuffers().bufferSource().endBatch();
+
+            // 恢复模型视图
+            mv.popMatrix();
+            RenderSystem.applyModelViewMatrix();
 
             // 读取像素（fb 此时仍是当前读写帧缓冲）
             ByteBuffer pixels = ByteBuffer.allocateDirect(size * size * 4);
@@ -229,10 +245,19 @@ public final class MaidAvatarManager {
                     img.setPixelRGBA(x, y, (a << 24) | (b << 16) | (g << 8) | r);
                 }
             }
-            img.flipY();
+            // 离屏里模型是上下颠倒的，因此不做 flipY，直接用 readPixels 的底向行序
             Files.createDirectories(avatarDir());
-            img.writeToFile(avatarFile(stableId));
+            // 裁掉顶部（头到 ~55% 高度）作为头像
+            int cropH = Math.max(1, (int) (size * 0.55));
+            NativeImage crop = new NativeImage(size, cropH, true);
+            for (int y = 0; y < cropH; y++) {
+                for (int x = 0; x < size; x++) {
+                    crop.setPixelRGBA(x, y, img.getPixelRGBA(x, y));
+                }
+            }
             img.close();
+            crop.writeToFile(avatarFile(stableId));
+            crop.close();
             CACHE.remove(stableId);
             ok = true;
             return true;
