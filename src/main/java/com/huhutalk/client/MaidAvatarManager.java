@@ -213,9 +213,9 @@ public final class MaidAvatarManager {
             PoseStack pose = new PoseStack();
             // 与 renderEntityInInventory 一致：把完整女仆抬进画面，再裁上半身当头像
             pose.translate(size / 2.0, size / 2.0, 50.0);
-            float f = size * 0.9F / maid.getScale(); // 放大到接近铺满（裁上半身，溢出无妨）
+            float f = size * 1.3F / maid.getScale(); // 放大到接近铺满（裁上半身，溢出无妨）
             pose.scale(f, f, -f);
-            pose.translate(0.0F, maid.getBbHeight() * 0.5F, 0.0F);
+            pose.translate(0.0F, maid.getBbHeight() * 0.85F, 0.0F);
             pose.mulPose(new Quaternionf().rotateZ((float) Math.PI));
 
             Lighting.setupForEntityInInventory();
