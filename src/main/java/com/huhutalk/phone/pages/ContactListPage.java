@@ -168,6 +168,10 @@ public class ContactListPage implements IPhonePage {
     private List<Row> buildRows() {
         // 分组名 -> 女仆列表（LinkedHashMap 保持首次出现顺序，自定义分组稳定排列）
         Map<String, List<S2CMaidListPacket.MaidDisplayInfo>> groups = new LinkedHashMap<>();
+        // 先预置玩家持久化的自定义分组（即使当前没有女仆在其中也展示空分组）
+        for (String g : com.huhutalk.client.settings.HuhuTalkClientSettings.getCustomGroupNames()) {
+            groups.computeIfAbsent(g, k -> new ArrayList<>());
+        }
         for (S2CMaidListPacket.MaidDisplayInfo info : MaidListCache.getList()) {
             String group = MaidGroupHelper.resolveGroup(info.stableId(), info.status());
             groups.computeIfAbsent(group, k -> new ArrayList<>()).add(info);

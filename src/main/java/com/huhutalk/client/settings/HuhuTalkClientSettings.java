@@ -9,7 +9,10 @@ import org.slf4j.Logger;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 /**
@@ -40,6 +43,8 @@ public final class HuhuTalkClientSettings {
     private static long maxTypingMs = 2400;
     /** 女仆手动分组：stableId -> 分组名 */
     private static final Map<String, String> maidGroups = new HashMap<>();
+    /** 玩家自定义的分组名列表（持久化；联系人页会把其中的分组（含空组）也展示出来） */
+    private static final List<String> customGroupNames = new ArrayList<>();
 
     private HuhuTalkClientSettings() {
     }
@@ -63,6 +68,59 @@ public final class HuhuTalkClientSettings {
     /** 全部手动分组映射（不可变副本） */
     public static Map<String, String> getMaidGroups() {
         return Map.copyOf(maidGroups);
+    }
+
+    /** 玩家自定义分组名列表（不可变副本） */
+    public static List<String> getCustomGroupNames() {
+        return List.copyOf(customGroupNames);
+    }
+
+    /**
+     * 是否已存在同名自定义分组（忽略大小写）。
+     */
+    public static boolean hasCustomGroup(String name) {
+        if (name == null || name.isBlank()) return false;
+        for (String g : customGroupNames) {
+            if (g.equalsIgnoreCase(name)) return true;
+        }
+        return false;
+    }
+
+    /**
+     * 新增自定义分组名：跳过空名、与默认分组同名、以及已存在的同名分组。
+     * 成功返回 true；否则返回 false（供 UI 提示）。
+     */
+    public static boolean addCustomGroup(String name) {
+        if (name == null || name.isBlank()) return false;
+        String trimmed = name.trim();
+        if (isDefaultGroupName(trimmed) || hasCustomGroup(trimmed)) {
+            return false;
+        }
+        customGroupNames.add(trimmed);
+        save();
+        return true;
+    }
+
+    /** 删除自定义分组名（不自动改变女仆归属）。 */
+    public static void removeCustomGroup(String name) {
+        if (name == null) return;
+        customGroupNames.removeIf(g -> g.equalsIgnoreCase(name));
+        save();
+    }
+
+    private static boolean isDefaultGroupName(String name) {
+        return "在线".equals(name) || "离线".equals(name)
+                || "已关机".equals(name) || "死亡".equals(name);
+    }
+
+    /** 是否含该分组名（含默认组与自定义组，忽略大小写），供去重判断 */
+    public static boolean isKnownGroupName(String name) {
+        if (name == null || name.isBlank()) return false;
+        if (isDefaultGroupName(name)) return true;
+        for (String g : customGroupNames) {
+            if (g.equalsIgnoreCase(name)) return true;
+        }
+        return false;
     }
 
     // ==================== 写 ====================
@@ -159,6 +217,14 @@ public final class HuhuTalkClientSettings {
             if (data.maidGroups != null) {
                 maidGroups.putAll(data.maidGroups);
             }
+            customGroupNames.clear();
+            if (data.customGroupNames != null) {
+                for (String g : data.customGroupNames) {
+                    if (g != null && !g.isBlank()) {
+                        customGroupNames.add(g.trim());
+                    }
+                }
+            }
         } catch (IOException e) {
             LOGGER.error("[HuhuTalk] 加载全局设置失败", e);
         }
@@ -177,6 +243,7 @@ public final class HuhuTalkClientSettings {
             data.charTypingMs = charTypingMs;
             data.maxTypingMs = maxTypingMs;
             data.maidGroups = maidGroups;
+            data.customGroupNames = customGroupNames;
             Path file = settingsFile();
             Files.createDirectories(file.getParent());
             Files.writeString(file, GSON.toJson(data));
@@ -196,5 +263,6 @@ public final class HuhuTalkClientSettings {
         long charTypingMs;
         long maxTypingMs;
         Map<String, String> maidGroups;
+        List<String> customGroupNames;
     }
 }

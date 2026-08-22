@@ -18,60 +18,48 @@ import com.huhutalk.network.C2SSetSosModePacket;
 import com.huhutalk.network.C2SToggleSosBindPacket;
 import com.huhutalk.network.S2CMaidListPacket;
 import com.huhutalk.phone.IPhonePage;
+import com.huhutalk.phone.PhoneGroupNameInputScreen;
 import com.huhutalk.phone.PhoneOverlay;
+import com.huhutalk.phone.UiShapes;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
 import net.neoforged.neoforge.network.PacketDistributor;
 import org.lwjgl.glfw.GLFW;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 女仆信息设置页（消息列表页 / 联系人列表页点击女仆统一进入）。
- * <p>本页是单个女仆所有操作的聚合点，从上到下布局：
+ * 联系人设置页（消息列表页 / 联系人列表页点击女仆统一进入）。
+ * <p>
+ * UI：顶栏 #de7e7e；头部大头像（女仆照片）+ 名称/状态（1.75/1.25 倍字号）；页面底 #f0e4ea；
+ * 全部设置项为圆角卡片 #fff5f8（圆角 8）。分三组：
  * <ul>
- *   <li><b>顶部标题栏</b>：主题粉底 + 女仆名，左上角「&lt; 返回」。</li>
- *   <li><b>状态小字</b>：女仆当前状态（{@link MaidStatusCache}）。</li>
- *   <li><b>三个核心操作按钮</b>：💬 发消息（进入聊天页）/ 🗑 删除聊天记录 /
- *       ☠ 删除联系人（危险操作，先弹二次确认）。</li>
- *   <li><b>SOS 区域</b>：绑定开关（已绑定红底/未绑定灰底）+ 已绑定时的工作模式下拉。</li>
- *   <li><b>分组设置</b>：显示当前分组（手动优先，未设置按状态默认），下拉切换 在线/离线/已关机/死亡。</li>
+ *   <li><b>管理</b>：发消息 / 删除记录 / 删除联系人 / 更新头像。</li>
+ *   <li><b>SOS呼叫</b>：SOS呼叫（绑定开关）/ SOS工作模式（点击展开原下拉）。</li>
+ *   <li><b>分组设置</b>：现有分组选项（默认 + 自定义）+ 底部「+ 新建分组」。</li>
  * </ul>
- * 整个内容区可滚动（鼠标滚轮），下拉展开时滚轮优先用于选择（需鼠标位于下拉区域内）。
+ * 新建分组把新组名写入持久化列表并分当前女仆到该组，联系人页据此同步展示（含空组）。
+ * 逻辑（删除/绑定/模式/分组/头像）均沿用原有实现。
  */
 public class MaidInfoPage implements IPhonePage {
-    /** 下拉列表单行高度 */
+    private static final int CARD_H = 34;
+    private static final int CARD_GAP = 6;
+    private static final int CARD_R = 8;
+    private static final int GROUP_TITLE_SPACE = 16;
     private static final int DROPDOWN_ROW_H = 16;
-    /** 下拉列表最大可见行数 */
     private static final int DROPDOWN_VISIBLE_ROWS = 5;
-    /** 下拉模式框高度 */
-    private static final int DROPDOWN_BOX_H = 20;
-    /** SOS 绑定开关按钮高度 */
-    private static final int BIND_BTN_H = 28;
-    /** 核心操作按钮高度 */
-    private static final int ACTION_BTN_H = 30;
-    /** 按钮纵向间距 */
-    private static final int BTN_GAP = 6;
-    /** 常规文字深色 */
     private static final int TEXT_COLOR = 0xFF333333;
-    /** 次要文字灰色 */
     private static final int TEXT_SUB = 0xFF888888;
-    /** SOS 已绑定底（红） / 未绑定底（灰），与 MaidSettingsPage 一致 */
-    private static final int SOS_BOUND_BG = 0xFFE53935;
-    private static final int SOS_UNBOUND_BG = 0xFF3A3A3A;
-    /** 工作模式下拉：光标高亮（蓝）与当前选中行底，与 MaidSettingsPage 一致 */
-    private static final int MODE_HIGHLIGHT = 0xFF4A6FB5;
-    private static final int MODE_CURRENT_BG = 0xFF3A3A3A;
-
-    /** 分组下拉可选的固定分组（顺序与 MaidGroupHelper 排序权重一致） */
-    private static final List<String> GROUP_OPTIONS = List.of(
-            MaidGroupHelper.GROUP_ONLINE,
-            MaidGroupHelper.GROUP_OFFLINE,
-            MaidGroupHelper.GROUP_SHUTDOWN,
-            MaidGroupHelper.GROUP_DEAD
-    );
+    private static final int PAGE_BG = 0xFFF0E4EA;
+    private static final int TOPBAR_BG = 0xFFDE7E7E;
+    private static final int CARD_BG = 0xFFFFF5F8;
+    private static final int CARD_ACTIVE_BG = 0xFFFFE4EC; // 当前分组高亮
+    private static final int GROUP_TITLE_COLOR = 0xFF9A8A90;
+    private static final int DANGER = 0xFFC62828;
 
     private final String stableId;
     private final String maidName;
@@ -81,9 +69,6 @@ public class MaidInfoPage implements IPhonePage {
     /** SOS 工作模式下拉是否展开 + 高亮光标下标 */
     private boolean modeDropdownOpen = false;
     private int modeCursor = 0;
-    /** 分组下拉是否展开 + 高亮光标下标 */
-    private boolean groupDropdownOpen = false;
-    private int groupCursor = 0;
     /** 是否处于「删除联系人」二次确认状态（弹确认框） */
     private boolean confirmDeletePending = false;
     /** 短暂提示（toast）：文本 + 到期时间戳 */
@@ -93,15 +78,15 @@ public class MaidInfoPage implements IPhonePage {
     public MaidInfoPage(String stableId, String maidName) {
         this.stableId = stableId;
         this.maidName = maidName;
-        // 打开时按需请求一次该女仆最新状态（刷新状态小字 / 默认分组）
         PacketDistributor.sendToServer(new C2SRequestMaidStatusPacket(List.of(stableId)));
-        // 若可用任务列表未加载，则向服务端请求一次（SOS 工作模式下拉用）
         if (SosTaskCache.isEmpty()) {
             PacketDistributor.sendToServer(new C2SRequestSosTaskListPacket());
         }
     }
 
     // ==================== 数据 ====================
+
+    public String getStableId() { return stableId; }
 
     /** 从 MaidListCache 查该女仆的 MaidStatus（查不到返回 null，按离线默认分组） */
     private MaidStatus currentStatus() {
@@ -118,13 +103,25 @@ public class MaidInfoPage implements IPhonePage {
         return MaidGroupHelper.resolveGroup(stableId, currentStatus());
     }
 
-    /** 显示短暂提示（toast），2 秒后消失 */
+    /** 分组可选列表：默认分组 + 玩家自定义分组（保持顺序） */
+    private List<String> groupOptions() {
+        List<String> list = new ArrayList<>();
+        list.add(MaidGroupHelper.GROUP_ONLINE);
+        list.add(MaidGroupHelper.GROUP_OFFLINE);
+        list.add(MaidGroupHelper.GROUP_SHUTDOWN);
+        list.add(MaidGroupHelper.GROUP_DEAD);
+        for (String g : HuhuTalkClientSettings.getCustomGroupNames()) {
+            if (!list.contains(g)) list.add(g);
+        }
+        return list;
+    }
+
     private void showFlash(String text) {
         flashText = text;
         flashUntil = System.currentTimeMillis() + 2000;
     }
 
-    /** 点击"更新头像"：对在场女仆拍照生成头像，并给出各环节反馈 */
+    /** 点击"更新头像"：对在场女仆拍照生成头像 */
     private void updateAvatar() {
         int result = MaidAvatarManager.captureIfLoaded(stableId);
         switch (result) {
@@ -134,7 +131,12 @@ public class MaidInfoPage implements IPhonePage {
         }
     }
 
-    /** 把 taskUid 转为可读名称：优先用语言键 task.namespace.path，缺失时回退显示路径 */
+    /** 新建分组成功后由输入屏回调：提示（页面随下一帧重渲染即同步到分组列表） */
+    public void onGroupCreated() {
+        showFlash("✅ 已新建分组");
+    }
+
+    /** 把 taskUid 转为可读名称 */
     private static String formatTaskName(String uid) {
         try {
             String key = "task." + uid.replace(':', '.');
@@ -153,309 +155,289 @@ public class MaidInfoPage implements IPhonePage {
         return Math.max(min, Math.min(max, v));
     }
 
-    /** 命中判定：点 (x,y) 是否落在矩形 (rx,ry,rw,rh) 内 */
     private static boolean hit(double x, double y, int rx, int ry, int rw, int rh) {
         return x >= rx && x <= rx + rw && y >= ry && y <= ry + rh;
     }
 
     // ==================== 布局 ====================
 
-    /**
-     * 布局快照：所有控件矩形均为<b>未滚动</b>的逻辑坐标（相对页面左上角，含标题栏）。
-     * 渲染时统一减去 scrollOffset；命中判定时统一加上 scrollOffset，保证二者一致。
-     * mode* 仅在已绑定 SOS 时有效（未绑定时为 -1）。
-     */
-    private static final class Layout {
-        int navH;                 // 标题栏高度
-        int statusY;              // 状态小字顶 y
-        int btn1Y, btn2Y, btn3Y, btn4Y; // 核心操作按钮顶 y（btn4=更新头像）
-        int sosLabelY;            // SOS 区域标题
-        int bindBtnY;             // SOS 绑定开关顶 y
-        int modeLabelY, modeBoxY, modeListY, modeListH; // 工作模式下拉（未绑定全为 -1/0）
-        int groupLabelY, groupBoxY, groupListY, groupListH; // 分组下拉
-        int contentH;             // 内容总高（从标题栏底到内容末尾）
+    /** 分组设置里的一个槽位：分组选项 或 "+ 新建分组"按钮 */
+    private static final class GroupSlot {
+        final String label;
+        final int y;
+        final int h;
+        final boolean isNewGroup;
+        GroupSlot(String label, int y, int h, boolean isNewGroup) {
+            this.label = label;
+            this.y = y;
+            this.h = h;
+            this.isNewGroup = isNewGroup;
+        }
     }
 
-    /** 依据当前状态（绑定、下拉展开等）计算完整布局 */
+    private static final class Layout {
+        int navH;
+        int headerY, headerH, avatarX, avatarY, avatarH, avatarSize;
+        int nameX, nameTop, statusTop;
+        int manageTitleY;
+        int[] cardY = new int[4]; // 管理 4 项
+        int sosTitleY, bindCardY, modeCardY, modeListY, modeListH;
+        int groupTitleY;
+        List<GroupSlot> groupSlots = new ArrayList<>();
+        int contentH;
+    }
+
     private Layout computeLayout() {
         int h = PhoneOverlay.getPhoneHeight();
+        Font font = Minecraft.getInstance().font;
+        int lineH = font.lineHeight;
         Layout L = new Layout();
-        L.navH = Minecraft.getInstance().font.lineHeight + 8; // 标题栏随字体缩放
+        L.navH = lineH + 8;
+
         int y = L.navH + 8;
-        L.statusY = y;
-        y += 18;
 
-        // 核心操作按钮（前三个 + 更新头像）
-        L.btn1Y = y;
-        L.btn2Y = L.btn1Y + ACTION_BTN_H + BTN_GAP;
-        L.btn3Y = L.btn2Y + ACTION_BTN_H + BTN_GAP;
-        L.btn4Y = L.btn3Y + ACTION_BTN_H + BTN_GAP;
-        y = L.btn4Y + ACTION_BTN_H + 12;
+        // 头部：大头像高度 = 名称(1.75x) + 状态(1.25x) 文字高度之和
+        int nameH = (int) (lineH * 1.75f);
+        int statusH = (int) (lineH * 1.25f);
+        L.avatarH = nameH + statusH;
+        L.avatarSize = Math.max(24, L.avatarH);
+        L.headerH = L.avatarSize + 16;
+        L.headerY = y;
+        L.avatarY = L.headerY + (L.headerH - L.avatarSize) / 2;
+        L.avatarX = 12;
+        L.nameX = L.avatarX + L.avatarSize + 12;
+        L.nameTop = L.avatarY + (L.avatarSize - (nameH + statusH)) / 2;
+        L.statusTop = L.nameTop + nameH + 2;
+        y += L.headerH + 4;
 
-        // SOS 区域：标题 + 绑定开关
-        L.sosLabelY = y;
-        y += 12;
-        L.bindBtnY = y;
-        y += BIND_BTN_H + 10;
+        // 管理 分组
+        L.manageTitleY = y;
+        y += GROUP_TITLE_SPACE;
+        for (int i = 0; i < 4; i++) {
+            L.cardY[i] = y;
+            y += CARD_H + CARD_GAP;
+        }
+        y += 6;
 
-        // 已绑定时：SOS 工作模式下拉
-        L.modeLabelY = -1;
-        L.modeBoxY = -1;
+        // SOS 分组
+        L.sosTitleY = y;
+        y += GROUP_TITLE_SPACE;
+        L.bindCardY = y;
+        y += CARD_H + CARD_GAP;
+        L.modeCardY = -1;
         L.modeListY = -1;
         L.modeListH = 0;
-        if (SosBindCache.isBound(stableId)) {
-            L.modeLabelY = y;
-            y += 12;
-            L.modeBoxY = y;
-            y += DROPDOWN_BOX_H;
-            if (modeDropdownOpen) {
-                L.modeListY = L.modeBoxY + DROPDOWN_BOX_H;
-                L.modeListH = Math.min(DROPDOWN_VISIBLE_ROWS, SosTaskCache.getAll().size()) * DROPDOWN_ROW_H;
-                y += L.modeListH + 8;
-            } else {
-                y += 10;
-            }
+        L.modeCardY = y;
+        y += CARD_H + CARD_GAP;
+        if (modeDropdownOpen && SosBindCache.isBound(stableId)) {
+            L.modeListY = L.modeCardY + CARD_H + CARD_GAP;
+            L.modeListH = Math.min(DROPDOWN_VISIBLE_ROWS, SosTaskCache.getAll().size()) * DROPDOWN_ROW_H;
+            y = L.modeListY + L.modeListH + 4;
         }
+        y += 6;
 
-        // 分组设置：标题 + 下拉框（展开时列表计入高度）
-        L.groupLabelY = y;
-        y += 12;
-        L.groupBoxY = y;
-        y += DROPDOWN_BOX_H;
-        L.groupListY = -1;
-        L.groupListH = 0;
-        if (groupDropdownOpen) {
-            L.groupListY = L.groupBoxY + DROPDOWN_BOX_H;
-            L.groupListH = GROUP_OPTIONS.size() * DROPDOWN_ROW_H;
-            y += L.groupListH + 8;
-        } else {
-            y += 10;
+        // 分组设置 分组
+        L.groupTitleY = y;
+        y += GROUP_TITLE_SPACE;
+        for (String g : groupOptions()) {
+            L.groupSlots.add(new GroupSlot(g, y, CARD_H, false));
+            y += CARD_H + CARD_GAP;
         }
+        L.groupSlots.add(new GroupSlot("+ 新建分组", y, CARD_H, true));
+        y += CARD_H + CARD_GAP;
+        y += 4;
 
-        L.contentH = y - (L.navH + 8) + 4; // 末尾留白
+        L.contentH = y - (L.navH + 8) + 4;
         return L;
     }
 
-    // ==================== 渲染 ====================
-
-    /** 逻辑 y（未滚动，相对页面左上）→ 屏幕 y */
     private int ly(Layout L, int baseY, int logicalY) {
         return baseY + logicalY - scrollOffset;
     }
+
+    // ==================== 渲染 ====================
 
     @Override
     public void render(GuiGraphics g, int baseX, int baseY, float partialTick) {
         int w = PhoneOverlay.getPhoneWidth();
         int h = PhoneOverlay.getPhoneHeight();
-        ColorScheme scheme = ThemeManager.getActive();
         Font font = Minecraft.getInstance().font;
         Layout L = computeLayout();
 
         // 页面底色
-        g.fill(baseX, baseY, baseX + w, baseY + h, scheme.pageBg());
+        g.fill(baseX, baseY, baseX + w, baseY + h, PAGE_BG);
 
-        // 顶部标题栏：主题粉底 + 白字女仆名 + 左上角返回
-        g.fill(baseX, baseY, baseX + w, baseY + L.navH, scheme.topBarBg());
-        g.drawString(font, "< 返回", baseX + 4, baseY + (L.navH - font.lineHeight) / 2 + 1, scheme.topBarText());
+        // 顶部标题栏 #de7e7e：返回箭头 + 居中名字
+        g.fill(baseX, baseY, baseX + w, baseY + L.navH, TOPBAR_BG);
+        int navCenterY = baseY + L.navH / 2;
+        g.drawString(font, "←", baseX + 6, navCenterY - font.lineHeight / 2, 0xFFFFFFFF);
         int titleW = font.width(maidName);
-        g.drawString(font, maidName, baseX + (w - titleW) / 2,
-                baseY + (L.navH - font.lineHeight) / 2 + 1, scheme.topBarText());
+        g.drawString(font, maidName, baseX + (w - titleW) / 2, navCenterY - font.lineHeight / 2, 0xFFFFFFFF);
 
-        // 钳制滚动偏移（内容变短时避免出现空白）
+        // 钳制滚动
         int viewH = Math.max(0, h - L.navH);
         int maxScroll = Math.max(0, L.contentH - viewH);
         scrollOffset = Math.max(0, Math.min(scrollOffset, maxScroll));
 
-        // 内容区裁剪，防止滚动溢出到标题栏
         g.enableScissor(baseX, baseY + L.navH, baseX + w, baseY + h);
 
-        // 状态小字
-        String status = MaidStatusCache.get(stableId);
-        if (status.isEmpty()) {
-            status = "…";
-        }
-        g.drawString(font, "状态：" + status, baseX + 10, ly(L, baseY, L.statusY), TEXT_SUB);
-
-        // 三个核心操作按钮
-        renderActionButtons(g, font, scheme, baseX, w, L, baseY);
-        // SOS 区域（含已绑定时的模式下拉）
-        renderSosSection(g, font, baseX, w, L, baseY);
-        // 分组设置
-        renderGroupSection(g, font, scheme, baseX, w, L, baseY);
+        renderHeader(g, font, L, baseX, baseY);
+        renderManageGroup(g, font, L, baseX, baseY);
+        renderSosGroup(g, font, L, baseX, baseY);
+        renderGroupSection(g, font, L, baseX, baseY);
 
         g.disableScissor();
 
-        // 短暂提示（toast，置于内容之上）
+        // 短暂提示
         if (System.currentTimeMillis() < flashUntil && !flashText.isEmpty()) {
             int msgW = font.width(flashText);
             int msgY = baseY + h - 30;
-            g.fill(baseX + 4, msgY - 2, baseX + w - 4, msgY + font.lineHeight + 2, 0xAA000000);
+            UiShapes.fillRoundedRect(g, baseX + 4, msgY - 3, w - 8, font.lineHeight + 6, 8, 0xCC000000);
             g.drawString(font, flashText, baseX + (w - msgW) / 2, msgY, 0xFFFFFFFF);
         }
 
-        // 删除联系人二次确认弹窗（置于最上层）
         if (confirmDeletePending) {
-            renderConfirmDialog(g, font, scheme, baseX, w, L, baseY);
+            renderConfirmDialog(g, font, L, baseX, w, baseY);
         }
     }
 
-    /** 渲染核心操作按钮（💬 发消息 / 🗑 删除聊天记录 / ☠ 删除联系人 / 📷 更新头像） */
-    private void renderActionButtons(GuiGraphics g, Font font, ColorScheme scheme,
-                                     int baseX, int w, Layout L, int baseY) {
-        int btnX = baseX + 10;
-        int btnW = w - 20;
-        // 💬 发消息：中度柔粉（选中高亮色），点击进入聊天页
-        g.fill(btnX, ly(L, baseY, L.btn1Y), btnX + btnW, ly(L, baseY, L.btn1Y) + ACTION_BTN_H,
-                scheme.accentSoftActive());
-        g.drawString(font, "💬 发消息", btnX + 8,
-                ly(L, baseY, L.btn1Y) + (ACTION_BTN_H - font.lineHeight) / 2 + 1, scheme.topBarText());
-        // 🗑 删除聊天记录：中性灰
-        g.fill(btnX, ly(L, baseY, L.btn2Y), btnX + btnW, ly(L, baseY, L.btn2Y) + ACTION_BTN_H,
-                scheme.neutralBg());
-        g.drawString(font, "🗑 删除聊天记录", btnX + 8,
-                ly(L, baseY, L.btn2Y) + (ACTION_BTN_H - font.lineHeight) / 2 + 1, scheme.neutralText());
-        // ☠ 删除联系人：危险暗红（危险操作，点击后先弹确认）
-        g.fill(btnX, ly(L, baseY, L.btn3Y), btnX + btnW, ly(L, baseY, L.btn3Y) + ACTION_BTN_H,
-                scheme.dangerBg());
-        g.drawString(font, "☠ 删除联系人", btnX + 8,
-                ly(L, baseY, L.btn3Y) + (ACTION_BTN_H - font.lineHeight) / 2 + 1, scheme.dangerText());
-        // 📷 更新头像：蓝绿色
-        g.fill(btnX, ly(L, baseY, L.btn4Y), btnX + btnW, ly(L, baseY, L.btn4Y) + ACTION_BTN_H,
-                0xFF2E7D32);
-        g.drawString(font, "📷 更新头像", btnX + 8,
-                ly(L, baseY, L.btn4Y) + (ACTION_BTN_H - font.lineHeight) / 2 + 1, 0xFFFFFFFF);
+    /** 头部信息区：左侧大头像（女仆照片），右侧名称 + 状态，整体垂直居中 */
+    private void renderHeader(GuiGraphics g, Font font, Layout L, int baseX, int baseY) {
+        int avX = baseX + L.avatarX;
+        int avY = ly(L, baseY, L.avatarY);
+        int size = L.avatarSize;
+        ResourceLocation tex = MaidAvatarManager.getOrLoadTexture(stableId);
+        if (tex != null) {
+            int[] d = MaidAvatarManager.getTextureSize(stableId);
+            int tw = d != null ? d[0] : size;
+            int th = d != null ? d[1] : size;
+            g.blit(tex, avX, avY, size, size, 0.0f, 0.0f, tw, th, tw, th);
+        } else {
+            UiShapes.fillRoundedRect(g, avX, avY, size, size, 8, 0xFFB0BEC5);
+        }
+
+        String status = MaidStatusCache.get(stableId);
+        if (status.isEmpty()) status = "…";
+        drawScaledText(g, font, maidName, baseX + L.nameX, ly(L, baseY, L.nameTop), TEXT_COLOR, 1.75f);
+        drawScaledText(g, font, status, baseX + L.nameX, ly(L, baseY, L.statusTop), TEXT_SUB, 1.25f);
     }
 
-    /** 渲染 SOS 区域：标题 + 绑定开关 +（已绑定时）工作模式下拉 */
-    private void renderSosSection(GuiGraphics g, Font font, int baseX, int w, Layout L, int baseY) {
-        // 区域标题
-        g.drawString(font, "SOS 呼叫", baseX + 10, ly(L, baseY, L.sosLabelY), TEXT_SUB);
+    private void renderManageGroup(GuiGraphics g, Font font, Layout L, int baseX, int baseY) {
+        int cardX = baseX + 10;
+        int cardW = PhoneOverlay.getPhoneWidth() - 20;
+        g.drawString(font, "管理", baseX + 12, ly(L, baseY, L.manageTitleY), GROUP_TITLE_COLOR);
+        String[] labels = {"💬 发消息", "🗑 删除记录", "☠ 删除联系人", "📷 更新头像"};
+        int[] colors = {TEXT_COLOR, TEXT_COLOR, DANGER, 0xFF2E7D32};
+        for (int i = 0; i < 4; i++) {
+            int y = ly(L, baseY, L.cardY[i]);
+            UiShapes.fillRoundedRect(g, cardX, y, cardW, CARD_H, CARD_R, CARD_BG);
+            g.drawString(font, labels[i], cardX + 10, y + (CARD_H - font.lineHeight) / 2 + 1, colors[i], false);
+            g.drawString(font, "›", cardX + cardW - 16, y + (CARD_H - font.lineHeight) / 2 + 1, 0xFFB9AAB0, false);
+        }
+    }
 
-        // 绑定开关：已绑定红底 / 未绑定灰底
+    private void renderSosGroup(GuiGraphics g, Font font, Layout L, int baseX, int baseY) {
+        int cardX = baseX + 10;
+        int cardW = PhoneOverlay.getPhoneWidth() - 20;
+        g.drawString(font, "SOS 呼叫", baseX + 12, ly(L, baseY, L.sosTitleY), GROUP_TITLE_COLOR);
+
+        // SOS 呼叫（绑定开关）卡片
         boolean bound = SosBindCache.isBound(stableId);
-        int btnX = baseX + 10;
-        int btnW = w - 20;
-        g.fill(btnX, ly(L, baseY, L.bindBtnY), btnX + btnW, ly(L, baseY, L.bindBtnY) + BIND_BTN_H,
-                bound ? SOS_BOUND_BG : SOS_UNBOUND_BG);
-        String bindText = bound ? "SOS 呼叫：已绑定（点击解除）" : "SOS 呼叫：未绑定（点击绑定）";
-        g.drawString(font, bindText, btnX + 8,
-                ly(L, baseY, L.bindBtnY) + (BIND_BTN_H - font.lineHeight) / 2 + 1, 0xFFFFFFFF);
+        int bindY = ly(L, baseY, L.bindCardY);
+        UiShapes.fillRoundedRect(g, cardX, bindY, cardW, CARD_H, CARD_R, CARD_BG);
+        g.drawString(font, "🚨 SOS 呼叫", cardX + 10, bindY + (CARD_H - font.lineHeight) / 2 + 1,
+                bound ? DANGER : TEXT_COLOR, false);
+        String bindState = bound ? "已绑定" : "未绑定";
+        g.drawString(font, bindState, cardX + cardW - font.width(bindState) - 14,
+                bindY + (CARD_H - font.lineHeight) / 2 + 1, bound ? DANGER : TEXT_SUB, false);
 
-        // 已绑定时的工作模式下拉
-        if (bound) {
-            g.drawString(font, "SOS 工作模式：", baseX + 10, ly(L, baseY, L.modeLabelY), TEXT_SUB);
-            int boxX = baseX + 10;
-            int boxY = ly(L, baseY, L.modeBoxY);
-            int boxW = w - 20;
-            String currentUid = SosBindCache.getTaskUid(stableId);
-            String modeName = formatTaskName(currentUid);
-            g.fill(boxX, boxY, boxX + boxW, boxY + DROPDOWN_BOX_H,
-                    modeDropdownOpen ? 0xFF444444 : 0xFF333333);
-            g.drawString(font, modeName, boxX + 6, boxY + 4, 0xFFFFFFFF);
-            g.drawString(font, modeDropdownOpen ? "▲" : "▼", boxX + boxW - 14, boxY + 4, 0xFFAAAAAA);
+        // SOS 工作模式卡片（未绑定时置灰，点击展开原下拉）
+        int modeY = ly(L, baseY, L.modeCardY);
+        UiShapes.fillRoundedRect(g, cardX, modeY, cardW, CARD_H, CARD_R, CARD_BG);
+        int modeColor = bound ? TEXT_COLOR : TEXT_SUB;
+        g.drawString(font, "🎯 SOS 工作模式", cardX + 10, modeY + (CARD_H - font.lineHeight) / 2 + 1, modeColor, false);
+        String modeName = bound ? formatTaskName(SosBindCache.getTaskUid(stableId)) : "需先绑定";
+        g.drawString(font, modeName, cardX + cardW - font.width(modeName) - 26,
+                modeY + (CARD_H - font.lineHeight) / 2 + 1, modeColor, false);
+        g.drawString(font, modeDropdownOpen ? "▲" : "▼",
+                cardX + cardW - 16, modeY + (CARD_H - font.lineHeight) / 2 + 1, 0xFFB9AAB0, false);
 
-            if (modeDropdownOpen) {
-                renderModeList(g, font, L, baseY, boxX, boxW, currentUid);
-            }
+        if (bound && modeDropdownOpen && L.modeListY >= 0) {
+            renderModeList(g, font, L, baseY, cardX, cardW);
         }
     }
 
-    /** 渲染工作模式下拉列表（蓝底高亮光标，滚动窗口保证光标可见） */
-    private void renderModeList(GuiGraphics g, Font font, Layout L, int baseY,
-                                int boxX, int boxW, String currentUid) {
+    private void renderModeList(GuiGraphics g, Font font, Layout L, int baseY, int listX, int listW) {
         List<String> tasks = SosTaskCache.getAll();
-        int listX = boxX;
         int listY = ly(L, baseY, L.modeListY);
-        int listW = boxW;
         int listH = L.modeListH;
-        g.fill(listX, listY, listX + listW, listY + listH, 0xFF222222);
-        g.fill(listX, listY, listX + listW, listY + 1, 0xFF555555);
-        g.enableScissor(listX, listY, listX + listW, listY + listH);
+        UiShapes.fillRoundedRect(g, listX, listY, listW, listH, 8, 0xFFFFFFFF);
         int windowStart = clamp(modeCursor - DROPDOWN_VISIBLE_ROWS / 2,
                 0, Math.max(0, tasks.size() - DROPDOWN_VISIBLE_ROWS));
         for (int i = 0; i < DROPDOWN_VISIBLE_ROWS && windowStart + i < tasks.size(); i++) {
             int idx = windowStart + i;
             int rowY = listY + i * DROPDOWN_ROW_H;
             if (idx == modeCursor) {
-                g.fill(listX, rowY, listX + listW, rowY + DROPDOWN_ROW_H, MODE_HIGHLIGHT);
-            } else if (idx == tasks.indexOf(currentUid)) {
-                g.fill(listX, rowY, listX + listW, rowY + DROPDOWN_ROW_H, MODE_CURRENT_BG);
+                UiShapes.fillRoundedRect(g, listX + 2, rowY, listW - 4, DROPDOWN_ROW_H, 6, 0xFF4A6FB5);
+                g.drawString(font, formatTaskName(tasks.get(idx)), listX + 8, rowY + 3, 0xFFFFFFFF, false);
+            } else {
+                g.drawString(font, formatTaskName(tasks.get(idx)), listX + 8, rowY + 3, TEXT_COLOR, false);
             }
-            g.drawString(font, formatTaskName(tasks.get(idx)), listX + 6, rowY + 3, 0xFFFFFFFF);
         }
-        g.disableScissor();
     }
 
-    /** 渲染分组设置：标题 + 当前分组下拉（柔粉主题色） */
-    private void renderGroupSection(GuiGraphics g, Font font, ColorScheme scheme,
-                                    int baseX, int w, Layout L, int baseY) {
-        g.drawString(font, "分组设置", baseX + 10, ly(L, baseY, L.groupLabelY), TEXT_SUB);
+    private void renderGroupSection(GuiGraphics g, Font font, Layout L, int baseX, int baseY) {
+        int cardX = baseX + 10;
+        int cardW = PhoneOverlay.getPhoneWidth() - 20;
+        g.drawString(font, "分组设置", baseX + 12, ly(L, baseY, L.groupTitleY), GROUP_TITLE_COLOR);
 
-        int boxX = baseX + 10;
-        int boxY = ly(L, baseY, L.groupBoxY);
-        int boxW = w - 20;
-        String groupName = currentGroup();
-        String manualMark = MaidGroupHelper.hasManualGroup(stableId) ? "（手动）" : "";
-        // 当前分组框：柔粉底 + 深色文字
-        g.fill(boxX, boxY, boxX + boxW, boxY + DROPDOWN_BOX_H, scheme.accentSoft());
-        g.drawString(font, groupName + manualMark, boxX + 6, boxY + 4, TEXT_COLOR);
-        g.drawString(font, groupDropdownOpen ? "▲" : "▼", boxX + boxW - 14, boxY + 4, 0xFF666666);
-
-        if (groupDropdownOpen) {
-            int listX = boxX;
-            int listY = ly(L, baseY, L.groupListY);
-            int listW = boxW;
-            int listH = L.groupListH;
-            // 白底列表 + 顶边框
-            g.fill(listX, listY, listX + listW, listY + listH, 0xFFFFFFFF);
-            g.fill(listX, listY, listX + listW, listY + 1, 0x22000000);
-            for (int i = 0; i < GROUP_OPTIONS.size(); i++) {
-                int rowY = listY + i * DROPDOWN_ROW_H;
-                String option = GROUP_OPTIONS.get(i);
-                if (i == groupCursor) {
-                    // 光标行：柔粉高亮 + 白字
-                    g.fill(listX, rowY, listX + listW, rowY + DROPDOWN_ROW_H, scheme.accentSoftActive());
-                    g.drawString(font, option, listX + 6, rowY + 3, scheme.topBarText());
-                } else if (option.equals(groupName)) {
-                    // 当前生效分组（非光标）：淡柔粉底 + 深色字
-                    g.fill(listX, rowY, listX + listW, rowY + DROPDOWN_ROW_H, scheme.accentSoft());
-                    g.drawString(font, option, listX + 6, rowY + 3, TEXT_COLOR);
-                } else {
-                    g.drawString(font, option, listX + 6, rowY + 3, TEXT_COLOR);
+        String current = currentGroup();
+        for (GroupSlot slot : L.groupSlots) {
+            int y = ly(L, baseY, slot.y);
+            if (slot.isNewGroup) {
+                // 新建分组按钮：虚线感 → 用淡色描边卡片
+                UiShapes.fillRoundedRect(g, cardX, y, cardW, slot.h, CARD_R, 0xFFFFF5F8);
+                g.drawString(font, "＋ 新建分组", cardX + 10, y + (slot.h - font.lineHeight) / 2 + 1,
+                        0xFFB06A6A, false);
+                g.fill(cardX + 2, y + slot.h - 2, cardX + cardW - 2, y + slot.h - 1, 0x22B06A6A);
+            } else {
+                boolean isCurrent = slot.label.equals(current);
+                UiShapes.fillRoundedRect(g, cardX, y, cardW, slot.h, CARD_R,
+                        isCurrent ? CARD_ACTIVE_BG : CARD_BG);
+                g.drawString(font, slot.label, cardX + 10, y + (slot.h - font.lineHeight) / 2 + 1,
+                        isCurrent ? 0xFFB06A6A : TEXT_COLOR, false);
+                if (isCurrent) {
+                    g.drawString(font, "✓", cardX + cardW - 18, y + (slot.h - font.lineHeight) / 2 + 1,
+                            0xFFB06A6A, false);
                 }
             }
         }
     }
 
-    /** 渲染删除联系人二次确认弹窗：半透明遮罩 + 白底对话框 + 取消/确认按钮 */
-    private void renderConfirmDialog(GuiGraphics g, Font font, ColorScheme scheme,
-                                     int baseX, int w, Layout L, int baseY) {
+    /** 渲染删除联系人二次确认弹窗 */
+    private void renderConfirmDialog(GuiGraphics g, Font font, Layout L, int baseX, int w, int baseY) {
         int h = PhoneOverlay.getPhoneHeight();
-        // 内容区半透明遮罩
         g.fill(baseX, baseY + L.navH, baseX + w, baseY + h, 0x66000000);
-
         int dlgW = w - 40;
         int dlgH = 80;
         int dlgX = baseX + (w - dlgW) / 2;
         int dlgY = baseY + (L.navH + h) / 2 - dlgH / 2;
-        g.fill(dlgX, dlgY, dlgX + dlgW, dlgY + dlgH, 0xFFFAFAFA);
+        UiShapes.fillRoundedRect(g, dlgX, dlgY, dlgW, dlgH, 8, 0xFFFAFAFA);
 
-        // 弹窗文案（两行）
         int textY = dlgY + 12;
         g.drawString(font, "确认删除？此操作无法恢复", dlgX + 10, textY, TEXT_COLOR);
         textY += font.lineHeight + 2;
         g.drawString(font, "将同时清除聊天记录与联系人", dlgX + 10, textY, TEXT_SUB);
 
-        // 底部两个按钮：取消（中性灰）/ 确认（危险红）
         int btnW = (dlgW - 30) / 2;
         int btnH = 22;
         int btnY = dlgY + dlgH - btnH - 8;
         int cancelX = dlgX + 10;
         int delX = dlgX + dlgW - 10 - btnW;
-        g.fill(cancelX, btnY, cancelX + btnW, btnY + btnH, 0xFFE0E0E0);
+        UiShapes.fillRoundedRect(g, cancelX, btnY, btnW, btnH, btnH / 2, 0xFFE0E0E0);
         g.drawString(font, "取消", cancelX + (btnW - font.width("取消")) / 2, btnY + 6, TEXT_COLOR);
-        g.fill(delX, btnY, delX + btnW, btnY + btnH, scheme.dangerBg());
-        g.drawString(font, "确认", delX + (btnW - font.width("确认")) / 2, btnY + 6, scheme.dangerText());
+        UiShapes.fillRoundedRect(g, delX, btnY, btnW, btnH, btnH / 2, 0xFFE53935);
+        g.drawString(font, "确认", delX + (btnW - font.width("确认")) / 2, btnY + 6, 0xFFFFFFFF);
     }
 
     // ==================== 鼠标事件 ====================
@@ -467,30 +449,26 @@ public class MaidInfoPage implements IPhonePage {
         int w = PhoneOverlay.getPhoneWidth();
         Layout L = computeLayout();
 
-        // 删除确认弹窗打开时：只处理弹窗交互
         if (confirmDeletePending) {
             return handleConfirmClick(relX, relY, w, L);
         }
 
-        // 左上角「< 返回」
         if (relX >= 0 && relX <= 60 && relY >= 0 && relY <= L.navH) {
             PhoneOverlay.popPage();
             return true;
         }
-
-        // 内容区点击：逻辑坐标 = 相对坐标 + 滚动偏移
         if (relY < L.navH) return false;
-        double ly = relY + scrollOffset;
-        int boxX = 10;
-        int boxW = w - 20;
 
-        // 三个核心操作按钮
-        if (hit(relX, ly, boxX, L.btn1Y, boxW, ACTION_BTN_H)) {
+        double ly = relY + scrollOffset;
+        int cardX = 10;
+        int cardW = w - 20;
+
+        // 管理 4 项
+        if (hit(relX, ly, cardX, L.cardY[0], cardW, CARD_H)) {
             PhoneOverlay.pushPage(new ChatPage(stableId, maidName));
             return true;
         }
-        if (hit(relX, ly, boxX, L.btn2Y, boxW, ACTION_BTN_H)) {
-            // 删除聊天记录（含草稿）：有记录才删，并短暂提示
+        if (hit(relX, ly, cardX, L.cardY[1], cardW, CARD_H)) {
             if (ChatHistoryStorage.hasConversation(stableId)) {
                 ChatHistoryStorage.deleteConversation(stableId);
                 showFlash("🗑 已删除聊天记录");
@@ -499,73 +477,63 @@ public class MaidInfoPage implements IPhonePage {
             }
             return true;
         }
-        if (hit(relX, ly, boxX, L.btn3Y, boxW, ACTION_BTN_H)) {
-            // 危险操作：先进入二次确认状态
+        if (hit(relX, ly, cardX, L.cardY[2], cardW, CARD_H)) {
             confirmDeletePending = true;
             return true;
         }
-        // 📷 更新头像
-        if (hit(relX, ly, boxX, L.btn4Y, boxW, ACTION_BTN_H)) {
+        if (hit(relX, ly, cardX, L.cardY[3], cardW, CARD_H)) {
             updateAvatar();
             return true;
         }
 
-        // SOS 绑定开关
-        if (hit(relX, ly, boxX, L.bindBtnY, boxW, BIND_BTN_H)) {
+        // SOS 呼叫（绑定开关）
+        if (hit(relX, ly, cardX, L.bindCardY, cardW, CARD_H)) {
             PacketDistributor.sendToServer(new C2SToggleSosBindPacket(stableId));
             return true;
         }
 
-        // SOS 工作模式下拉
-        if (SosBindCache.isBound(stableId)) {
-            // 若下拉已展开，先处理列表项点击（区域覆盖在模式框下方）
-            if (modeDropdownOpen && L.modeListY >= 0
-                    && hit(relX, ly, boxX, L.modeListY, boxW, L.modeListH)) {
-                List<String> tasks = SosTaskCache.getAll();
-                int windowStart = clamp(modeCursor - DROPDOWN_VISIBLE_ROWS / 2,
-                        0, Math.max(0, tasks.size() - DROPDOWN_VISIBLE_ROWS));
-                int row = (int)((ly - L.modeListY) / DROPDOWN_ROW_H);
-                int idx = windowStart + row;
-                if (idx >= 0 && idx < tasks.size()) {
-                    PacketDistributor.sendToServer(new C2SSetSosModePacket(stableId, tasks.get(idx)));
-                    modeDropdownOpen = false;
-                }
-                return true;
+        // SOS 工作模式：先处理下拉列表项，再处理模式卡片展开
+        boolean bound = SosBindCache.isBound(stableId);
+        if (bound && modeDropdownOpen && L.modeListY >= 0
+                && hit(relX, ly, cardX, L.modeListY, cardW, L.modeListH)) {
+            List<String> tasks = SosTaskCache.getAll();
+            int windowStart = clamp(modeCursor - DROPDOWN_VISIBLE_ROWS / 2,
+                    0, Math.max(0, tasks.size() - DROPDOWN_VISIBLE_ROWS));
+            int row = (int) ((ly - L.modeListY) / DROPDOWN_ROW_H);
+            int idx = windowStart + row;
+            if (idx >= 0 && idx < tasks.size()) {
+                PacketDistributor.sendToServer(new C2SSetSosModePacket(stableId, tasks.get(idx)));
+                modeDropdownOpen = false;
             }
-            // 点击模式框本身 → 展开/收起；展开时把光标定位到当前模式
-            if (hit(relX, ly, boxX, L.modeBoxY, boxW, DROPDOWN_BOX_H)) {
+            return true;
+        }
+        if (hit(relX, ly, cardX, L.modeCardY, cardW, CARD_H)) {
+            if (bound) {
                 modeDropdownOpen = !modeDropdownOpen;
                 if (modeDropdownOpen) {
                     int idx = SosTaskCache.getAll().indexOf(SosBindCache.getTaskUid(stableId));
                     modeCursor = idx < 0 ? 0 : idx;
                 }
-                return true;
-            }
-        }
-
-        // 分组下拉
-        if (groupDropdownOpen && L.groupListY >= 0
-                && hit(relX, ly, boxX, L.groupListY, boxW, L.groupListH)) {
-            int row = (int)((ly - L.groupListY) / DROPDOWN_ROW_H);
-            if (row >= 0 && row < GROUP_OPTIONS.size()) {
-                HuhuTalkClientSettings.setMaidGroup(stableId, GROUP_OPTIONS.get(row));
-                groupDropdownOpen = false;
+            } else {
+                showFlash("请先绑定 SOS 呼叫");
             }
             return true;
         }
-        // 点击分组框本身 → 展开/收起；展开时把光标定位到当前分组
-        if (hit(relX, ly, boxX, L.groupBoxY, boxW, DROPDOWN_BOX_H)) {
-            groupDropdownOpen = !groupDropdownOpen;
-            if (groupDropdownOpen) {
-                int idx = GROUP_OPTIONS.indexOf(currentGroup());
-                groupCursor = idx < 0 ? 0 : idx;
+
+        // 分组设置：分组选项 / 新建分组
+        for (GroupSlot slot : L.groupSlots) {
+            if (!hit(relX, ly, cardX, slot.y, cardW, slot.h)) continue;
+            if (slot.isNewGroup) {
+                Minecraft.getInstance().setScreen(new PhoneGroupNameInputScreen(this));
+            } else {
+                HuhuTalkClientSettings.setMaidGroup(stableId, slot.label);
+                showFlash("已分到「" + slot.label + "」");
             }
             return true;
         }
         return false;
     }
 
-    /** 删除确认弹窗的点击处理：确认删除 / 取消 / 点击外部取消 */
     private boolean handleConfirmClick(double relX, double relY, int w, Layout L) {
         int h = PhoneOverlay.getPhoneHeight();
         int dlgW = w - 40;
@@ -578,7 +546,6 @@ public class MaidInfoPage implements IPhonePage {
         int cancelX = dlgX + 10;
         int delX = dlgX + dlgW - 10 - btnW;
 
-        // 确认删除：发网络包 + 清本地聊天记录 + 清手动分组
         if (relX >= delX && relX <= delX + btnW && relY >= btnY && relY <= btnY + btnH) {
             PacketDistributor.sendToServer(new C2SDeleteContactPacket(stableId));
             ChatHistoryStorage.deleteConversation(stableId);
@@ -587,7 +554,6 @@ public class MaidInfoPage implements IPhonePage {
             showFlash("☠ 已删除联系人");
             return true;
         }
-        // 取消按钮 / 点击弹窗外部 → 取消确认
         boolean onCancel = relX >= cancelX && relX <= cancelX + btnW
                 && relY >= btnY && relY <= btnY + btnH;
         boolean insideDlg = relX >= dlgX && relX <= dlgX + dlgW
@@ -596,49 +562,43 @@ public class MaidInfoPage implements IPhonePage {
             confirmDeletePending = false;
             return true;
         }
-        // 点击弹窗空白处：保持确认状态
         return true;
     }
 
     @Override
     public boolean mouseScrolled(double relX, double relY, double scrollDelta) {
-        // 确认弹窗打开期间不滚动
-        if (confirmDeletePending) {
-            return true;
-        }
+        if (confirmDeletePending) return true;
         int w = PhoneOverlay.getPhoneWidth();
         Layout L = computeLayout();
-        int boxX = 10;
-        int boxW = w - 20;
+        int cardX = 10;
+        int cardW = w - 20;
 
-        // 工作模式下拉已展开且鼠标在下拉区域内 → 滚动移动高亮光标
         if (SosBindCache.isBound(stableId) && modeDropdownOpen && L.modeListY >= 0) {
             int listTop = L.modeListY - scrollOffset;
-            if (relX >= boxX && relX <= boxX + boxW
+            if (relX >= cardX && relX <= cardX + cardW
                     && relY >= listTop && relY <= listTop + L.modeListH) {
                 List<String> tasks = SosTaskCache.getAll();
                 if (!tasks.isEmpty()) {
-                    int step = scrollDelta > 0 ? -1 : 1; // 正滚向上
+                    int step = scrollDelta > 0 ? -1 : 1;
                     modeCursor = clamp(modeCursor + step, 0, tasks.size() - 1);
                 }
                 return true;
             }
         }
-        // 分组下拉已展开且鼠标在下拉区域内 → 滚动移动高亮光标
-        if (groupDropdownOpen && L.groupListY >= 0) {
-            int listTop = L.groupListY - scrollOffset;
-            if (relX >= boxX && relX <= boxX + boxW
-                    && relY >= listTop && relY <= listTop + L.groupListH) {
-                int step = scrollDelta > 0 ? -1 : 1;
-                groupCursor = clamp(groupCursor + step, 0, GROUP_OPTIONS.size() - 1);
-                return true;
-            }
-        }
 
-        // 其余情况：滚动整个页面
         int viewH = Math.max(0, PhoneOverlay.getPhoneHeight() - L.navH);
         int maxScroll = Math.max(0, L.contentH - viewH);
-        scrollOffset = Math.max(0, Math.min(scrollOffset - (int)(scrollDelta * 10), maxScroll));
+        scrollOffset = Math.max(0, Math.min(scrollOffset - (int) (scrollDelta * 10), maxScroll));
         return true;
+    }
+
+    /** 以任意倍率绘制文本（无阴影） */
+    private static void drawScaledText(GuiGraphics g, Font font, String text,
+                                       float x, float y, int color, float scale) {
+        float inv = 1.0f / scale;
+        g.pose().pushPose();
+        g.pose().scale(scale, scale, 1.0f);
+        g.drawString(font, text, x * inv, y * inv, color, false);
+        g.pose().popPose();
     }
 }
