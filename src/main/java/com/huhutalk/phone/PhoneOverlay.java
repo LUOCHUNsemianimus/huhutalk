@@ -403,9 +403,9 @@ public class PhoneOverlay {
         for (int i = 0; i < 3; i++) {
             int itemX = cx + i * slotW;
             int centerX = itemX + slotW / 2;
-            // 选中项底色：#de6f8d 圆角胶囊
+            // 选中项底色：#de7e7e 圆角胶囊
             if (i == activeIdx) {
-                fillRoundedRect(graphics, itemX + 1, baseY + 1, slotW - 2, h - 2, (h - 2) / 2f, (h - 2) / 2f, 0xFFDE6F8D);
+                fillRoundedRect(graphics, itemX + 1, baseY + 1, slotW - 2, h - 2, (h - 2) / 2f, (h - 2) / 2f, 0xFFDE7E7E);
             }
             // emoji（上）
             FormattedCharSequence emoji = Component.literal(emojis[i]).getVisualOrderText();

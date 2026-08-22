@@ -47,7 +47,7 @@ public class MessageListPage implements IPhonePage {
     /** 页面背景色 */
     private static final int PAGE_BG = 0xFFF5EBF2;
     /** 顶部标题栏背景色 */
-    private static final int TOPBAR_BG = 0xFFDE6F8D;
+    private static final int TOPBAR_BG = 0xFFDE7E7E;
 
     /** 列表滚动偏移（像素） */
     private int scrollOffset = 0;
@@ -234,9 +234,9 @@ public class MessageListPage implements IPhonePage {
                     top - font.lineHeight * s / 2f, 0xFFFFFFFF, s);
         }
 
-        // 右侧文字区（头像右侧，尽量给足宽度）
+        // 右侧文字区（头像右侧，尽量给足宽度；textX 含 baseX 为绝对坐标，宽度用相对值）
         int textX = avatarX + avatarSize + 6;
-        int textMaxW = Math.max(1, w - textX - 8);
+        int textMaxW = Math.max(1, w - avatarSize - 14);
 
         // 上行：联系人 ID（默认字号）
         g.drawString(font, truncate(font, name, textMaxW), textX, top, TEXT_COLOR, false);
