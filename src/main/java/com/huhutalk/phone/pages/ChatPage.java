@@ -24,7 +24,9 @@ import net.neoforged.neoforge.network.PacketDistributor;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Random;
 
 /**
  * 聊天页面（完整版）。
@@ -56,6 +58,26 @@ public class ChatPage implements IPhonePage {
     /** 滚轮滚动速度（像素/格） */
     private static final int SCROLL_SPEED = 12;
 
+    // ==================== 表情包（左二 🦊 按钮） ====================
+    /** 表情面板每行数量 */
+    private static final int EMOTE_COLS = 3;
+    /** 表情单元格边距（像素） */
+    private static final int EMOTE_ITEM_PAD = 4;
+    /** 表情在气泡里的绘制尺寸（像素） */
+    private static final int EMOTE_DRAW_SIZE = 36;
+    /** 表情面板纵向滚动偏移（像素），滚轮在面板内滚动 */
+    private int emojiScrollOffset = 0;
+    /** 已枚举的女仆表情缓存（首次打开时填充） */
+    private List<EmoteEntry> cachedEmotes = null;
+    /** 待回复的表情定时时间戳队列（System.currentTimeMillis）。每次发送表情入队一个，到点随机补一条回复 */
+    private final List<Long> pendingEmoteReplies = new ArrayList<>();
+    private static final Random EMOTE_RANDOM = new Random();
+
+    /** 车万女仆(TLM)自带表情包路径前缀 */
+    private static final String MAID_EMOJI_DIR = "textures/chat_bubble/maid_emoji";
+    /** 一张女仆表情（资源位置 + 纹理宽高，尺寸从文件名 `-WxH.png` 解析，默认 24x24） */
+    private record EmoteEntry(ResourceLocation loc, int w, int h) {}
+
     // ==================== 断句逐条显示（任务2） ====================
     /** 每个字消耗的"打字"时间（毫秒），按字数线性计费 */
     private static final long CHAR_TYPING_MS = 500;
@@ -84,15 +106,18 @@ public class ChatPage implements IPhonePage {
         this.stableId = stableId;
         this.maidName = maidName;
         for (ChatHistoryStorage.ChatMessageEntry e : ChatHistoryStorage.getMessages(stableId)) {
-            // 历史中的女仆正常回复：按断句规则拆成多条气泡显示（与实时收到时一致），
-            // 避免重新进入世界后整段回复被合成一个大块。错误/玩家消息保持原样。
-            if (!e.isPlayer() && !e.isError()) {
+            if (e.emote() != null) {
+                // 表情消息：直接整条恢复（不按逗号拆句），保留 emote 路径
+                messages.add(new ChatMessage(e.text(), e.isPlayer(), e.isError(), e.pending(), e.gameTime(), e.emote()));
+            } else if (!e.isPlayer() && !e.isError()) {
+                // 历史中的女仆正常回复：按断句规则拆成多条气泡显示（与实时收到时一致），
+                // 避免重新进入世界后整段回复被合成一个大块。错误/玩家消息保持原样。
                 List<String> segments = MessageSplitter.split(e.text());
                 for (String seg : segments) {
-                    messages.add(new ChatMessage(seg, false, false, false, e.gameTime()));
+                    messages.add(new ChatMessage(seg, false, false, false, e.gameTime(), null));
                 }
             } else {
-                messages.add(new ChatMessage(e.text(), e.isPlayer(), e.isError(), e.pending(), e.gameTime()));
+                messages.add(new ChatMessage(e.text(), e.isPlayer(), e.isError(), e.pending(), e.gameTime(), null));
             }
         }
         this.currentInput = ChatHistoryStorage.getDraft(stableId);
@@ -110,7 +135,7 @@ public class ChatPage implements IPhonePage {
         for (int i = messages.size() - 1; i >= 0; i--) {
             ChatMessage m = messages.get(i);
             if (m.isPlayer()) {
-                messages.set(i, new ChatMessage(m.text(), true, m.isError(), true, m.gameTime()));
+                messages.set(i, new ChatMessage(m.text(), true, m.isError(), true, m.gameTime(), m.emote()));
                 break;
             }
         }
@@ -122,7 +147,7 @@ public class ChatPage implements IPhonePage {
         for (int i = 0; i < messages.size(); i++) {
             ChatMessage m = messages.get(i);
             if (m.pending()) {
-                messages.set(i, new ChatMessage(m.text(), m.isPlayer(), m.isError(), false, m.gameTime()));
+                messages.set(i, new ChatMessage(m.text(), m.isPlayer(), m.isError(), false, m.gameTime(), m.emote()));
             }
         }
         ChatHistoryStorage.clearPending(stableId);
@@ -211,7 +236,7 @@ public class ChatPage implements IPhonePage {
     /** 把一段文字作为"玩家发送"的消息加入聊天并发送给当前女仆（语音转文字结果走这里） */
     private void sendText(String text) {
         if (text == null || text.isBlank()) return;
-        messages.add(new ChatMessage(text, true, false, false, currentGameTime()));
+        messages.add(new ChatMessage(text, true, false, false, currentGameTime(), null));
         ChatHistoryStorage.appendMessage(stableId, text, true, false);
         ChatHistoryStorage.setDraft(stableId, "");
         PacketDistributor.sendToServer(new C2SMaidChatPacket(stableId, text));
@@ -226,7 +251,7 @@ public class ChatPage implements IPhonePage {
         scrollOffset = 0;
         // 错误/提示消息：整段显示，不拆句
         if (isError) {
-            messages.add(new ChatMessage(text, false, true, false, currentGameTime()));
+            messages.add(new ChatMessage(text, false, true, false, currentGameTime(), null));
             this.waitingResponse = false;
             this.splitting = false;
             this.splitQueue.clear();
@@ -237,7 +262,7 @@ public class ChatPage implements IPhonePage {
         List<String> segments = MessageSplitter.split(text);
         if (segments.size() <= 1) {
             // 无逗号可拆 → 整段显示
-            messages.add(new ChatMessage(text, false, false, false, currentGameTime()));
+            messages.add(new ChatMessage(text, false, false, false, currentGameTime(), null));
             this.waitingResponse = false;
             this.splitting = false;
             this.splitQueue.clear();
@@ -270,7 +295,7 @@ public class ChatPage implements IPhonePage {
             if (now - lastSplitTime < typingMs) {
                 break;
             }
-            messages.add(new ChatMessage(splitQueue.get(splitIndex), false, false, false, splitGameTime));
+            messages.add(new ChatMessage(splitQueue.get(splitIndex), false, false, false, splitGameTime, null));
             splitIndex++;
             lastSplitTime = now;
         }
@@ -290,7 +315,7 @@ public class ChatPage implements IPhonePage {
     private void sendCurrentMessage() {
         if (currentInput.isBlank()) return;
         String text = currentInput;
-        messages.add(new ChatMessage(text, true, false, false, currentGameTime()));
+        messages.add(new ChatMessage(text, true, false, false, currentGameTime(), null));
         ChatHistoryStorage.appendMessage(stableId, text, true, false);
         ChatHistoryStorage.setDraft(stableId, "");
         PacketDistributor.sendToServer(new C2SMaidChatPacket(stableId, text));
@@ -381,7 +406,10 @@ public class ChatPage implements IPhonePage {
     /** 上拉面板高度（打开时在拓展栏上方展开）。语音面板（左一图标）更高，好放"按住说话"大按钮。 */
     private int panelH() {
         if (!bottomPanelOpen) return 0;
-        return (int)(phoneH() * (extPanelIcon == 0 ? 0.26 : 0.18));
+        if (extPanelIcon == 0) return (int)(phoneH() * 0.26);
+        // 表情面板（左二 🦊）：更高，好放三列可滚动表情网格
+        if (extPanelIcon == 1) return (int)(phoneH() * 0.45);
+        return (int)(phoneH() * 0.18);
     }
     /** 面板顶：直接位于拓展功能栏上方；打开时把输入框往上顶，而不是从输入框上方伸出 */
     private int panelTop(int baseY) { return extBarTop(baseY) - panelH(); }
@@ -488,6 +516,8 @@ public class ChatPage implements IPhonePage {
     public void render(GuiGraphics g, int baseX, int baseY, float partialTick) {
         // 每帧推进断句显示（任务2）
         advanceSplitting();
+        // 每帧推进表情回复（1 秒延迟随机回复）
+        advanceEmoteReply();
         // 鼠标按住说话：左键松开（无论是否在手机范围内）即停止并发送
         if (voiceActive && voiceSource == VoiceSource.MOUSE && !isLeftMouseDown()) {
             stopVoice(false);
@@ -546,8 +576,8 @@ public class ChatPage implements IPhonePage {
             ChatMessage m = messages.get(i);
             boolean groupTop = groupStart[i] == i;
             int idxInGroup = i - groupStart[i];
-            // 女仆头像按 1/4/7… 段位显示；玩家消息始终显示头像
-            boolean showAvatar = m.isPlayer() || (idxInGroup % 3 == 0);
+            // 女仆头像按 1/4/7… 段位显示；玩家消息始终显示头像；表情消息始终显示头像
+            boolean showAvatar = m.emote() != null || m.isPlayer() || (idxInGroup % 3 == 0);
             int totalBubble = drawBubble(g, font, baseX, y, w, m, showAvatar, groupTop);
             y -= totalBubble + 4;
         }
@@ -567,6 +597,8 @@ public class ChatPage implements IPhonePage {
             g.fill(baseX, pBottom - 1, baseX + w, pBottom, 0xFFD9D2D6);
             if (extPanelIcon == 0) {
                 renderVoiceButton(g, font, baseX, pTop, pBottom, w);
+            } else if (extPanelIcon == 1) {
+                renderEmotePanel(g, font, baseX, pTop, pBottom, w);
             } else {
                 int panelMidY = (pTop + pBottom) / 2;
                 String panelText = "🚧 面板开发中";
@@ -669,6 +701,10 @@ public class ChatPage implements IPhonePage {
      * groupTop = 该条是「同一时刻分组」的顶部时，需多预留 timeH 放居中时间标签。
      */
     private int bubbleHeight(Font font, ChatMessage m, int phoneW, boolean groupTop) {
+        // 表情消息：固定高度
+        if (m.emote() != null) {
+            return emoteBubbleSize() + (groupTop ? timeH() : 0);
+        }
         int maxTextW = (int) ((phoneW - AVATAR * 2 - MARGIN * 4) / uiScale());
         List<FormattedCharSequence> lines = font.split(Component.literal(m.text()), maxTextW);
         int lineH = lh() + 1;
@@ -683,6 +719,10 @@ public class ChatPage implements IPhonePage {
      */
     private int drawBubble(GuiGraphics g, Font font, int baseX, int yBottom, int phoneW, ChatMessage m,
                            boolean showAvatar, boolean groupTop) {
+        // 表情消息：走纯图片气泡（始终带头像）
+        if (m.emote() != null) {
+            return drawEmoteBubble(g, font, baseX, yBottom, phoneW, m, showAvatar, groupTop);
+        }
         boolean isError = m.isError();
         boolean isPlayer = m.isPlayer();
         com.huhutalk.client.theme.ColorScheme scheme = com.huhutalk.client.theme.ThemeManager.getActive();
@@ -886,6 +926,218 @@ public class ChatPage implements IPhonePage {
                 cy - Minecraft.getInstance().font.lineHeight * ts / 2f, 0xFFFFFFFF, ts);
     }
 
+    // ==================== 表情包（左二 🦊 按钮） ====================
+
+    /** 枚举车万女仆(TLM)表情包目录下所有 PNG 表情（跨命名空间/资源包），按资源名排序。 */
+    private List<EmoteEntry> getAllEmotes() {
+        if (cachedEmotes != null) {
+            return cachedEmotes;
+        }
+        List<EmoteEntry> list = new ArrayList<>();
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.getResourceManager() != null) {
+            var found = mc.getResourceManager().listResources(
+                    MAID_EMOJI_DIR, p -> p.getPath().endsWith(".png"));
+            for (ResourceLocation rl : found.keySet()) {
+                int[] sz = parseEmoteSize(rl);
+                list.add(new EmoteEntry(rl, sz[0], sz[1]));
+            }
+        }
+        list.sort(Comparator.comparing(e -> e.loc().toString()));
+        cachedEmotes = list;
+        return list;
+    }
+
+    /** 从文件名解析表情尺寸：`emoji_20-24x24.png` → 24x24；无尺寸后缀默认 24x24。与 TLM 的解析规则一致。 */
+    private static int[] parseEmoteSize(ResourceLocation rl) {
+        java.util.regex.Matcher m = java.util.regex.Pattern
+                .compile("^.*?-(\\d+)x(\\d+)\\.png$").matcher(rl.getPath());
+        if (m.matches()) {
+            int w = Integer.parseInt(m.group(1));
+            int h = Integer.parseInt(m.group(2));
+            w = Math.max(8, Math.min(256, w));
+            h = Math.max(8, Math.min(256, h));
+            return new int[]{w, h};
+        }
+        return new int[]{24, 24};
+    }
+
+    /** 按表情资源路径查尺寸（供气泡绘制）；找不到时默认 24x24 */
+    private int[] emoteDims(String path) {
+        for (EmoteEntry e : getAllEmotes()) {
+            if (e.loc().toString().equals(path)) {
+                return new int[]{e.w(), e.h()};
+            }
+        }
+        return new int[]{24, 24};
+    }
+
+    /** 表情面板网格布局参数：每格宽 / 格内绘制边长 / 行高 */
+    private int[] emoteGridParams() {
+        int cellW = phoneW() / EMOTE_COLS;
+        int itemSize = (int)(cellW * 0.7);
+        int rowH = itemSize + EMOTE_ITEM_PAD * 2;
+        return new int[]{cellW, itemSize, rowH};
+    }
+
+    /** 表情面板内容总高度（用于滚动钳制） */
+    private int emoteContentHeight() {
+        int[] p = emoteGridParams();
+        int rows = (getAllEmotes().size() + EMOTE_COLS - 1) / EMOTE_COLS;
+        return rows * p[2] + EMOTE_ITEM_PAD * 2;
+    }
+
+    /** 绘制表情面板：三列向下排列，鼠标在面板内时滚轮可上下滚动。 */
+    private void renderEmotePanel(GuiGraphics g, Font font, int baseX, int pTop, int pBottom, int w) {
+        List<EmoteEntry> emotes = getAllEmotes();
+        if (emotes.isEmpty()) {
+            drawScaledText(g, font, "暂无表情包",
+                    baseX + (w - font.width("暂无表情包") * UiFont.sc(1.0f)) / 2,
+                    pTop + UiFont.sh(8), 0xFF8A6A6A, UiFont.sc(1.0f));
+            return;
+        }
+        int[] p = emoteGridParams();
+        int viewH = Math.max(0, pBottom - pTop);
+        int maxScroll = Math.max(0, emoteContentHeight() - viewH);
+        emojiScrollOffset = Math.max(0, Math.min(emojiScrollOffset, maxScroll));
+
+        g.enableScissor(baseX, pTop, baseX + w, pBottom);
+        for (int i = 0; i < emotes.size(); i++) {
+            EmoteEntry e = emotes.get(i);
+            int row = i / EMOTE_COLS, col = i % EMOTE_COLS;
+            int x = baseX + col * p[0] + (p[0] - p[1]) / 2;
+            int y = pTop + EMOTE_ITEM_PAD + row * p[2] - emojiScrollOffset;
+            if (y + p[1] < pTop || y > pBottom) {
+                continue;
+            }
+            UiShapes.fillRoundedRect(g, x, y, p[1], p[1], p[1] / 4, 0xFFFFFFFF);
+            int inset = UiFont.sh(2);
+            g.blit(e.loc(), x + inset, y + inset, p[1] - inset * 2, p[1] - inset * 2,
+                    0.0f, 0.0f, e.w(), e.h(), e.w(), e.h());
+        }
+        g.disableScissor();
+    }
+
+    /** 判断 (relX,relY) 落在哪个表情格子上；未命中或面板未开返回 null。坐标相对手机左上角。 */
+    private EmoteEntry hitEmote(double relX, double relY) {
+        if (!bottomPanelOpen || extPanelIcon != 1) {
+            return null;
+        }
+        List<EmoteEntry> emotes = getAllEmotes();
+        if (emotes.isEmpty()) {
+            return null;
+        }
+        int[] p = emoteGridParams();
+        int pTop = panelTop(0), pBottom = extBarTop(0);
+        if (relY < pTop || relY >= pBottom) {
+            return null;
+        }
+        int viewH = Math.max(0, pBottom - pTop);
+        int maxScroll = Math.max(0, emoteContentHeight() - viewH);
+        int soff = Math.max(0, Math.min(emojiScrollOffset, maxScroll));
+        for (int i = 0; i < emotes.size(); i++) {
+            int row = i / EMOTE_COLS, col = i % EMOTE_COLS;
+            int x = col * p[0] + (p[0] - p[1]) / 2;
+            int y = pTop + EMOTE_ITEM_PAD + row * p[2] - soff;
+            if (relX >= x && relX <= x + p[1] && relY >= y && relY <= y + p[1]) {
+                return emotes.get(i);
+            }
+        }
+        return null;
+    }
+
+    /** 发送一张表情给女仆：本地立即显示玩家表情，1 秒后随机回复一张（不经过大模型）。 */
+    private void sendEmote(ResourceLocation emote) {
+        String path = emote.toString();
+        messages.add(new ChatMessage("", true, false, false, currentGameTime(), path));
+        ChatHistoryStorage.appendMessage(stableId, "", path, true, false);
+        ChatHistoryStorage.setDraft(stableId, "");
+        currentInput = "";
+        cursorIndex = 0;
+        inputScrollOffset = 0;
+        scrollOffset = 0;
+        waitingResponse = true; // 1 秒回复等待期显示"对方正在输入…"
+        pendingEmoteReplies.add(System.currentTimeMillis() + 1000L);
+    }
+
+    /** 每帧推进表情回复：到 1 秒后随机补一张女仆表情并结束等待。在 render 每帧调用。 */
+    private void advanceEmoteReply() {
+        if (pendingEmoteReplies.isEmpty()) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        while (!pendingEmoteReplies.isEmpty() && pendingEmoteReplies.get(0) <= now) {
+            pendingEmoteReplies.remove(0);
+            List<EmoteEntry> emotes = getAllEmotes();
+            if (emotes.isEmpty()) {
+                continue;
+            }
+            EmoteEntry reply = emotes.get(EMOTE_RANDOM.nextInt(emotes.size()));
+            messages.add(new ChatMessage("", false, false, false, currentGameTime(), reply.loc().toString()));
+            ChatHistoryStorage.appendMessage(stableId, "", reply.loc().toString(), false, false);
+            scrollOffset = 0;
+        }
+        if (pendingEmoteReplies.isEmpty()) {
+            waitingResponse = false;
+        }
+    }
+
+    /** 表情消息气泡绘制尺寸（宽/高），含上下内边距 */
+    private int emoteBubbleSize() {
+        return EMOTE_DRAW_SIZE + UiFont.sh(8);
+    }
+
+    /** 绘制一条表情消息气泡：纯图片气泡，始终带头像。 */
+    private int drawEmoteBubble(GuiGraphics g, Font font, int baseX, int yBottom, int phoneW, ChatMessage m,
+                                boolean showAvatar, boolean groupTop) {
+        boolean isPlayer = m.isPlayer();
+        int pad = UiFont.sh(4);
+        int bubbleW = emoteBubbleSize();
+        int bubbleH = emoteBubbleSize();
+        int yTop = yBottom - bubbleH;
+        int radius = Math.max(2, bubbleH / 4);
+        ResourceLocation rl = ResourceLocation.tryParse(m.emote());
+        int[] dims = emoteDims(m.emote());
+        int sw = dims[0], sh = dims[1];
+
+        if (isPlayer) {
+            int bubbleRight = baseX + phoneW - AVATAR - MARGIN;
+            int bubbleLeft = bubbleRight - bubbleW;
+            UiShapes.fillRoundedRect(g, bubbleLeft, yTop, bubbleW, bubbleH, radius, 0xFF5294BF);
+            if (rl != null) {
+                g.blit(rl, bubbleLeft + pad, yTop + pad, EMOTE_DRAW_SIZE, EMOTE_DRAW_SIZE,
+                        0.0f, 0.0f, sw, sh, sw, sh);
+            } else {
+                g.fill(bubbleLeft + pad, yTop + pad, bubbleLeft + pad + EMOTE_DRAW_SIZE,
+                        yTop + pad + EMOTE_DRAW_SIZE, 0xFFB0BEC5);
+            }
+            drawAvatarPlaceholder(g, baseX + phoneW - AVATAR - 2, yTop, true);
+        } else {
+            int bubbleLeft = baseX + AVATAR + MARGIN;
+            UiShapes.fillRoundedRect(g, bubbleLeft, yTop, bubbleW, bubbleH, radius, 0xFF525A6E);
+            if (rl != null) {
+                g.blit(rl, bubbleLeft + pad, yTop + pad, EMOTE_DRAW_SIZE, EMOTE_DRAW_SIZE,
+                        0.0f, 0.0f, sw, sh, sw, sh);
+            } else {
+                g.fill(bubbleLeft + pad, yTop + pad, bubbleLeft + pad + EMOTE_DRAW_SIZE,
+                        yTop + pad + EMOTE_DRAW_SIZE, 0xFFB0BEC5);
+            }
+            if (showAvatar) {
+                drawAvatarPlaceholder(g, baseX + 2, yTop, false);
+            }
+        }
+        if (groupTop) {
+            String timeText = formatGameTime(m.gameTime());
+            if (!timeText.isEmpty()) {
+                float ts = UiFont.sc(0.5f);
+                int centerX = baseX + phoneW / 2;
+                drawScaledText(g, font, timeText,
+                        centerX - font.width(timeText) * ts / 2f, yTop - timeH(), 0xFF9A8A90, ts);
+            }
+        }
+        return bubbleH + (groupTop ? timeH() : 0);
+    }
+
     @Override
     public boolean mouseClicked(double relX, double relY, int button, int action) {
         if (button != GLFW.GLFW_MOUSE_BUTTON_LEFT) return false;
@@ -913,6 +1165,15 @@ public class ChatPage implements IPhonePage {
             double rr = d / 2.0;
             if (dx * dx + dy * dy <= rr * rr) {
                 startVoice(VoiceSource.MOUSE);
+                return true;
+            }
+        }
+
+        // 表情面板（左二 🦊）：点击某张表情 → 发给女仆
+        if (bottomPanelOpen && extPanelIcon == 1) {
+            EmoteEntry hit = hitEmote(relX, relY);
+            if (hit != null) {
+                sendEmote(hit.loc());
                 return true;
             }
         }
@@ -951,6 +1212,18 @@ public class ChatPage implements IPhonePage {
 
     @Override
     public boolean mouseScrolled(double relX, double relY, double scrollDelta) {
+        // 表情面板打开且鼠标在面板内：滚动表情网格，而非消息区
+        if (bottomPanelOpen && extPanelIcon == 1) {
+            int pTop = panelTop(0), pBottom = extBarTop(0);
+            if (relY >= pTop && relY <= pBottom) {
+                int viewH = Math.max(0, pBottom - pTop);
+                int maxScroll = Math.max(0, emoteContentHeight() - viewH);
+                emojiScrollOffset = Math.max(0,
+                        Math.min(emojiScrollOffset + (int)(scrollDelta * SCROLL_SPEED), maxScroll));
+                return true;
+            }
+        }
+
         Font font = Minecraft.getInstance().font;
         int w = phoneW();
         int msgTop = navH();
@@ -972,6 +1245,6 @@ public class ChatPage implements IPhonePage {
         Minecraft.getInstance().setScreen(new PhoneInputScreen(this));
     }
 
-    private record ChatMessage(String text, boolean isPlayer, boolean isError, boolean pending, long gameTime) {
+    private record ChatMessage(String text, boolean isPlayer, boolean isError, boolean pending, long gameTime, String emote) {
     }
 }

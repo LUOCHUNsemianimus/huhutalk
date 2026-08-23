@@ -53,9 +53,14 @@ public class ChatHistoryStorage {
     }
 
     public static void appendMessage(String stableId, String text, boolean isPlayer, boolean isError) {
+        appendMessage(stableId, text, null, isPlayer, isError);
+    }
+
+    /** 带表情的消息（emote 为表情资源路径，null=普通文本）。玩家/女仆表情消息均走这里落盘 */
+    public static void appendMessage(String stableId, String text, String emote, boolean isPlayer, boolean isError) {
         currentHistory()
                 .computeIfAbsent(stableId, k -> new ArrayList<>())
-                .add(new ChatMessageEntry(text, isPlayer, isError, false, currentGameTime()));
+                .add(new ChatMessageEntry(text, isPlayer, isError, false, currentGameTime(), emote));
         saveToDisk(currentWorldKey); // 写入即落盘
     }
 
@@ -111,7 +116,7 @@ public class ChatHistoryStorage {
         for (int i = list.size() - 1; i >= 0; i--) {
             ChatMessageEntry e = list.get(i);
             if (e.isPlayer()) {
-                list.set(i, new ChatMessageEntry(e.text(), true, e.isError(), true, e.gameTime()));
+                list.set(i, new ChatMessageEntry(e.text(), true, e.isError(), true, e.gameTime(), e.emote()));
                 saveToDisk(currentWorldKey);
                 return true;
             }
@@ -129,7 +134,7 @@ public class ChatHistoryStorage {
         for (int i = 0; i < list.size(); i++) {
             ChatMessageEntry e = list.get(i);
             if (e.pending()) {
-                list.set(i, new ChatMessageEntry(e.text(), e.isPlayer(), e.isError(), false, e.gameTime()));
+                list.set(i, new ChatMessageEntry(e.text(), e.isPlayer(), e.isError(), false, e.gameTime(), e.emote()));
                 changed = true;
             }
         }
@@ -241,6 +246,6 @@ public class ChatHistoryStorage {
         }
     }
 
-    public record ChatMessageEntry(String text, boolean isPlayer, boolean isError, boolean pending, long gameTime) {
+    public record ChatMessageEntry(String text, boolean isPlayer, boolean isError, boolean pending, long gameTime, String emote) {
     }
 }
