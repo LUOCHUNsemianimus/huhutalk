@@ -367,7 +367,7 @@ public class MaidInfoPage implements IPhonePage {
     private void renderManageGroup(GuiGraphics g, Font font, Layout L, int baseX, int baseY) {
         int rectX = baseX + UiFont.sh(10);
         int rectW = PhoneOverlay.getPhoneWidth() - UiFont.sh(20);
-        drawScaledText(g, font, "管理", baseX + UiFont.sh(12), ly(L, baseY, L.manageTitleY), GROUP_TITLE_COLOR, UiFont.sc(1.0f));
+        drawScaledText(g, font, "管理", baseX + UiFont.sh(12), ly(L, baseY, L.manageTitleY) - UiFont.sh(4), GROUP_TITLE_COLOR, UiFont.sc(1.0f));
         // 大矩形（含 4 行，灰色横线分隔）
         int rectY = ly(L, baseY, L.manageRectY);
         UiShapes.fillRoundedRect(g, rectX, rectY, rectW, L.manageRectH, CARD_R, CARD_BG);
@@ -386,7 +386,7 @@ public class MaidInfoPage implements IPhonePage {
     private void renderSosGroup(GuiGraphics g, Font font, Layout L, int baseX, int baseY) {
         int rectX = baseX + UiFont.sh(10);
         int rectW = PhoneOverlay.getPhoneWidth() - UiFont.sh(20);
-        drawScaledText(g, font, "SOS 呼叫", baseX + UiFont.sh(12), ly(L, baseY, L.sosTitleY), GROUP_TITLE_COLOR, UiFont.sc(1.0f));
+        drawScaledText(g, font, "SOS 呼叫", baseX + UiFont.sh(12), ly(L, baseY, L.sosTitleY) - UiFont.sh(4), GROUP_TITLE_COLOR, UiFont.sc(1.0f));
         // 大矩形（含 SOS呼叫 / 工作模式 2 行 + 展开时的工作模式列表）
         int rectY = ly(L, baseY, L.sosRectY);
         UiShapes.fillRoundedRect(g, rectX, rectY, rectW, L.sosRectH, CARD_R, CARD_BG);
@@ -438,7 +438,7 @@ public class MaidInfoPage implements IPhonePage {
     private void renderGroupSection(GuiGraphics g, Font font, Layout L, int baseX, int baseY) {
         int rectX = baseX + UiFont.sh(10);
         int rectW = PhoneOverlay.getPhoneWidth() - UiFont.sh(20);
-        drawScaledText(g, font, "分组设置", baseX + UiFont.sh(12), ly(L, baseY, L.groupTitleY), GROUP_TITLE_COLOR, UiFont.sc(1.0f));
+        drawScaledText(g, font, "分组设置", baseX + UiFont.sh(12), ly(L, baseY, L.groupTitleY) - UiFont.sh(4), GROUP_TITLE_COLOR, UiFont.sc(1.0f));
         // 大矩形（含当前分组折叠栏 + 展开时的选项/新建分组）
         int rectY = ly(L, baseY, L.groupRectY);
         UiShapes.fillRoundedRect(g, rectX, rectY, rectW, L.groupRectH, CARD_R, CARD_BG);

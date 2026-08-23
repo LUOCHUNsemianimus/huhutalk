@@ -251,6 +251,10 @@ public class SettingsPage implements IPhonePage {
         String caseText = HuhuTalkClientSettings.getPhoneCaseBlock();
         String caseDisplay = caseText.isBlank() ? "手机壳：默认"
                 : "手机壳：" + caseText.substring(caseText.indexOf(':') + 1);
+        // 物品 ID 可能很长：在留出右侧「选壳」按钮的前提下截断，过长加"…"
+        int selectBtnW = btnW(font, "选壳");
+        int caseLabelMaxW = rectW - selectBtnW - UiFont.sh(28);
+        caseDisplay = truncateUi(font, caseDisplay, caseLabelMaxW);
         drawButtonRow(g, font, rectX, rectW, y1, caseDisplay, "选壳");
     }
 
@@ -344,7 +348,7 @@ public class SettingsPage implements IPhonePage {
         // 横向滑块轨道
         int trackLeft = rectX + UiFont.sh(12);
         int trackRight = rectX + rectW - UiFont.sh(12);
-        int trackY = y + rowH() - UiFont.sh(12);
+        int trackY = y + rowH() - UiFont.sh(8);
         UiShapes.fillRoundedRect(g, trackLeft, trackY, trackRight - trackLeft, 3, 1, 0xFFAAAAAA);
         int handleX = trackLeft + (int) ((size - 0.5f) / 0.5f * (trackRight - trackLeft));
         UiShapes.fillRoundedRect(g, handleX - 5, trackY - 3, 10, 9, 4, 0xFFDE7E7E);
@@ -358,6 +362,16 @@ public class SettingsPage implements IPhonePage {
     /** 按钮宽度：正好包裹文字（文字缩放后宽度 + 两侧留白） */
     private static int btnW(Font font, String text) {
         return (int) (font.width(text) * UiFont.sc(BTN_TEXT_SCALE)) + UiFont.sh(10);
+    }
+
+    /** 把以默认 1.0 倍绘制、宽度受限于 maxW（物理像素）的文字截断，过长补"…" */
+    private static String truncateUi(Font font, String text, int maxW) {
+        if (text == null || text.isEmpty()) return text;
+        float scale = UiFont.sc(1.0f);
+        if (maxW <= 0 || font.width(text) * scale <= maxW) return text;
+        int room = Math.max(1, (int) ((maxW - font.width("…") * scale) / scale));
+        String cut = font.plainSubstrByWidth(text, room);
+        return cut.isEmpty() ? "" : cut + "…";
     }
 
     /** 竖排箭头（每个 0.5 倍字体大小，只保留箭头本身、去掉背景包裹，取色 #de7e7e） */
