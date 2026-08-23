@@ -156,6 +156,9 @@ public class ChatPage implements IPhonePage {
     public boolean isWaitingResponse() { return waitingResponse; }
     public void setWaitingResponse(boolean waiting) { this.waitingResponse = waiting; }
 
+    /** 是否处于相机模式（用于让手机体在相机模式下透明化，透出游戏画面） */
+    public boolean isCameraMode() { return cameraActive; }
+
     /** 把最后一条"玩家发送"的消息标红"!"（消息入离线队列、尚未送达）。本地+落盘 */
     public void markLastSentPending() {
         for (int i = messages.size() - 1; i >= 0; i--) {
@@ -1006,12 +1009,21 @@ public class ChatPage implements IPhonePage {
         cameraShot = null;
     }
 
-    /** 渲染相机界面：取景框占位 + 拍照胶囊 + 返回 +（拍后）保存/确认/缩略图 */
+    /** 相机取景框底（内容相对坐标，上方为取景区域，下方 44px 为控件条） */
+    private int cameraViewBottom() {
+        return phoneH() - UiFont.sh(44);
+    }
+
+    /** 相机控件条按钮的顶 Y（内容相对坐标，垂直居中于 44px 控件条） */
+    private int cameraButtonY() {
+        int btnH = UiFont.sh(28);
+        return cameraViewBottom() + (UiFont.sh(44) - btnH) / 2;
+    }
+
+    /** 渲染相机界面：透明取景框（游戏透出）+ 四角边框 + 十字准星 + 底部控件 */
     private void renderCameraMode(GuiGraphics g, Font font, int baseX, int baseY, int w) {
         int h = phoneH();
-        // 相机底（深色）
-        g.fill(baseX, baseY, baseX + w, baseY + h, 0xFF1A1A1A);
-        // 顶部导航：返回 ←
+        // 顶部导航（不透明，保证返回/标题可读）
         g.fill(baseX, baseY, baseX + w, baseY + navH(), 0xFFDE7E7E);
         drawScaledText(g, font, "←", baseX + UiFont.sh(6), baseY + navH() / 2 - lh() / 2,
                 0xFFFFFFFF, UiFont.sc(1.0f));
@@ -1019,42 +1031,53 @@ public class ChatPage implements IPhonePage {
                 0xFFFFFFFF, UiFont.sc(1.0f));
 
         int viewTop = baseY + navH() + UiFont.sh(8);
-        int viewH = h - navH() - UiFont.sh(16);
-        int viewBottom = viewTop + viewH;
-        // 取景框占位：半透明深色框 + 十字准星
-        g.fill(baseX + UiFont.sh(8), viewTop, baseX + w - UiFont.sh(8), viewBottom, 0xFF333333);
+        int viewBottom = baseY + cameraViewBottom();
         int cx = baseX + w / 2;
         int cy = (viewTop + viewBottom) / 2;
-        g.fill(cx - 10, cy - 1, cx + 10, cy + 1, 0x66FFFFFF);
-        g.fill(cx - 1, cy - 10, cx + 1, cy + 10, 0x66FFFFFF);
-        drawScaledText(g, font, "取景框（demo）", cx - font.width("取景框（demo）") * UiFont.sc(1.0f) / 2,
-                cy - lh() / 2, 0x66FFFFFF, UiFont.sc(1.0f));
+
+        // 取景框：透明背景（游戏透出），仅画四角边框 + 十字准星
+        int fr = UiFont.sh(2);      // 框线宽
+        int corner = UiFont.sh(16); // 四角边长
+        int l = baseX + UiFont.sh(8), r = baseX + w - UiFont.sh(8);
+        g.fill(l, viewTop, l + corner, viewTop + fr, 0xCCFFFFFF);
+        g.fill(r - corner, viewTop, r, viewTop + fr, 0xCCFFFFFF);
+        g.fill(l, viewBottom - fr, l + corner, viewBottom, 0xCCFFFFFF);
+        g.fill(r - corner, viewBottom - fr, r, viewBottom, 0xCCFFFFFF);
+        g.fill(l, viewTop, l + fr, viewTop + corner, 0xCCFFFFFF);
+        g.fill(r - fr, viewTop, r, viewTop + corner, 0xCCFFFFFF);
+        g.fill(l, viewBottom - corner, l + fr, viewBottom, 0xCCFFFFFF);
+        g.fill(r - fr, viewBottom - corner, r, viewBottom, 0xCCFFFFFF);
+        g.fill(cx - 10, cy - 1, cx + 10, cy + 1, 0xAAFFFFFF);
+        g.fill(cx - 1, cy - 10, cx + 1, cy + 10, 0xAAFFFFFF);
+
+        // 底部控件条：半透明黑，衬托按钮可读
+        g.fill(baseX, viewBottom, baseX + w, baseY + h, 0x88000000);
+
+        int btnW = UiFont.sh(88);
+        int btnH = UiFont.sh(28);
+        int btnY = baseY + cameraButtonY();
+        // 拍照 / 重拍 胶囊（居中）
+        UiShapes.fillRoundedRect(g, cx - btnW / 2, btnY, btnW, btnH, btnH / 2, 0xFFFFFFFF);
+        String shotLabel = cameraShot != null ? "重拍" : "拍照";
+        drawScaledText(g, font, shotLabel, cx - font.width(shotLabel) * UiFont.sc(1.0f) / 2,
+                btnY + (btnH - lh()) / 2, 0xFFDE7E7E, UiFont.sc(1.0f));
 
         if (cameraShot != null) {
             // 右上角：保存
-            drawCameraButton(g, font, baseX + w - UiFont.sh(54), baseY + navH() + UiFont.sh(6),
+            drawCameraButton(g, font, baseX + w - UiFont.sh(54), baseY + navH() + UiFont.sh(8),
                     UiFont.sh(44), UiFont.sh(22), "保存");
             // 右下角：确认
-            drawCameraButton(g, font, baseX + w - UiFont.sh(54), viewBottom - UiFont.sh(36),
-                    UiFont.sh(44), UiFont.sh(22), "确认");
+            drawCameraButton(g, font, baseX + w - UiFont.sh(54), btnY, UiFont.sh(44), btnH, "确认");
             // 左下角：已拍缩略图
             ResourceLocation tex = PhotoLibrary.getOrLoadTexture("__camshot__");
             int t = UiFont.sh(36);
-            UiShapes.fillRoundedRect(g, baseX + UiFont.sh(12), viewBottom - UiFont.sh(48), t, t, UiFont.sh(4), 0xFFFFFFFF);
+            int ty = btnY + (btnH - t) / 2;
+            UiShapes.fillRoundedRect(g, baseX + UiFont.sh(12), ty, t, t, UiFont.sh(4), 0xFFFFFFFF);
             if (tex != null) {
                 int[] d = PhotoLibrary.getTextureSize("__camshot__");
-                g.blit(tex, baseX + UiFont.sh(12), viewBottom - UiFont.sh(48), t, t,
-                        0.0f, 0.0f, d[0], d[1], d[0], d[1]);
+                g.blit(tex, baseX + UiFont.sh(12), ty, t, t, 0.0f, 0.0f, d[0], d[1], d[0], d[1]);
             }
         }
-
-        // 中下部：拍照胶囊
-        int btnW = UiFont.sh(88);
-        int btnH = UiFont.sh(30);
-        UiShapes.fillRoundedRect(g, cx - btnW / 2, viewBottom + UiFont.sh(8), btnW, btnH, btnH / 2, 0xFFFFFFFF);
-        drawScaledText(g, font, cameraShot != null ? "重拍" : "拍照",
-                cx - font.width(cameraShot != null ? "重拍" : "拍照") * UiFont.sc(1.0f) / 2,
-                viewBottom + UiFont.sh(8) + (btnH - lh()) / 2, 0xFFDE7E7E, UiFont.sc(1.0f));
     }
 
     /** 绘制相机界面里的小胶囊按钮 */
@@ -1066,33 +1089,30 @@ public class ChatPage implements IPhonePage {
 
     /** 相机模式的鼠标点击处理 */
     private boolean handleCameraClick(double relX, double relY, int w) {
-        int h = phoneH();
         // 左上角返回
         if (relX >= 0 && relX <= 60 && relY >= 0 && relY <= navH()) {
             exitCameraMode();
             return true;
         }
-        int viewTop = navH() + UiFont.sh(8);
-        int viewH = h - navH() - UiFont.sh(16);
-        int viewBottom = viewTop + viewH;
         int cx = w / 2;
+        int btnW = UiFont.sh(88);
+        int btnH = UiFont.sh(28);
+        int btnY = cameraButtonY();
 
         if (cameraShot != null) {
             // 右上角保存
-            if (hit(relX, relY, w - UiFont.sh(54), navH() + UiFont.sh(6), UiFont.sh(44), UiFont.sh(22))) {
+            if (hit(relX, relY, w - UiFont.sh(54), navH() + UiFont.sh(8), UiFont.sh(44), UiFont.sh(22))) {
                 savePhoto();
                 return true;
             }
             // 右下角确认
-            if (hit(relX, relY, w - UiFont.sh(54), viewBottom - UiFont.sh(36), UiFont.sh(44), UiFont.sh(22))) {
+            if (hit(relX, relY, w - UiFont.sh(54), btnY, UiFont.sh(44), btnH)) {
                 confirmPhoto();
                 return true;
             }
         }
         // 中下部拍照/重拍胶囊
-        int btnW = UiFont.sh(88);
-        int btnH = UiFont.sh(30);
-        if (hit(relX, relY, cx - btnW / 2, viewBottom + UiFont.sh(8), btnW, btnH)) {
+        if (hit(relX, relY, cx - btnW / 2, btnY, btnW, btnH)) {
             takePhoto();
             return true;
         }
@@ -1593,15 +1613,18 @@ public class ChatPage implements IPhonePage {
             }
         }
 
-        // 图片面板（🖼️）：点圆标选中/取消；否则开始长按拖动翻页
+        // 图片面板（🖼️）：仅在面板区域内处理圆标/拖动；面板外的点击（如底栏）放行，避免吞掉其它按钮
         if (bottomPanelOpen && extPanelIcon == 2) {
-            if (hitGalleryDot(relX, relY)) {
+            int gTop = panelTop(0), gBottom = extBarTop(0);
+            if (relY >= gTop && relY < gBottom) {
+                if (hitGalleryDot(relX, relY)) {
+                    return true;
+                }
+                galleryDragging = true;
+                galleryDragStartX = relX;
+                galleryDragStartOffset = galleryScrollOffset;
                 return true;
             }
-            galleryDragging = true;
-            galleryDragStartX = relX;
-            galleryDragStartOffset = galleryScrollOffset;
-            return true;
         }
 
         // 拓展功能栏（贴屏幕底部）：点击任意按钮切换上拉面板 / 进入相机

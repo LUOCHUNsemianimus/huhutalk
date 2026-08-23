@@ -305,14 +305,19 @@ public class PhoneOverlay {
         // 手机壳（纯视觉，包住整个手机）
         PhoneCaseRenderer.renderCase(graphics, phoneX, phoneY, phoneWidth, totalHeight);
 
-        // 手机背景（圆角：上圆角=状态栏高，下圆角=水印栏高）
-        fillRoundedRect(graphics, phoneX, phoneY, phoneWidth, totalHeight, UiFont.sh(STATUSBAR_H), UiFont.sh(WATERMARK_H), 0xEE111111);
+        // 当前页面
+        IPhonePage page = getCurrentPage();
+        // 相机模式（聊天页📷）：手机体透明化，让游戏画面从取景框透出来
+        boolean cameraTransparent = page instanceof ChatPage cp && cp.isCameraMode();
+
+        // 手机背景（圆角：上圆角=状态栏高，下圆角=水印栏高）。相机模式下透明，露出游戏画面
+        fillRoundedRect(graphics, phoneX, phoneY, phoneWidth, totalHeight, UiFont.sh(STATUSBAR_H), UiFont.sh(WATERMARK_H),
+                cameraTransparent ? 0x00111111 : 0xEE111111);
 
         // 统一状态栏（圆角顶）
         renderStatusBar(graphics, phoneX, phoneY, phoneWidth);
 
         // 当前页面内容区：从状态栏下方开始，到水印栏上方结束
-        IPhonePage page = getCurrentPage();
         if (page != null) {
             page.render(graphics, phoneX, phoneY + UiFont.sh(STATUSBAR_H), partialTick);
         }
