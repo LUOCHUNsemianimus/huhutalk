@@ -9,6 +9,7 @@ import com.huhutalk.network.C2SRequestMaidStatusPacket;
 import com.huhutalk.phone.IPhonePage;
 import com.huhutalk.phone.PhoneInputScreen;
 import com.huhutalk.phone.PhoneOverlay;
+import com.huhutalk.phone.UiFont;
 import com.huhutalk.phone.UiShapes;
 import com.huhutalk.util.MessageSplitter;
 import net.minecraft.client.Minecraft;
@@ -242,7 +243,13 @@ public class ChatPage implements IPhonePage {
 
     private int phoneW() { return PhoneOverlay.getPhoneWidth(); }
     private int phoneH() { return PhoneOverlay.getPhoneHeight(); }
-    private int navH() { return Minecraft.getInstance().font.lineHeight + 8; }
+
+    /** 全局字体倍率 */
+    private static float uiScale() { return UiFont.uiScale(); }
+    /** 缩放后默认字体的行高 */
+    private static int lh() { return Math.max(1, (int) (Minecraft.getInstance().font.lineHeight * UiFont.sc(1.0f))); }
+    /** 顶部导航栏高度：随字体倍率缩放 */
+    private int navH() { return lh() + UiFont.sh(8); }
 
     // ==================== 输入区 / 拓展栏布局（动态高度） ====================
     /** 输入框左边距 = 发送按钮右边距 = 输入框与发送按钮的间距（三者相等） */
@@ -254,7 +261,7 @@ public class ChatPage implements IPhonePage {
 
     /** 单行输入框高度（= 拓展栏高度 = 发送按钮高度） */
     private int singleLineH() {
-        return Minecraft.getInstance().font.lineHeight + PAD_Y * 2;
+        return lh() + UiFont.sh(PAD_Y) * 2;
     }
 
     /** 发送按钮宽度：约占屏幕 1/4 */
@@ -268,9 +275,9 @@ public class ChatPage implements IPhonePage {
     /** 输入框当前高度：按内容自动增高，最多 MAX_VISIBLE_INPUT_LINES 行，超出后内部滚动 */
     private int inputHeight() {
         Font font = Minecraft.getInstance().font;
-        int lines = wrapToLines(font, currentInput, inputTextWidth()).size();
+        int lines = wrapToLines(font, currentInput, (int) (inputTextWidth() / uiScale())).size();
         lines = Math.max(1, Math.min(lines, MAX_VISIBLE_INPUT_LINES));
-        return lines * (font.lineHeight + 1) + PAD_Y * 2;
+        return lines * (lh() + 1) + UiFont.sh(PAD_Y) * 2;
     }
 
     /** 拓展功能栏高度（与单行输入框一致），贴屏幕底部 */
@@ -301,7 +308,7 @@ public class ChatPage implements IPhonePage {
 
     private void ensureCursorVisible() {
         Font font = Minecraft.getInstance().font;
-        int inputTextW = inputTextWidth();
+        int inputTextW = (int) (inputTextWidth() / uiScale());
         List<String> lines = wrapToLines(font, currentInput, inputTextW);
         if (lines.isEmpty()) {
             inputScrollOffset = 0;
@@ -322,7 +329,7 @@ public class ChatPage implements IPhonePage {
 
     public void scrollInput(int delta) {
         Font font = Minecraft.getInstance().font;
-        int inputTextW = inputTextWidth();
+        int inputTextW = (int) (inputTextWidth() / uiScale());
         List<String> lines = wrapToLines(font, currentInput, inputTextW);
         int maxStart = Math.max(0, lines.size() - MAX_VISIBLE_INPUT_LINES);
         inputScrollOffset = Math.max(0, Math.min(maxStart, inputScrollOffset - delta));
@@ -349,9 +356,9 @@ public class ChatPage implements IPhonePage {
         double relY = screenY - PhoneOverlay.getPhoneY() - PhoneOverlay.getStatusBarHeight();
         Font font = Minecraft.getInstance().font;
         int textX = inputLeft(0) + PAD_X;
-        int lineH = font.lineHeight + 1;
+        int lineH = lh() + 1;
         int iTop = inputTop(0);
-        int inputTextW = inputTextWidth();
+        int inputTextW = (int) (inputTextWidth() / uiScale());
 
         List<String> lines = wrapToLines(font, currentInput, inputTextW);
         if (lines.isEmpty()) return 0;
@@ -395,20 +402,28 @@ public class ChatPage implements IPhonePage {
         g.fill(baseX, baseY, baseX + w, baseY + navH(), 0xFFDE7E7E);
         int navCenterY = baseY + navH() / 2;
         // 返回按钮：仅保留白色箭头图标，删除"返回"文字
-        g.drawString(font, "←", baseX + 6, navCenterY - font.lineHeight / 2, 0xFFFFFFFF);
-        // 返回按钮右侧靠左放置女仆名称 + 状态（保留字号比例，垂直居中）
+        drawScaledText(g, font, "←", baseX + UiFont.sh(6), navCenterY - lh() / 2, 0xFFFFFFFF, UiFont.sc(1.0f));
+        // 返回按钮右侧靠左放置女仆名称 + 状态（保留字号比例，垂直居中；超宽截断避免压住设置钮）
         String titleText = waitingResponse ? "对方正在输入…" : maidName;
-        int nameX = baseX + 22;
-        int nameY = navCenterY - font.lineHeight / 2;
-        g.drawString(font, titleText, nameX, nameY, 0xFFFFFFFF);
+        int nameX = baseX + UiFont.sh(22);
+        int gearX = baseX + w - UiFont.sh(16);
+        int titleMaxW = gearX - nameX - UiFont.sh(8);
+        String displayTitle = titleText;
+        if (font.width(titleText) * UiFont.uiScale() > titleMaxW) {
+            int room = Math.max(1, (int) ((titleMaxW - font.width("…") * UiFont.uiScale()) / UiFont.uiScale()));
+            String cut = font.plainSubstrByWidth(titleText, room);
+            displayTitle = cut.isEmpty() ? "" : cut + "…";
+        }
+        drawScaledText(g, font, displayTitle, nameX, navCenterY - lh() / 2, 0xFFFFFFFF, UiFont.sc(1.0f));
         // 状态小字（半字号，紧跟名称之后，保留原比例；等待回复时不显示）
         String status = MaidStatusCache.get(stableId);
         if (!waitingResponse && !status.isEmpty()) {
-            drawScaledText(g, font, status, nameX + font.width(titleText) + 8,
-                    navCenterY - 3, 0xFF8A5B5B, STATUS_SCALE);
+            drawScaledText(g, font, status,
+                    nameX + font.width(displayTitle) * UiFont.sc(1.0f) + UiFont.sh(8),
+                    navCenterY - 3, 0xFF8A5B5B, UiFont.sc(STATUS_SCALE));
         }
         // 右上角设置按钮（保留原有功能）
-        g.drawString(font, "⚙", baseX + w - 16, navCenterY - font.lineHeight / 2, 0xFFFFFFFF);
+        drawScaledText(g, font, "⚙", gearX, navCenterY - lh() / 2, 0xFFFFFFFF, UiFont.sc(1.0f));
 
         // ==================== 消息区（面板打开时被上拉面板压缩） ====================
         int msgTop = baseY + navH();
@@ -444,8 +459,10 @@ public class ChatPage implements IPhonePage {
             // 与输入框之间用淡灰色细线分隔
             g.fill(baseX, pBottom - 1, baseX + w, pBottom, 0xFFD9D2D6);
             int panelMidY = (pTop + pBottom) / 2;
-            g.drawCenteredString(font, "🚧 面板开发中", baseX + w / 2,
-                    panelMidY - font.lineHeight / 2, 0xFF8A6A6A);
+            String panelText = "🚧 面板开发中";
+            drawScaledText(g, font, panelText,
+                    baseX + (w - font.width(panelText) * UiFont.sc(1.0f)) / 2,
+                    panelMidY - lh() / 2, 0xFF8A6A6A, UiFont.sc(1.0f));
         }
 
         // ==================== 输入框（胶囊形，随内容增高，最多 3 行） ====================
@@ -455,23 +472,23 @@ public class ChatPage implements IPhonePage {
         UiShapes.fillRoundedRect(g, inputLeft(baseX), iTop, iW, iH, iH / 2, 0xFFFFF5F8);
 
         int textX = inputLeft(baseX) + PAD_X;
-        int lineH = font.lineHeight + 1;
+        int lineH = lh() + 1;
 
         if (currentInput.isEmpty()) {
             // 占位符（垂直居中）：灰色，75% 不透明度，无阴影
-            int phY = iTop + (iH - font.lineHeight) / 2;
-            g.drawString(font, "输入消息...", textX, phY, 0xBF9E9E9E, false);
+            int phY = iTop + (iH - lh()) / 2;
+            drawScaledText(g, font, "输入消息...", textX, phY, 0xBF9E9E9E, UiFont.sc(1.0f));
             if (inputActive && isCursorVisible()) {
-                int cx = textX + font.width("输入消息...");
-                g.fill(cx, phY - 1, cx + 1, phY + font.lineHeight, 0xFF8A6A6A);
+                int cx = textX + (int) (font.width("输入消息...") * UiFont.sc(1.0f));
+                g.fill(cx, phY - 1, cx + 1, phY + lh(), 0xFF8A6A6A);
             }
         } else {
-            List<String> lines = wrapToLines(font, currentInput, inputTextWidth());
+            List<String> lines = wrapToLines(font, currentInput, (int) (inputTextWidth() / uiScale()));
             int startIdx = getVisibleStartIdx(lines.size());
-            int drawY = iTop + PAD_Y;
+            int drawY = iTop + UiFont.sh(PAD_Y);
 
             for (int i = startIdx; i < lines.size() && i < startIdx + MAX_VISIBLE_INPUT_LINES; i++) {
-                g.drawString(font, lines.get(i), textX, drawY, 0xFF4A3F44, false);
+                drawScaledText(g, font, lines.get(i), textX, drawY, 0xFF4A3F44, UiFont.sc(1.0f));
                 drawY += lineH;
             }
 
@@ -482,10 +499,10 @@ public class ChatPage implements IPhonePage {
                 if (globalLine >= startIdx && globalLine < startIdx + MAX_VISIBLE_INPUT_LINES) {
                     String targetLine = lines.get(globalLine);
                     int safeCol = Math.min(col, targetLine.length());
-                    int cursorDrawX = textX + font.width(targetLine.substring(0, safeCol));
-                    int cursorDrawY = iTop + PAD_Y + (globalLine - startIdx) * lineH;
+                    int cursorDrawX = textX + (int) (font.width(targetLine.substring(0, safeCol)) * UiFont.sc(1.0f));
+                    int cursorDrawY = iTop + UiFont.sh(PAD_Y) + (globalLine - startIdx) * lineH;
                     g.fill(cursorDrawX, cursorDrawY - 1, cursorDrawX + 1,
-                            cursorDrawY + font.lineHeight, 0xFF8A6A6A);
+                            cursorDrawY + lh(), 0xFF8A6A6A);
                 }
             }
         }
@@ -497,32 +514,33 @@ public class ChatPage implements IPhonePage {
         int sY = sendY(baseY);
         UiShapes.fillRoundedRect(g, sX, sY, sW, sH, sH / 2, 0xFFB1CEDE);
         String sendLabel = "发送";
-        g.drawString(font, sendLabel, sX + (sW - font.width(sendLabel)) / 2,
-                sY + (sH - font.lineHeight) / 2, 0xFFFFFFFF, false);
+        drawScaledText(g, font, sendLabel,
+                sX + (sW - font.width(sendLabel) * UiFont.sc(1.0f)) / 2,
+                sY + (sH - lh()) / 2, 0xFFFFFFFF, UiFont.sc(1.0f));
 
         // ==================== 拓展功能栏（高度=单行输入框，贴屏幕底部） ====================
         int extTop = extBarTop(baseY);
         int extCenterY = extTop + singleLineH() / 2;
         int iconCount = BOTTOM_ICONS.length;
         int iconSlotW = w / iconCount;
-        int btnSize = singleLineH() - 6;
+        int btnSize = singleLineH() - UiFont.sh(6);
         int btnR = btnSize / 2;
         for (int i = 0; i < iconCount; i++) {
             int cx = baseX + i * iconSlotW + iconSlotW / 2;
             UiShapes.fillRoundedRect(g, cx - btnSize / 2, extCenterY - btnSize / 2, btnSize, btnSize, btnR, 0xFFFFF5F8);
             String icon = BOTTOM_ICONS[i];
             // 去掉默认字体阴影，避免 emoji 图标发糊
-            g.drawString(font, icon, cx - font.width(icon) / 2,
-                    extCenterY - font.lineHeight / 2 + 1, 0xFF6A5A5A, false);
+            drawScaledText(g, font, icon, cx - font.width(icon) * UiFont.sc(1.0f) / 2,
+                    extCenterY - lh() / 2 + 1, 0xFF6A5A5A, UiFont.sc(1.0f));
         }
     }
 
     /** 计算某条消息气泡的高度（与 drawBubble 的换行/行高逻辑一致），用于滚动钳制 */
     private int bubbleHeight(Font font, ChatMessage m, int phoneW) {
-        int maxTextW = phoneW - AVATAR * 2 - MARGIN * 4;
+        int maxTextW = (int) ((phoneW - AVATAR * 2 - MARGIN * 4) / uiScale());
         List<FormattedCharSequence> lines = font.split(Component.literal(m.text()), maxTextW);
-        int lineH = font.lineHeight + 1;
-        return lines.size() * lineH + 4;
+        int lineH = lh() + 1;
+        return lines.size() * lineH + UiFont.sh(4);
     }
 
     private int drawBubble(GuiGraphics g, Font font, int baseX, int yBottom, int phoneW, ChatMessage m) {
@@ -534,16 +552,18 @@ public class ChatPage implements IPhonePage {
         int bgColor = isError ? scheme.errorBubble()
                 : (isPlayer ? 0xFF5294BF : 0xFF525A6E);
 
-        int maxTextW = phoneW - AVATAR * 2 - MARGIN * 4;
+        // 换行宽度按缩放后折算，保证放大字体时文字仍不超出气泡
+        int maxTextW = (int) ((phoneW - AVATAR * 2 - MARGIN * 4) / uiScale());
         List<FormattedCharSequence> lines = font.split(Component.literal(m.text()), maxTextW);
 
         int longest = 0;
         for (FormattedCharSequence line : lines) {
             longest = Math.max(longest, font.width(line));
         }
-        int bubbleW = Math.min(longest + 8, phoneW - AVATAR * 2 - MARGIN * 2);
-        int lineH = font.lineHeight + 1;
-        int bubbleH = lines.size() * lineH + 4;
+        int bubbleW = Math.min((int) (longest * uiScale()) + UiFont.sh(8),
+                phoneW - AVATAR * 2 - MARGIN * 2);
+        int lineH = lh() + 1;
+        int bubbleH = lines.size() * lineH + UiFont.sh(4);
         int yTop = yBottom - bubbleH;
         // 圆角方框：圆角半径 = 1/4 方框高
         int radius = Math.max(2, bubbleH / 4);
@@ -552,22 +572,23 @@ public class ChatPage implements IPhonePage {
             int bubbleRight = baseX + phoneW - AVATAR - MARGIN;
             int bubbleLeft = bubbleRight - bubbleW;
             UiShapes.fillRoundedRect(g, bubbleLeft, yTop, bubbleW, bubbleH, radius, bgColor);
-            int ty = yTop + 2;
+            int ty = yTop + UiFont.sh(2);
             for (FormattedCharSequence line : lines) {
-                g.drawString(font, line, bubbleLeft + 4, ty, textColor);
+                drawScaledText(g, font, line, bubbleLeft + UiFont.sh(4), ty, textColor, UiFont.sc(1.0f));
                 ty += lineH;
             }
             drawAvatarPlaceholder(g, baseX + phoneW - AVATAR - 2, yTop, true);
             // 未送达（入离线队列）的玩家消息标红"!"
             if (m.pending()) {
-                g.drawString(font, "!", bubbleLeft - 8, yTop + 2, 0xFFFF3333);
+                drawScaledText(g, font, "!", bubbleLeft - UiFont.sh(8), yTop + UiFont.sh(2),
+                        0xFFFF3333, UiFont.sc(1.0f));
             }
         } else {
             int bubbleLeft = baseX + AVATAR + MARGIN;
             UiShapes.fillRoundedRect(g, bubbleLeft, yTop, bubbleW, bubbleH, radius, bgColor);
-            int ty = yTop + 2;
+            int ty = yTop + UiFont.sh(2);
             for (FormattedCharSequence line : lines) {
-                g.drawString(font, line, bubbleLeft + 4, ty, textColor);
+                drawScaledText(g, font, line, bubbleLeft + UiFont.sh(4), ty, textColor, UiFont.sc(1.0f));
                 ty += lineH;
             }
             drawAvatarPlaceholder(g, baseX + 2, yTop, false);
@@ -601,6 +622,15 @@ public class ChatPage implements IPhonePage {
 
     /** 以任意倍率绘制文本（无阴影）。坐标按 1/scale 换算，保证缩放后落在原位 */
     private static void drawScaledText(GuiGraphics g, Font font, String text, float x, float y, int color, float scale) {
+        float inv = 1.0f / scale;
+        g.pose().pushPose();
+        g.pose().scale(scale, scale, 1.0f);
+        g.drawString(font, text, x * inv, y * inv, color, false);
+        g.pose().popPose();
+    }
+
+    /** FormattedCharSequence 版（用于气泡内已换行文本） */
+    private static void drawScaledText(GuiGraphics g, Font font, FormattedCharSequence text, float x, float y, int color, float scale) {
         float inv = 1.0f / scale;
         g.pose().pushPose();
         g.pose().scale(scale, scale, 1.0f);
@@ -657,7 +687,7 @@ public class ChatPage implements IPhonePage {
 
     public void moveCursorUp() {
         Font font = Minecraft.getInstance().font;
-        int inputTextW = inputTextWidth();
+        int inputTextW = (int) (inputTextWidth() / uiScale());
         List<String> lines = wrapToLines(font, currentInput, inputTextW);
         int[] lc = cursorIndexToLineCol(lines, cursorIndex);
         if (lc[0] > 0) {
@@ -671,7 +701,7 @@ public class ChatPage implements IPhonePage {
 
     public void moveCursorDown() {
         Font font = Minecraft.getInstance().font;
-        int inputTextW = inputTextWidth();
+        int inputTextW = (int) (inputTextWidth() / uiScale());
         List<String> lines = wrapToLines(font, currentInput, inputTextW);
         int[] lc = cursorIndexToLineCol(lines, cursorIndex);
         if (lc[0] < lines.size() - 1) {

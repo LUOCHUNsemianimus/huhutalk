@@ -11,6 +11,7 @@ import com.huhutalk.network.C2SRequestMaidListPacket;
 import com.huhutalk.network.S2CMaidListPacket;
 import com.huhutalk.phone.IPhonePage;
 import com.huhutalk.phone.PhoneOverlay;
+import com.huhutalk.phone.UiFont;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
@@ -32,16 +33,19 @@ import java.util.Set;
  * 顶栏 #de7e7e，左侧依次：玩家头颅 + 玩家ID + 「联系人」。页面底 #f5ebee。
  * 女仆条目按分组聚合；条目左为头像（女仆照片）、右为两行（名称 1.2x / 在线+工作状态 0.7x）。
  * 分组标题栏背景与页面一致、标题灰字 0.75x、右侧三角箭头；点击标题栏展开/收起（默认全展开）。
+ * <p>
+ * 本页文字与文字容器高度随全局字体倍率 {@link UiFont#uiScale()} 等比缩放，
+ * 纯装饰图形（SOS 角标、头像贴图本身等）保持固定。
  */
 public class ContactListPage implements IPhonePage {
     /** 顶部标题栏高度：随字体缩放 */
     private static int navH() {
-        return Minecraft.getInstance().font.lineHeight + 8;
+        return (int) (Minecraft.getInstance().font.lineHeight * UiFont.sc(1.0f)) + UiFont.sh(8);
     }
 
     /** 滚轮下滑底部余量：略高于底部导航栏，让被导航栏盖住的内容能滑出来 */
     private static int scrollPad() {
-        return PhoneOverlay.getBottomNavHeight() + 30;
+        return PhoneOverlay.getBottomNavHeight() + UiFont.sh(30);
     }
 
     private static final int PAGE_BG = 0xFFF5EBEE;
@@ -59,14 +63,19 @@ public class ContactListPage implements IPhonePage {
     /** 条目状态字号 */
     private static final float STATUS_SCALE = 0.7f;
 
-    /** 头像边长 = 名称(1.2x) + 状态(0.7x) 文字高度之和 */
+    /** 头像边长 = 名称(1.2x) + 状态(0.7x) 文字高度之和（随倍率缩放） */
     private static int avatarSize() {
-        return (int) (Minecraft.getInstance().font.lineHeight * (NAME_SCALE + STATUS_SCALE));
+        return (int) (Minecraft.getInstance().font.lineHeight * (UiFont.sc(NAME_SCALE) + UiFont.sc(STATUS_SCALE)));
     }
 
     /** 女仆条目行高度 = 头像高度 + 上下留白 */
     private static int itemH() {
-        return avatarSize() + 12;
+        return avatarSize() + UiFont.sh(12);
+    }
+
+    /** 缩放后默认字体的行高（用于文字垂直居中） */
+    private static int textH(Font font) {
+        return Math.max(1, (int) (font.lineHeight * UiFont.sc(1.0f)));
     }
 
     private static final int ROW_GROUP = 0;
@@ -128,8 +137,9 @@ public class ContactListPage implements IPhonePage {
 
         if (rows.isEmpty()) {
             String tip = "暂无联系人";
-            g.drawString(font, tip, baseX + (w - font.width(tip)) / 2,
-                    (contentTop + contentBottom) / 2 - font.lineHeight / 2, TEXT_SUB, false);
+            float s = UiFont.sc(1.0f);
+            drawScaledText(g, font, tip, baseX + (w - (int) (font.width(tip) * s)) / 2,
+                    (contentTop + contentBottom) / 2 - textH(font) / 2, TEXT_SUB, s);
             return;
         }
 
@@ -153,8 +163,8 @@ public class ContactListPage implements IPhonePage {
     /** 顶部标题栏：玩家头颅(2D正面) + 玩家ID + 「联系人」，左对齐、固定间距 */
     private void renderHeader(GuiGraphics g, Font font, int baseX, int baseY, int navH) {
         Minecraft mc = Minecraft.getInstance();
-        int headSize = navH - 4;
-        int headX = baseX + 6;
+        int headSize = navH - UiFont.sh(4);
+        int headX = baseX + UiFont.sh(6);
         int headY = baseY + (navH - headSize) / 2;
         String id = "Player";
         if (mc.player != null) {
@@ -168,28 +178,29 @@ public class ContactListPage implements IPhonePage {
         } else {
             g.fill(headX, headY, headX + headSize, headY + headSize, 0xFFFFFFFF);
         }
-        int textY = baseY + (navH - font.lineHeight) / 2 + 1;
-        int x = headX + headSize + 6;
-        g.drawString(font, id, x, textY, 0xFFFFFFFF, false);
-        x += font.width(id) + 6;
-        g.drawString(font, "联系人", x, textY, 0xFFFFFFFF, false);
+        int textY = baseY + (navH - textH(font)) / 2 + 1;
+        int x = headX + headSize + UiFont.sh(6);
+        drawScaledText(g, font, id, x, textY, 0xFFFFFFFF, UiFont.sc(1.0f));
+        x += (int) (font.width(id) * UiFont.sc(1.0f)) + UiFont.sh(6);
+        drawScaledText(g, font, "联系人", x, textY, 0xFFFFFFFF, UiFont.sc(1.0f));
     }
 
     /** 分组标题行：底色与页面一致、灰字 0.75x、右侧展开/收起三角箭头 */
     private void renderGroupHeader(GuiGraphics g, Font font, int baseX, int w, int y, String group, boolean collapsed) {
         // 背景与页面底色一致，无需额外填充
-        int titleH = (int) (font.lineHeight * GROUP_SCALE);
-        drawScaledText(g, font, group, baseX + 10, y + (GROUP_HEADER_H - titleH) / 2, GROUP_TITLE_COLOR, GROUP_SCALE);
+        int headerH = UiFont.sh(GROUP_HEADER_H);
+        int titleH = (int) (font.lineHeight * UiFont.sc(GROUP_SCALE));
+        drawScaledText(g, font, group, baseX + UiFont.sh(10), y + (headerH - titleH) / 2, GROUP_TITLE_COLOR, UiFont.sc(GROUP_SCALE));
         String arrow = collapsed ? "▸" : "▾";
-        g.drawString(font, arrow, baseX + w - font.width(arrow) - 10,
-                y + (GROUP_HEADER_H - font.lineHeight) / 2 + 1, GROUP_TITLE_COLOR, false);
+        drawScaledText(g, font, arrow, baseX + w - (int) (font.width(arrow) * UiFont.sc(1.0f)) - UiFont.sh(10),
+                y + (headerH - textH(font)) / 2 + 1, GROUP_TITLE_COLOR, UiFont.sc(1.0f));
     }
 
     /** 女仆条目：左侧头像(照片)，右侧两行（名称 1.5x / 在线+工作状态 1.0x），整体垂直居中 */
     private void renderMaidItem(GuiGraphics g, Font font, int baseX, int w, int y,
                                 S2CMaidListPacket.MaidDisplayInfo info) {
         int avatarSize = avatarSize();
-        int avatarX = baseX + 10;
+        int avatarX = baseX + UiFont.sh(10);
         int avatarY = y + (itemH() - avatarSize) / 2;
         ResourceLocation tex = MaidAvatarManager.getOrLoadTexture(info.stableId());
         if (tex != null) {
@@ -206,25 +217,25 @@ public class ContactListPage implements IPhonePage {
         }
 
         // 右侧两行（垂直居中）
-        int nameX = avatarX + avatarSize + 8;
+        int nameX = avatarX + avatarSize + UiFont.sh(8);
         int lineH = font.lineHeight;
-        int nameH = (int) (lineH * NAME_SCALE);
-        int statusH = (int) (lineH * STATUS_SCALE);
+        int nameH = (int) (lineH * UiFont.sc(NAME_SCALE));
+        int statusH = (int) (lineH * UiFont.sc(STATUS_SCALE));
         int centerY = y + itemH() / 2;
         int nameY = centerY - (nameH + statusH) / 2;
         int statusY = nameY + nameH + 1;
-        drawScaledText(g, font, info.name(), nameX, nameY, TEXT_COLOR, NAME_SCALE);
+        drawScaledText(g, font, info.name(), nameX, nameY, TEXT_COLOR, UiFont.sc(NAME_SCALE));
 
         // 下行：在线状态 + 工作状态（STATUS_SCALE），过长截断
         String statusText = statusText(info.status());
         String work = MaidStatusCache.get(info.stableId());
         String line2 = work.isEmpty() ? statusText : statusText + " · " + work;
-        int line2MaxW = Math.max(1, w - (nameX - baseX) - 14);
-        line2 = truncateScaled(font, line2, line2MaxW, STATUS_SCALE);
-        drawScaledText(g, font, line2, nameX, statusY, TEXT_SUB, STATUS_SCALE);
+        int line2MaxW = Math.max(1, w - (nameX - baseX) - UiFont.sh(14));
+        line2 = truncateScaled(font, line2, line2MaxW, UiFont.sc(STATUS_SCALE));
+        drawScaledText(g, font, line2, nameX, statusY, TEXT_SUB, UiFont.sc(STATUS_SCALE));
 
         // 底部分隔线
-        g.fill(baseX + 10, y + itemH() - 1, baseX + w - 10, y + itemH(), 0x22000000);
+        g.fill(baseX + UiFont.sh(10), y + itemH() - 1, baseX + w - UiFont.sh(10), y + itemH(), 0x22000000);
     }
 
     /** 将全量女仆列表按分组聚合成行序列；已收起的分组只保留标题行 */
@@ -253,7 +264,7 @@ public class ContactListPage implements IPhonePage {
     }
 
     private static int rowHeight(Row row) {
-        return row.kind() == ROW_GROUP ? GROUP_HEADER_H : itemH();
+        return row.kind() == ROW_GROUP ? UiFont.sh(GROUP_HEADER_H) : itemH();
     }
 
     private static String statusText(MaidStatus status) {

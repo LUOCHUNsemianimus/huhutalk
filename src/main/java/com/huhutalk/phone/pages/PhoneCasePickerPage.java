@@ -6,6 +6,7 @@ import com.huhutalk.client.theme.PhoneCaseRenderer;
 import com.huhutalk.client.theme.ThemeManager;
 import com.huhutalk.phone.IPhonePage;
 import com.huhutalk.phone.PhoneOverlay;
+import com.huhutalk.phone.UiFont;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
@@ -32,7 +33,17 @@ public class PhoneCasePickerPage implements IPhonePage {
 
     /** 顶部标题栏高度：随字体缩放 */
     private static int navH() {
-        return Minecraft.getInstance().font.lineHeight + 8;
+        return (int) (Minecraft.getInstance().font.lineHeight * UiFont.uiScale()) + UiFont.sh(8);
+    }
+
+    /** 缩放后默认字体的行高（用于文字垂直居中） */
+    private static int textH(Font font) {
+        return Math.max(1, (int) (font.lineHeight * UiFont.sc(1.0f)));
+    }
+
+    /** 方块格高度：随字体倍率缩放（格内含短名文字） */
+    private static int itemH() {
+        return UiFont.sh(ITEM_H);
     }
 
     private final List<String> blocks = new ArrayList<>();
@@ -72,27 +83,30 @@ public class PhoneCasePickerPage implements IPhonePage {
         // 页面底色 + 标题栏
         g.fill(baseX, baseY, baseX + w, baseY + h, scheme.pageBg());
         g.fill(baseX, baseY, baseX + w, baseY + navH, scheme.topBarBg());
-        g.drawString(font, "< 返回", baseX + 4, baseY + 3, scheme.topBarText());
-        int titleW = font.width("选择手机壳方块");
-        g.drawString(font, "选择手机壳方块", baseX + (w - titleW) / 2, baseY + 3, scheme.topBarText());
-        g.drawString(font, "当前：" + currentDisplay(), baseX + 4, baseY + navH + 4, 0xFF333333);
+        drawScaledText(g, font, "< 返回", baseX + UiFont.sh(4), baseY + (navH - textH(font)) / 2 + 1,
+                scheme.topBarText(), UiFont.sc(1.0f));
+        float titleW = font.width("选择手机壳方块") * UiFont.sc(1.0f);
+        drawScaledText(g, font, "选择手机壳方块", baseX + (w - titleW) / 2f, baseY + (navH - textH(font)) / 2 + 1,
+                scheme.topBarText(), UiFont.sc(1.0f));
+        drawScaledText(g, font, "当前：" + currentDisplay(), baseX + UiFont.sh(4), baseY + navH + UiFont.sh(4),
+                0xFF333333, UiFont.sc(1.0f));
 
-        int gridTop = baseY + navH + 16;
-        int gridBottom = baseY + h - 4;
+        int gridTop = baseY + navH + UiFont.sh(16);
+        int gridBottom = baseY + h - UiFont.sh(4);
         g.enableScissor(baseX, gridTop, baseX + w, gridBottom);
 
-        int margin = 6;
+        int margin = UiFont.sh(6);
         int cellW = (w - margin * (COLS + 1)) / COLS;
         int startY = gridTop - scrollOffset;
         for (int i = 0; i < blocks.size(); i++) {
             int row = i / COLS;
             int col = i % COLS;
             int x = baseX + margin + col * (cellW + margin);
-            int y = startY + row * (ITEM_H + margin);
+            int y = startY + row * (itemH() + margin);
             String id = blocks.get(i);
             // 当前选中高亮
             boolean selected = id.equals(HuhuTalkClientSettings.getPhoneCaseBlock());
-            g.fill(x, y, x + cellW, y + ITEM_H, selected ? scheme.accentSoftActive() : 0x33FFFFFF);
+            g.fill(x, y, x + cellW, y + itemH(), selected ? scheme.accentSoftActive() : 0x33FFFFFF);
             // 渲染方块物品图标
             net.minecraft.world.item.Item item = BuiltInRegistries.ITEM.get(net.minecraft.resources.ResourceLocation.parse(id));
             if (item != null) {
@@ -100,9 +114,20 @@ public class PhoneCasePickerPage implements IPhonePage {
             }
             // 短名
             String shortName = shortName(id);
-            g.drawString(font, shortName, x + 22, y + (ITEM_H - font.lineHeight) / 2 + 1, 0xFF333333);
+            drawScaledText(g, font, shortName, x + UiFont.sh(22), y + (itemH() - textH(font)) / 2 + 1,
+                    0xFF333333, UiFont.sc(1.0f));
         }
         g.disableScissor();
+    }
+
+    /** 以任意倍率绘制文本（无阴影） */
+    private static void drawScaledText(GuiGraphics g, Font font, String text, float x, float y,
+                                       int color, float scale) {
+        float inv = 1.0f / scale;
+        g.pose().pushPose();
+        g.pose().scale(scale, scale, 1.0f);
+        g.drawString(font, text, x * inv, y * inv, color, false);
+        g.pose().popPose();
     }
 
     private String currentDisplay() {
@@ -122,16 +147,16 @@ public class PhoneCasePickerPage implements IPhonePage {
         int h = PhoneOverlay.getPhoneHeight();
         int navH = navH();
 
-        if (relX >= 0 && relX <= 60 && relY >= 0 && relY <= navH) {
+        if (relX >= 0 && relX <= UiFont.sh(60) && relY >= 0 && relY <= navH) {
             PhoneOverlay.popPage();
             return true;
         }
 
         // 点击方块网格
-        int gridTop = navH + 16;
-        int margin = 6;
+        int gridTop = navH + UiFont.sh(16);
+        int margin = UiFont.sh(6);
         int cellW = (w - margin * (COLS + 1)) / COLS;
-        int row = (int)((relY - gridTop + scrollOffset) / (ITEM_H + margin));
+        int row = (int)((relY - gridTop + scrollOffset) / (itemH() + margin));
         int col = (int)((relX - margin) / (cellW + margin));
         if (relX < margin || relX > w - margin) {
             return false;
@@ -152,13 +177,13 @@ public class PhoneCasePickerPage implements IPhonePage {
     @Override
     public boolean mouseScrolled(double relX, double relY, double scrollDelta) {
         int totalRows = (blocks.size() + COLS - 1) / COLS;
-        int visibleRows = Math.max(1, (int)(PhoneOverlay.getPhoneHeight() / (ITEM_H + margin())));
-        int maxScroll = Math.max(0, totalRows * (ITEM_H + margin()) - visibleRows * (ITEM_H + margin()));
-        scrollOffset = Math.max(0, Math.min(scrollOffset + (int)(scrollDelta * (ITEM_H + margin())), maxScroll));
+        int visibleRows = Math.max(1, (int)(PhoneOverlay.getPhoneHeight() / (itemH() + margin())));
+        int maxScroll = Math.max(0, totalRows * (itemH() + margin()) - visibleRows * (itemH() + margin()));
+        scrollOffset = Math.max(0, Math.min(scrollOffset + (int)(scrollDelta * (itemH() + margin())), maxScroll));
         return true;
     }
 
     private int margin() {
-        return 6;
+        return UiFont.sh(6);
     }
 }

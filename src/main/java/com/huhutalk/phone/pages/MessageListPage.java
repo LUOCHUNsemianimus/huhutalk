@@ -10,6 +10,7 @@ import com.huhutalk.network.C2SRequestMaidListPacket;
 import com.huhutalk.network.S2CMaidListPacket;
 import com.huhutalk.phone.IPhonePage;
 import com.huhutalk.phone.PhoneOverlay;
+import com.huhutalk.phone.UiFont;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
@@ -60,12 +61,12 @@ public class MessageListPage implements IPhonePage {
 
     /** 头像边长 = 上行名称文字高度(1.25x) + 下行预览文字高度(0.75x) */
     private static int avatarSize(Font font) {
-        return (int)(font.lineHeight * (NAME_SCALE + SUMMARY_SCALE));
+        return (int)(font.lineHeight * (UiFont.sc(NAME_SCALE) + UiFont.sc(SUMMARY_SCALE)));
     }
 
     /** 会话条目行高度 = 头像高度 + 上下留白 */
     private static int itemH(Font font) {
-        return avatarSize(font) + 12;
+        return avatarSize(font) + UiFont.sh(12);
     }
 
     public MessageListPage() {
@@ -186,8 +187,10 @@ public class MessageListPage implements IPhonePage {
         if (ids.isEmpty()) {
             // 空列表：内容区居中提示
             String tip = "暂无消息会话";
-            graphics.drawString(font, tip, baseX + (w - font.width(tip)) / 2,
-                    (contentTop + contentBottom) / 2 - font.lineHeight / 2, TEXT_SUB, false);
+            drawScaledText(graphics, font, tip,
+                    baseX + (w - font.width(tip) * UiFont.sc(1.0f)) / 2f,
+                    (contentTop + contentBottom) / 2 - (int)(font.lineHeight * UiFont.sc(1.0f)) / 2,
+                    TEXT_SUB, UiFont.sc(1.0f));
         } else {
             // 裁剪到内容区，防止滚动时溢出到标题栏
             graphics.enableScissor(baseX, contentTop, baseX + w, contentBottom);
@@ -208,8 +211,8 @@ public class MessageListPage implements IPhonePage {
     private void renderPlayerHeader(GuiGraphics g, int baseX, int baseY, int navH) {
         Minecraft mc = Minecraft.getInstance();
         Font font = mc.font;
-        int headSize = navH - 4;
-        int headX = baseX + 6;
+        int headSize = navH - UiFont.sh(4);
+        int headX = baseX + UiFont.sh(6);
         int headY = baseY + (navH - headSize) / 2;
         String id;
         if (mc.player != null) {
@@ -228,7 +231,8 @@ public class MessageListPage implements IPhonePage {
         if (id.isEmpty()) {
             id = "Player";
         }
-        g.drawString(font, id, headX + headSize + 5, baseY + (navH - font.lineHeight) / 2 + 1, 0xFFFFFFFF, false);
+        drawScaledText(g, font, id, headX + headSize + UiFont.sh(5),
+                baseY + (navH - (int)(font.lineHeight * UiFont.sc(1.0f))) / 2 + 1, 0xFFFFFFFF, UiFont.sc(1.0f));
     }
 
     /** 渲染单个会话条目：头像、名字、摘要、状态方块、未读红点、未送达"!"、分隔线 */
@@ -236,7 +240,7 @@ public class MessageListPage implements IPhonePage {
                              int itemY, String stableId, String name) {
         int itemH = itemH(font);
         int avatarSize = avatarSize(font);
-        int avatarX = baseX + 6;
+        int avatarX = baseX + UiFont.sh(6);
         int centerY = itemY + itemH / 2;
         int top = centerY - avatarSize / 2;
 
@@ -256,7 +260,7 @@ public class MessageListPage implements IPhonePage {
         // 未读红色小圆点：圆心在头像右上角
         int unread = NotificationManager.getUnread(stableId);
         if (unread > 0) {
-            float s = 0.3f;
+            float s = UiFont.sc(0.3f);
             fillCircle(g, avatarX + avatarSize, top, dotR, UNREAD_BG);
             String num = unread > 99 ? "99+" : String.valueOf(unread);
             drawScaledText(g, font, num, avatarX + avatarSize - font.width(num) * s / 2f,
@@ -264,29 +268,30 @@ public class MessageListPage implements IPhonePage {
         }
 
         // 右侧文字区（头像右侧，尽量给足宽度；textX 含 baseX 为绝对坐标，宽度用相对值）
-        int textX = avatarX + avatarSize + 6;
-        int textMaxW = Math.max(1, w - avatarSize - 14);
+        int textX = avatarX + avatarSize + UiFont.sh(6);
+        int textMaxW = Math.max(1, w - avatarSize - UiFont.sh(14));
 
         // 上行：联系人 ID（1.25 倍）
-        String truncatedName = truncate(font, name, (int)(textMaxW / NAME_SCALE));
-        drawScaledText(g, font, truncatedName, textX, top, TEXT_COLOR, NAME_SCALE);
+        String truncatedName = truncate(font, name, (int)(textMaxW / UiFont.sc(NAME_SCALE)));
+        drawScaledText(g, font, truncatedName, textX, top, TEXT_COLOR, UiFont.sc(NAME_SCALE));
 
         // 下行：最后一条消息预览（0.75 倍）
         String last = ChatHistoryStorage.getLastMessage(stableId);
         if (last == null || last.isEmpty()) {
             last = "（无消息内容）";
         }
-        String preview = truncate(font, last, (int)(textMaxW / SUMMARY_SCALE));
-        int previewY = top + (int)(font.lineHeight * NAME_SCALE);
-        drawScaledText(g, font, preview, textX, previewY, TEXT_SUB, SUMMARY_SCALE);
+        String preview = truncate(font, last, (int)(textMaxW / UiFont.sc(SUMMARY_SCALE)));
+        int previewY = top + (int)(font.lineHeight * UiFont.sc(NAME_SCALE));
+        drawScaledText(g, font, preview, textX, previewY, TEXT_SUB, UiFont.sc(SUMMARY_SCALE));
 
         // 未送达红"!"：标在预览右侧
         if (ChatHistoryStorage.hasPendingMessages(stableId)) {
-            drawScaledText(g, font, "!", textX + font.width(preview) * SUMMARY_SCALE + 3, previewY, UNREAD_BG, SUMMARY_SCALE);
+            drawScaledText(g, font, "!", textX + font.width(preview) * UiFont.sc(SUMMARY_SCALE) + UiFont.sh(3),
+                    previewY, UNREAD_BG, UiFont.sc(SUMMARY_SCALE));
         }
 
         // 底部分隔线
-        g.fill(baseX + 6, itemY + itemH - 1, baseX + w - 6, itemY + itemH, 0x22000000);
+        g.fill(baseX + UiFont.sh(6), itemY + itemH - 1, baseX + w - UiFont.sh(6), itemY + itemH, 0x22000000);
     }
 
     // ==================== 鼠标事件 ====================
@@ -337,12 +342,12 @@ public class MessageListPage implements IPhonePage {
 
     /** 顶部标题栏高度：随字体缩放（跟随 GUI 字体大小），保证与消息条目一致 */
     private static int navH() {
-        return Minecraft.getInstance().font.lineHeight + 8;
+        return (int)(Minecraft.getInstance().font.lineHeight * UiFont.sc(1.0f)) + UiFont.sh(8);
     }
 
     /** 滚轮下滑底部余量：略高于底部导航栏，让被导航栏盖住的内容能滑出来 */
     private static int scrollPad() {
-        return PhoneOverlay.getBottomNavHeight() + 30;
+        return PhoneOverlay.getBottomNavHeight() + UiFont.sh(30);
     }
 
     // ==================== 绘图辅助 ====================

@@ -44,6 +44,8 @@ public final class HuhuTalkClientSettings {
     private static long charTypingMs = 500;
     /** 断句单句耗时上限（毫秒） */
     private static long maxTypingMs = 2400;
+    /** 手机 UI 全局字体倍率（可选 0.5/0.75/1.0/1.5/2.0）。1.0 = 默认，不缩放 */
+    private static float uiFontScale = 1.0f;
     /** 女仆手动分组：stableId -> 分组名 */
     private static final Map<String, String> maidGroups = new HashMap<>();
     /** 玩家自定义的分组名列表（持久化；联系人页会把其中的分组（含空组）也展示出来） */
@@ -64,6 +66,7 @@ public final class HuhuTalkClientSettings {
     public static boolean isMessageAnimationEnabled() { return messageAnimation; }
     public static long getCharTypingMs() { return charTypingMs; }
     public static long getMaxTypingMs() { return maxTypingMs; }
+    public static float getUiFontScale() { return uiFontScale; }
 
     /** 读取某女仆手动分组；未手动设置返回 null */
     public static String getMaidGroup(String stableId) {
@@ -194,6 +197,28 @@ public final class HuhuTalkClientSettings {
         save();
     }
 
+    /** 可选字体倍率档位 */
+    private static final float[] UI_FONT_SCALE_STEPS = {0.5f, 0.75f, 1.0f, 1.5f, 2.0f};
+
+    /** 设置全局字体倍率：非法值吸附到最近的可选档位（默认 1.0） */
+    public static void setUiFontScale(float scale) {
+        if (Float.isNaN(scale) || scale <= 0f) {
+            uiFontScale = 1.0f;
+        } else {
+            float best = 1.0f;
+            float bestDist = Float.MAX_VALUE;
+            for (float step : UI_FONT_SCALE_STEPS) {
+                float d = Math.abs(step - scale);
+                if (d < bestDist) {
+                    bestDist = d;
+                    best = step;
+                }
+            }
+            uiFontScale = best;
+        }
+        save();
+    }
+
     /** 设置某女仆手动分组；分组名为空则移除手动标记（回到默认按状态分组） */
     public static void setMaidGroup(String stableId, String group) {
         if (group == null || group.isBlank()) {
@@ -233,6 +258,7 @@ public final class HuhuTalkClientSettings {
             messageAnimation = data.messageAnimation;
             if (data.charTypingMs > 0) charTypingMs = data.charTypingMs;
             if (data.maxTypingMs > 0) maxTypingMs = data.maxTypingMs;
+            if (data.uiFontScale > 0f) uiFontScale = Math.max(0.5f, Math.min(2.0f, data.uiFontScale));
             maidGroups.clear();
             if (data.maidGroups != null) {
                 maidGroups.putAll(data.maidGroups);
@@ -264,6 +290,7 @@ public final class HuhuTalkClientSettings {
             data.messageAnimation = messageAnimation;
             data.charTypingMs = charTypingMs;
             data.maxTypingMs = maxTypingMs;
+            data.uiFontScale = uiFontScale;
             data.maidGroups = maidGroups;
             data.customGroupNames = customGroupNames;
             Path file = settingsFile();
@@ -286,6 +313,7 @@ public final class HuhuTalkClientSettings {
         boolean messageAnimation;
         long charTypingMs;
         long maxTypingMs;
+        float uiFontScale;
         Map<String, String> maidGroups;
         List<String> customGroupNames;
     }

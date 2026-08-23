@@ -59,7 +59,7 @@ public class PhoneOverlay {
     /** 拖拽抓取点：按下瞬间鼠标相对手机左上角的偏移 */
     private static float grabDX, grabDY;
 
-    /** 统一状态栏高度（像素，0.75 倍） */
+    /** 统一状态栏高度（基准像素；运行时经 UiFont.sh 随字体倍率缩放） */
     private static final int STATUSBAR_H = 12;
     /** 手机最小宽度（像素） */
     private static final int MIN_PHONE_W = 60;
@@ -77,14 +77,14 @@ public class PhoneOverlay {
     /** 手机内容区高度（不含状态栏），页面布局基于此 */
     public static int getPhoneHeight() { return phoneHeight; }
     /** 统一状态栏高度（像素），页面命中判定据此与渲染基准对齐 */
-    public static int getStatusBarHeight() { return STATUSBAR_H; }
+    public static int getStatusBarHeight() { return UiFont.sh(STATUSBAR_H); }
     /** 底部导航（胶囊）高度 */
     private static int bottomNavH() {
-        return Math.round(Minecraft.getInstance().font.lineHeight * 1.5f);
+        return Math.round(Minecraft.getInstance().font.lineHeight * UiFont.sc(1.5f));
     }
     /** 底部导航上抬量：0.25 倍默认字体高，使其浮在水印栏上方留出空隙 */
     private static int navRaise() {
-        return Math.round(Minecraft.getInstance().font.lineHeight * 0.25f);
+        return Math.round(Minecraft.getInstance().font.lineHeight * UiFont.sc(0.25f));
     }
     /**
      * 页面底部预留的导航高度。
@@ -122,7 +122,7 @@ public class PhoneOverlay {
 
     /** 垂直约束：顶部状态栏高度必须完整在屏内（向下可把状态栏以下内容全部滑出） */
     private static int clampPhoneY(int y, int screenH) {
-        return Math.max(0, Math.min(screenH - STATUSBAR_H, y));
+        return Math.max(0, Math.min(screenH - UiFont.sh(STATUSBAR_H), y));
     }
 
     /** 当前鼠标在 GUI 缩放坐标下的 X */
@@ -278,7 +278,7 @@ public class PhoneOverlay {
         int totalHeight = (int)Math.round(screenH * size);
         int width = (int)Math.round(totalHeight * aspect);
         phoneWidth = Math.max(MIN_PHONE_W, Math.min(width, screenW - 20));
-        phoneHeight = Math.max(20, totalHeight - STATUSBAR_H - WATERMARK_H);
+        phoneHeight = Math.max(20, totalHeight - UiFont.sh(STATUSBAR_H) - UiFont.sh(WATERMARK_H));
 
         // 默认锚点：右下角（右/下各留 10px）
         int defX = screenW - phoneWidth - 10;
@@ -305,7 +305,7 @@ public class PhoneOverlay {
         PhoneCaseRenderer.renderCase(graphics, phoneX, phoneY, phoneWidth, totalHeight);
 
         // 手机背景（圆角：上圆角=状态栏高，下圆角=水印栏高）
-        fillRoundedRect(graphics, phoneX, phoneY, phoneWidth, totalHeight, STATUSBAR_H, WATERMARK_H, 0xEE111111);
+        fillRoundedRect(graphics, phoneX, phoneY, phoneWidth, totalHeight, UiFont.sh(STATUSBAR_H), UiFont.sh(WATERMARK_H), 0xEE111111);
 
         // 统一状态栏（圆角顶）
         renderStatusBar(graphics, phoneX, phoneY, phoneWidth);
@@ -313,40 +313,40 @@ public class PhoneOverlay {
         // 当前页面内容区：从状态栏下方开始，到水印栏上方结束
         IPhonePage page = getCurrentPage();
         if (page != null) {
-            page.render(graphics, phoneX, phoneY + STATUSBAR_H, partialTick);
+            page.render(graphics, phoneX, phoneY + UiFont.sh(STATUSBAR_H), partialTick);
         }
 
         // 底部导航（仅 HuhuTalk App 内且处于顶层页时显示），悬浮于水印栏上方并上抬留出空隙
         if (inChatApp && !isInSubPage()) {
-            renderBottomNav(graphics, phoneX, phoneY + totalHeight - WATERMARK_H - bottomNavH() - navRaise(), phoneWidth);
+            renderBottomNav(graphics, phoneX, phoneY + totalHeight - UiFont.sh(WATERMARK_H) - bottomNavH() - navRaise(), phoneWidth);
         }
 
         // 底部水印栏（圆角底）
-        renderWatermark(graphics, phoneX, phoneY + totalHeight - WATERMARK_H, phoneWidth, WATERMARK_H);
+        renderWatermark(graphics, phoneX, phoneY + totalHeight - UiFont.sh(WATERMARK_H), phoneWidth, UiFont.sh(WATERMARK_H));
     }
 
-    /** 统一状态栏：时间 / 信号 / 电源 / 关闭（圆角顶；内容 0.75 倍、离开圆角范围） */
+    /** 统一状态栏：时间 / 信号 / 电源 / 关闭（圆角顶；内容 0.75 倍×全局倍率、离开圆角范围） */
     private static void renderStatusBar(GuiGraphics graphics, int baseX, int baseY, int w) {
         Font font = Minecraft.getInstance().font;
-        fillRoundedRect(graphics, baseX, baseY, w, STATUSBAR_H, STATUSBAR_H, 0, 0xFF222222);
+        fillRoundedRect(graphics, baseX, baseY, w, UiFont.sh(STATUSBAR_H), UiFont.sh(STATUSBAR_H), 0, 0xFF222222);
         // 时间（向左留出圆角，往中间移一点）
         drawScaledText(graphics, font, Component.literal("12:00").getVisualOrderText(),
-                baseX + 14, baseY + 3, 0xFFFFFFFF, 0.75f);
+                baseX + 14, baseY + 3, 0xFFFFFFFF, UiFont.sc(0.75f));
         int rightX = baseX + w;
         // 关闭 X（离开右圆角）
         drawScaledText(graphics, font, Component.literal("X").getVisualOrderText(),
-                rightX - 12, baseY + 3, 0xFFFF0000, 0.75f);
+                rightX - UiFont.sh(12), baseY + 3, 0xFFFF0000, UiFont.sc(0.75f));
         // 电源：emoji 🔋（离开右圆角，位于 X 左侧）
         drawScaledText(graphics, font, Component.literal("🔋").getVisualOrderText(),
-                rightX - 32, baseY + 3, 0xFFFFFFFF, 0.75f);
+                rightX - UiFont.sh(32), baseY + 3, 0xFFFFFFFF, UiFont.sc(0.75f));
         // 信号（0.75 倍，离开右圆角，位于电源左侧）
-        renderSignalBars(graphics, rightX - 50, baseY, STATUSBAR_H);
+        renderSignalBars(graphics, rightX - UiFont.sh(50), baseY, UiFont.sh(STATUSBAR_H));
     }
 
     /** 底部水印栏：深蓝底 + 白色加粗版本文字（圆角底；文字 0.75 倍、用空格分隔，过宽时缩放适配） */
     private static void renderWatermark(GuiGraphics graphics, int baseX, int baseY, int w, int h) {
         Font font = Minecraft.getInstance().font;
-        fillRoundedRect(graphics, baseX, baseY, w, h, 0, WATERMARK_H, WATERMARK_BG);
+        fillRoundedRect(graphics, baseX, baseY, w, h, 0, UiFont.sh(WATERMARK_H), WATERMARK_BG);
         String version = ModList.get().getModContainerById(HuhuTalk.MOD_ID)
                 .map(c -> c.getModInfo().getVersion().toString())
                 .orElse("1.0.1");
@@ -354,7 +354,8 @@ public class PhoneOverlay {
                 .withStyle(s -> s.withBold(true));
         FormattedCharSequence seq = comp.getVisualOrderText();
         float tw = font.width(seq);
-        float scale = Math.max(0.5f, Math.min(0.75f, (w - 8f) / tw));
+        float cap = 0.75f * UiFont.uiScale();
+        float scale = Math.max(0.5f, Math.min(cap, (w - 8f) / tw));
         float renderW = tw * scale;
         float drawX = (baseX + (w - renderW) / 2f) / scale;
         float drawY = (baseY + (h - font.lineHeight) / 2f + 1) / scale;
@@ -428,7 +429,7 @@ public class PhoneOverlay {
         return barIndex == 0 ? 0xFF888888 : 0xFFFFFF00;
     }
 
-    /** 底部导航（Dock）：悬浮胶囊，三个选项横向均分（emoji 上 + 0.75 倍文字下），选中项粉色底 */
+    /** 底部导航（Dock）：悬浮胶囊，三个选项横向均分（emoji 上 + 0.75 倍×全局倍率文字下），选中项粉色底 */
     private static void renderBottomNav(GuiGraphics graphics, int baseX, int baseY, int w) {
         Font font = Minecraft.getInstance().font;
         int h = bottomNavH();
@@ -444,7 +445,7 @@ public class PhoneOverlay {
         String[] labels = {"消息", "联系人", "设置"};
         int slotW = cw / 3;
         int activeIdx = activeTab.ordinal();
-        float ts = 0.75f; // 文字/图标缩放
+        float ts = UiFont.sc(0.75f); // 文字/图标缩放（随全局倍率）
         int lineH = (int)(font.lineHeight * ts);
 
         for (int i = 0; i < 3; i++) {
@@ -457,7 +458,7 @@ public class PhoneOverlay {
             // emoji（上）
             FormattedCharSequence emoji = Component.literal(emojis[i]).getVisualOrderText();
             drawScaledText(graphics, font, emoji, centerX - font.width(emoji) * ts / 2f, baseY + 1, 0xFFFFFFFF, ts);
-            // 文字（下，0.75 倍）
+            // 文字（下，0.75 倍×全局倍率）
             FormattedCharSequence label = Component.literal(labels[i]).getVisualOrderText();
             drawScaledText(graphics, font, label, centerX - font.width(label) * ts / 2f, baseY + 1 + lineH, 0xFFFFFFFF, ts);
         }
@@ -484,14 +485,14 @@ public class PhoneOverlay {
 
         double relX = screenX - phoneX;
         double relY = screenY - phoneY;
-        if (relX < 0 || relY < 0 || relX >= phoneWidth || relY >= phoneHeight + STATUSBAR_H + WATERMARK_H) {
+        if (relX < 0 || relY < 0 || relX >= phoneWidth || relY >= phoneHeight + UiFont.sh(STATUSBAR_H) + UiFont.sh(WATERMARK_H)) {
             return false;
         }
 
         // 状态栏 / 底部导航 / 水印栏 / 右键返回：仅在按下时处理
         if (action == GLFW.GLFW_PRESS) {
             // 状态栏区域：关闭按钮 / 其余按住左键拖动手机
-            if (relY < STATUSBAR_H) {
+            if (relY < UiFont.sh(STATUSBAR_H)) {
                 if (relX >= phoneWidth - 14 && relX <= phoneWidth) {
                     hide();
                     updateCursorMode();
@@ -504,14 +505,14 @@ public class PhoneOverlay {
             }
 
             // 底部水印栏区域（最底部）：装饰，不响应点击
-            if (relY >= phoneHeight + STATUSBAR_H) {
+            if (relY >= phoneHeight + UiFont.sh(STATUSBAR_H)) {
                 return true;
             }
 
             // 底部导航区域（仅 HuhuTalk App 内顶层页显示时；胶囊范围内可点，已随胶囊上抬）
             if (inChatApp && !isInSubPage()) {
-                int navTop = phoneHeight + STATUSBAR_H - bottomNavH() - navRaise();
-                int navBottom = phoneHeight + STATUSBAR_H - navRaise();
+                int navTop = phoneHeight + UiFont.sh(STATUSBAR_H) - bottomNavH() - navRaise();
+                int navBottom = phoneHeight + UiFont.sh(STATUSBAR_H) - navRaise();
                 if (relY >= navTop && relY < navBottom) {
                     int capsuleLeft = 8;
                     int capsuleRight = phoneWidth - 8;
@@ -543,7 +544,7 @@ public class PhoneOverlay {
         // 按下与松开都转发给页面（页面自行按 action 区分；松开用于结束拖拽）
         IPhonePage page = getCurrentPage();
         if (page == null) return true;
-        return page.mouseClicked(relX, relY - STATUSBAR_H, button, action);
+        return page.mouseClicked(relX, relY - UiFont.sh(STATUSBAR_H), button, action);
     }
 
     public static boolean handleMouseScroll(double screenX, double screenY, double scrollDelta) {
@@ -552,11 +553,11 @@ public class PhoneOverlay {
         if (page == null) return false;
         double relX = screenX - phoneX;
         double relY = screenY - phoneY;
-        if (relX >= 0 && relY >= 0 && relX < phoneWidth && relY < phoneHeight + STATUSBAR_H) {
-            if (relY < STATUSBAR_H) {
+        if (relX >= 0 && relY >= 0 && relX < phoneWidth && relY < phoneHeight + UiFont.sh(STATUSBAR_H)) {
+            if (relY < UiFont.sh(STATUSBAR_H)) {
                 return true;
             }
-            return page.mouseScrolled(relX, relY - STATUSBAR_H, scrollDelta);
+            return page.mouseScrolled(relX, relY - UiFont.sh(STATUSBAR_H), scrollDelta);
         }
         return true;
     }

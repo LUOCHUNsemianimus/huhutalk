@@ -4,7 +4,9 @@ import com.huhutalk.client.NotificationManager;
 import com.huhutalk.network.C2SSOSPacket;
 import com.huhutalk.phone.IPhonePage;
 import com.huhutalk.phone.PhoneOverlay;
+import com.huhutalk.phone.UiFont;
 import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.neoforged.neoforge.network.PacketDistributor;
 import org.lwjgl.glfw.GLFW;
@@ -83,9 +85,9 @@ public class MainPage implements IPhonePage {
 
             AppInfo app = apps.get(i);
             graphics.fill(x, y, x + iconW, y + iconH, app.color | 0xFF000000);
-            int textX = x + iconW / 2 - font.width(app.label) / 2;
-            int textY = y + iconH / 2 - 4;
-            graphics.drawString(font, app.label, textX, textY, 0xFFFFFFFF);
+            int textX = x + iconW / 2 - (int)(font.width(app.label) * UiFont.sc(1.0f)) / 2;
+            int textY = y + iconH / 2 - (int)(font.lineHeight * UiFont.sc(1.0f)) / 2;
+            drawScaledText(graphics, font, app.label, textX, textY, 0xFFFFFFFF, UiFont.sc(1.0f));
 
             // TALK 红点
             if ("TALK".equals(app.label)) {
@@ -95,17 +97,17 @@ public class MainPage implements IPhonePage {
                     int dotY = y - 6;
                     graphics.fill(dotX, dotY, dotX + 14, dotY + 14, 0xFFFF0000);
                     String num = unread > 99 ? "99+" : String.valueOf(unread);
-                    graphics.drawString(font, num, dotX + 2, dotY + 3, 0xFFFFFFFF);
+                    drawScaledText(graphics, font, num, dotX + 2, dotY + 3, 0xFFFFFFFF, UiFont.sc(1.0f));
                 }
             }
         }
 
         // SOS 点击后的短暂提示
         if (System.currentTimeMillis() < sosFlashUntil && !sosMessage.isEmpty()) {
-            int msgW = font.width(sosMessage);
+            int msgW = (int)(font.width(sosMessage) * UiFont.sc(1.0f));
             int msgY = startY - (int)(h * 0.02);
-            graphics.fill(baseX + 4, msgY - 2, baseX + w - 4, msgY + font.lineHeight + 2, 0xAA000000);
-            graphics.drawString(font, sosMessage, baseX + (w - msgW) / 2, msgY, 0xFFFF6666);
+            graphics.fill(baseX + 4, msgY - UiFont.sh(2), baseX + w - 4, msgY + (int)(font.lineHeight * UiFont.sc(1.0f)) + UiFont.sh(2), 0xAA000000);
+            drawScaledText(graphics, font, sosMessage, baseX + (w - msgW) / 2, msgY, 0xFFFF6666, UiFont.sc(1.0f));
         }
     }
 
@@ -167,6 +169,16 @@ public class MainPage implements IPhonePage {
         int[] pos = new int[4];
         if (getTalkIconPos(pos)) return pos;
         return null;
+    }
+
+    /** 以任意倍率绘制文本（无阴影） */
+    private static void drawScaledText(GuiGraphics g, Font font, String text, float x, float y,
+                                       int color, float scale) {
+        float inv = 1.0f / scale;
+        g.pose().pushPose();
+        g.pose().scale(scale, scale, 1.0f);
+        g.drawString(font, text, x * inv, y * inv, color, false);
+        g.pose().popPose();
     }
 
     public static class AppInfo {
