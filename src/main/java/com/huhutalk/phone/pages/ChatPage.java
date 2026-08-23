@@ -64,6 +64,8 @@ public class ChatPage implements IPhonePage {
     private int splitIndex = 0;
     /** 上一条短句显示的时间戳（毫秒） */
     private long lastSplitTime = 0;
+    /** 当前断句回复的发送时间（游戏时间 tick）：同一回复被拆成的短句共享一致时间，便于分组显示 */
+    private long splitGameTime = 0;
     /** 是否正在断句逐条显示（期间"对方正在输入…"保持） */
     private boolean splitting = false;
 
@@ -188,6 +190,7 @@ public class ChatPage implements IPhonePage {
         splitQueue.clear();
         splitQueue.addAll(segments);
         splitIndex = 0;
+        splitGameTime = currentGameTime(); // 该回复的所有短句共享同一发送时间
         splitting = true;
         waitingResponse = true; // 断句期间保持"对方正在输入…"
         lastSplitTime = System.currentTimeMillis();
@@ -208,7 +211,7 @@ public class ChatPage implements IPhonePage {
             if (now - lastSplitTime < typingMs) {
                 break;
             }
-            messages.add(new ChatMessage(splitQueue.get(splitIndex), false, false, false, currentGameTime()));
+            messages.add(new ChatMessage(splitQueue.get(splitIndex), false, false, false, splitGameTime));
             splitIndex++;
             lastSplitTime = now;
         }
@@ -456,19 +459,26 @@ public class ChatPage implements IPhonePage {
         int msgBottom = inputTop(baseY) - 2;
         int viewH = Math.max(0, msgBottom - msgTop);
 
+        int[] groupStart = computeGroupStart();
+        int n = messages.size();
         int totalH = 0;
-        for (ChatMessage m : messages) {
-            totalH += bubbleHeight(font, m, w) + 4;
+        for (int i = 0; i < n; i++) {
+            boolean groupTop = groupStart[i] == i;
+            totalH += bubbleHeight(font, messages.get(i), w, groupTop) + 4;
         }
         int maxScroll = Math.max(0, totalH - viewH);
         scrollOffset = Math.max(0, Math.min(scrollOffset, maxScroll));
 
         g.enableScissor(baseX, msgTop, baseX + w, msgBottom);
         int y = msgBottom - 4 + scrollOffset;
-        for (int i = messages.size() - 1; i >= 0 && y > msgTop; i--) {
+        for (int i = n - 1; i >= 0 && y > msgTop; i--) {
             ChatMessage m = messages.get(i);
-            int bubbleH = drawBubble(g, font, baseX, y, w, m);
-            y -= bubbleH + 4;
+            boolean groupTop = groupStart[i] == i;
+            int idxInGroup = i - groupStart[i];
+            // 女仆头像按 1/4/7… 段位显示；玩家消息始终显示头像
+            boolean showAvatar = m.isPlayer() || (idxInGroup % 3 == 0);
+            int totalBubble = drawBubble(g, font, baseX, y, w, m, showAvatar, groupTop);
+            y -= totalBubble + 4;
         }
         g.disableScissor();
 
@@ -562,14 +572,42 @@ public class ChatPage implements IPhonePage {
     }
 
     /** 计算某条消息气泡的高度（含上方时间标签，与 drawBubble 的换行/行高逻辑一致），用于滚动钳制 */
-    private int bubbleHeight(Font font, ChatMessage m, int phoneW) {
+    /**
+     * 相邻且 gameTime 相同的一批消息视为同一「时刻分组」（同一回复被拆成的短句）。
+     * 返回数组：每个下标对应该消息所在分组的起始下标。
+     */
+    private int[] computeGroupStart() {
+        int n = messages.size();
+        int[] gs = new int[n];
+        for (int i = 0; i < n; i++) {
+            if (i > 0 && messages.get(i).gameTime() == messages.get(i - 1).gameTime()) {
+                gs[i] = gs[i - 1];
+            } else {
+                gs[i] = i;
+            }
+        }
+        return gs;
+    }
+
+    /**
+     * 计算某条消息气泡的高度（与 drawBubble 换行/行高逻辑一致），用于滚动钳制。
+     * groupTop = 该条是「同一时刻分组」的顶部时，需多预留 timeH 放居中时间标签。
+     */
+    private int bubbleHeight(Font font, ChatMessage m, int phoneW, boolean groupTop) {
         int maxTextW = (int) ((phoneW - AVATAR * 2 - MARGIN * 4) / uiScale());
         List<FormattedCharSequence> lines = font.split(Component.literal(m.text()), maxTextW);
         int lineH = lh() + 1;
-        return lines.size() * lineH + UiFont.sh(4) + timeH();
+        int base = lines.size() * lineH + UiFont.sh(4);
+        return base + (groupTop ? timeH() : 0);
     }
 
-    private int drawBubble(GuiGraphics g, Font font, int baseX, int yBottom, int phoneW, ChatMessage m) {
+    /**
+     * 绘制一条消息气泡。
+     * groupTop = 本消息是「同一时刻分组」的顶部，在其正上方屏幕中间显示发送时间；
+     * showAvatar = 女仆头像是否在本气泡显示（同一被拆分消息按 1/4/7… 段位合并；玩家始终显示）。
+     */
+    private int drawBubble(GuiGraphics g, Font font, int baseX, int yBottom, int phoneW, ChatMessage m,
+                           boolean showAvatar, boolean groupTop) {
         boolean isError = m.isError();
         boolean isPlayer = m.isPlayer();
         com.huhutalk.client.theme.ColorScheme scheme = com.huhutalk.client.theme.ThemeManager.getActive();
@@ -609,14 +647,6 @@ public class ChatPage implements IPhonePage {
                 drawScaledText(g, font, "!", bubbleLeft - UiFont.sh(8), yTop + UiFont.sh(2),
                         0xFFFF3333, UiFont.sc(1.0f));
             }
-            // 发送时间（多久以前）：气泡右上方，0.5 倍灰字
-            String timeText = formatGameTime(m.gameTime());
-            if (!timeText.isEmpty()) {
-                float ts = UiFont.sc(0.5f);
-                drawScaledText(g, font, timeText,
-                        bubbleRight - (int) (font.width(timeText) * ts) - UiFont.sh(2),
-                        yTop - timeH(), 0xFF9A8A90, ts);
-            }
         } else {
             int bubbleLeft = baseX + AVATAR + MARGIN;
             UiShapes.fillRoundedRect(g, bubbleLeft, yTop, bubbleW, bubbleH, radius, bgColor);
@@ -625,15 +655,22 @@ public class ChatPage implements IPhonePage {
                 drawScaledText(g, font, line, bubbleLeft + UiFont.sh(4), ty, textColor, UiFont.sc(1.0f));
                 ty += lineH;
             }
-            drawAvatarPlaceholder(g, baseX + 2, yTop, false);
-            // 发送时间（多久以前）：气泡左上方，0.5 倍灰字
+            // 女仆头像按 1/4/7… 段位合并显示（同一条被拆消息只显示一次 / 每三条一次）
+            if (showAvatar) {
+                drawAvatarPlaceholder(g, baseX + 2, yTop, false);
+            }
+        }
+        // 同一时刻分组的顶部：在屏幕中间上方显示"xx天前"（保留 0.5 倍灰字字号与颜色）
+        if (groupTop) {
             String timeText = formatGameTime(m.gameTime());
             if (!timeText.isEmpty()) {
                 float ts = UiFont.sc(0.5f);
-                drawScaledText(g, font, timeText, bubbleLeft + UiFont.sh(2), yTop - timeH(), 0xFF9A8A90, ts);
+                int centerX = baseX + phoneW / 2;
+                drawScaledText(g, font, timeText,
+                        centerX - font.width(timeText) * ts / 2f, yTop - timeH(), 0xFF9A8A90, ts);
             }
         }
-        return bubbleH + timeH();
+        return bubbleH + (groupTop ? timeH() : 0);
     }
 
     private void drawAvatarPlaceholder(GuiGraphics g, int x, int y, boolean isPlayer) {
@@ -804,9 +841,10 @@ public class ChatPage implements IPhonePage {
         int msgTop = navH();
         int msgBottom = inputTop(0) - 2;
         int viewH = Math.max(0, msgBottom - msgTop);
+        int[] gs = computeGroupStart();
         int totalH = 0;
-        for (ChatMessage m : messages) {
-            totalH += bubbleHeight(font, m, w) + 4;
+        for (int i = 0; i < messages.size(); i++) {
+            totalH += bubbleHeight(font, messages.get(i), w, gs[i] == i) + 4;
         }
         int maxScroll = Math.max(0, totalH - viewH);
         // 滚轮上滚（scrollDelta>0）→ 增加偏移看更早消息；下滚回到最新
