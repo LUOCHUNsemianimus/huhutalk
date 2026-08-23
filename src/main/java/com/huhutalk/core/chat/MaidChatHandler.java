@@ -25,6 +25,7 @@ import java.util.ArrayList;
 import java.util.List;
 
 public class MaidChatHandler {
+    private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger("huhutalk.maid_chat");
 
     public static void handleChat(ServerPlayer player, String stableId, String message) {
         EntityMaid maid = findMaidByStableId(player.getServer(), stableId);
@@ -113,6 +114,7 @@ public class MaidChatHandler {
     public static void handleImageChat(ServerPlayer player, String stableId, String userText, String imageToken) {
         EntityMaid maid = findMaidByStableId(player.getServer(), stableId);
         if (maid == null) {
+            LOGGER.error("[HuhuTalk] 图片聊天失败：找不到女仆 stableId={}", stableId);
             PacketDistributor.sendToPlayer(player,
                     new S2CMaidChatErrorPacket(stableId, "找不到该女仆或女仆不在线"));
             return;
@@ -130,6 +132,7 @@ public class MaidChatHandler {
         MaidAIChatManager manager = maid.getAiChatManager();
         LLMSite site = manager.getLLMSite();
         if (site == null || !site.enabled()) {
+            LOGGER.error("[HuhuTalk] 图片聊天失败：女仆 AI 不可用 stableId={}", stableId);
             PacketDistributor.sendToPlayer(player,
                     new S2CMaidChatErrorPacket(stableId, "女仆未配置 AI 或 AI 不可用"));
             return;
@@ -137,7 +140,9 @@ public class MaidChatHandler {
 
         String safeToken = sanitizeToken(imageToken);
         Path imgPath = VisionService.visionTmpDir().resolve(safeToken);
-        if (!Files.exists(imgPath)) {
+        boolean exists = Files.exists(imgPath);
+        LOGGER.info("[HuhuTalk] 收到图片聊天: stableId={}, token={}, imgPath={}, exists={}", stableId, safeToken, imgPath, exists);
+        if (!exists) {
             PacketDistributor.sendToPlayer(player,
                     new S2CMaidChatErrorPacket(stableId, "图片数据缺失，请重试"));
             return;
@@ -159,6 +164,7 @@ public class MaidChatHandler {
                     } catch (IOException ignored) {
                     }
                     if (throwable != null) {
+                        LOGGER.error("[HuhuTalk] 识图失败 stableId={}", stableIdIn, throwable);
                         PacketDistributor.sendToPlayer(playerIn,
                                 new S2CMaidChatErrorPacket(stableIdIn, "识图失败：" + throwable.getMessage()));
                         return;
@@ -166,6 +172,7 @@ public class MaidChatHandler {
                     if (!maidIn.isAlive()) {
                         return;
                     }
+                    LOGGER.info("[HuhuTalk] 识图成功 stableId={}, descLen={}", stableIdIn, desc == null ? 0 : desc.length());
                     // 回到服务端线程再做 LLM 调用（TLM 强制主线程）
                     playerIn.getServer().submit(() -> {
                         List<LLMMessage> messages = buildImageMessages(manager, desc, userTextIn);

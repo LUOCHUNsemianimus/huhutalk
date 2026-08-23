@@ -42,6 +42,7 @@ public class ChatPage implements IPhonePage {
     private static final float STATUS_SCALE = 0.5f;
 
     private static final String[] BOTTOM_ICONS = {"🎤", "🦊", "🖼️", "📷", "+"};
+    private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger("huhutalk.chat_page");
 
     private final String stableId;
     private final String maidName;
@@ -1292,11 +1293,14 @@ public class ChatPage implements IPhonePage {
         // 写入 vision_tmp，拿 token
         String token = PhotoLibrary.writeVisionTmp(img);
         if (token == null) {
+            LOGGER.error("[HuhuTalk] 发送图片失败：vision_tmp 写入失败，退化为纯文字");
             PacketDistributor.sendToServer(new C2SMaidChatPacket(stableId, text == null ? "" : text));
             this.waitingResponse = true;
             resetAfterSend();
             return;
         }
+        LOGGER.info("[HuhuTalk] 发送图片聊天: stableId={}, token={}, text='{}', imgBytes={}",
+                stableId, token, text, img == null ? 0 : img.length);
         PacketDistributor.sendToServer(new C2SMaidImageChatPacket(stableId,
                 text == null ? "" : text, token));
         this.waitingResponse = true;

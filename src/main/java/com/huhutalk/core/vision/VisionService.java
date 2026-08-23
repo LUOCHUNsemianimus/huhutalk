@@ -23,7 +23,7 @@ import static com.github.tartaricacid.touhoulittlemaid.ai.service.llm.LLMSite.LL
 /**
  * 服务端识图服务（DeepSeek 视觉模型，单轮、不存上下文）。
  * <p>
- * 复用车万女仆(TLM)的 DeepSeek 站点（{@link LLMSite.LLM_HTTP_CLIENT} + 已有 api key）与 Gson 基础设施，
+ * 复用车万女仆(TLM)的 DeepSeek 站点（{@code LLMSite.LLM_HTTP_CLIENT} + 已有 api key）与 Gson 基础设施，
  * 向 DeepSeek chat-completions 多模态接口发一条 user 消息，返回对图片的文字描述。
  * 与 {@code MaidAIChatManager} 完全解耦：不需要女仆、不需要历史。
  * <p>
@@ -35,7 +35,7 @@ public final class VisionService {
 
     /** DeepSeek chat-completions 端点 */
     public static final String BASE_URL = "https://api.deepseek.com/chat/completions";
-    /** 默认视觉模型 */
+    /** 默认视觉模型（DeepSeek 支持 deepseek-v4-pro / deepseek-v4-flash / deepseek-v4-flash-vision-exp） */
     public static final String DEFAULT_MODEL = "deepseek-v4-flash-vision-exp";
     private static final Duration TIMEOUT = Duration.ofSeconds(60);
 
@@ -77,11 +77,13 @@ public final class VisionService {
     public static CompletableFuture<String> describe(byte[] imagePng, String prompt) {
         String apiKey = resolveApiKey();
         if (apiKey == null) {
+            LOGGER.error("[HuhuTalk] 识图失败：未配置 DeepSeek api key（AvailableSites.LLM_SITES['deepseek'] 无 key）");
             return CompletableFuture.failedFuture(new IllegalStateException("未配置 DeepSeek api key，请在车万女仆 AI 设置里配置 DeepSeek 站点。"));
         }
         if (imagePng == null || imagePng.length == 0) {
             return CompletableFuture.failedFuture(new IllegalStateException("图片数据为空"));
         }
+        LOGGER.info("[HuhuTalk] 发起识图: model={}, imgBytes={}, keyConfigured=true", model, imagePng.length);
         String b64 = Base64.getEncoder().encodeToString(imagePng);
         String dataUrl = "data:image/png;base64," + b64;
 
@@ -121,21 +123,25 @@ public final class VisionService {
     private static String extractContent(HttpResponse<String> response) {
         int code = response.statusCode();
         if (code < 200 || code >= 300) {
+            LOGGER.error("[HuhuTalk] 识图 HTTP 错误 {}: {}", code, truncate(response.body()));
             throw new IllegalStateException("HTTP %d: %s".formatted(code, truncate(response.body())));
         }
         try {
             JsonObject root = GSON.fromJson(response.body(), JsonObject.class);
             JsonArray choices = root.getAsJsonArray("choices");
             if (choices == null || choices.isEmpty()) {
+                LOGGER.warn("[HuhuTalk] 识图响应无 choices: {}", truncate(response.body()));
                 return "";
             }
             JsonObject message = choices.get(0).getAsJsonObject().getAsJsonObject("message");
             if (message == null) {
+                LOGGER.warn("[HuhuTalk] 识图响应无 message: {}", truncate(response.body()));
                 return "";
             }
             String content = message.get("content") == null ? "" : message.get("content").getAsString();
             return content == null ? "" : content.trim();
         } catch (Exception e) {
+            LOGGER.error("[HuhuTalk] 解析识图响应失败: {}", truncate(response.body()), e);
             throw new IllegalStateException("解析识图响应失败: " + truncate(response.body()), e);
         }
     }
