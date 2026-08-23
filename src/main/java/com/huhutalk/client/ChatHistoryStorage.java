@@ -55,8 +55,14 @@ public class ChatHistoryStorage {
     public static void appendMessage(String stableId, String text, boolean isPlayer, boolean isError) {
         currentHistory()
                 .computeIfAbsent(stableId, k -> new ArrayList<>())
-                .add(new ChatMessageEntry(text, isPlayer, isError, false));
+                .add(new ChatMessageEntry(text, isPlayer, isError, false, currentGameTime()));
         saveToDisk(currentWorldKey); // 写入即落盘
+    }
+
+    /** 当前客户端世界游戏时间（tick）。无世界时返回 0 */
+    private static long currentGameTime() {
+        net.minecraft.client.multiplayer.ClientLevel level = Minecraft.getInstance().level;
+        return level != null ? level.getGameTime() : 0L;
     }
 
     /** 有会话记录的所有女仆 stableId（消息列表页用） */
@@ -105,7 +111,7 @@ public class ChatHistoryStorage {
         for (int i = list.size() - 1; i >= 0; i--) {
             ChatMessageEntry e = list.get(i);
             if (e.isPlayer()) {
-                list.set(i, new ChatMessageEntry(e.text(), true, e.isError(), true));
+                list.set(i, new ChatMessageEntry(e.text(), true, e.isError(), true, e.gameTime()));
                 saveToDisk(currentWorldKey);
                 return true;
             }
@@ -123,7 +129,7 @@ public class ChatHistoryStorage {
         for (int i = 0; i < list.size(); i++) {
             ChatMessageEntry e = list.get(i);
             if (e.pending()) {
-                list.set(i, new ChatMessageEntry(e.text(), e.isPlayer(), e.isError(), false));
+                list.set(i, new ChatMessageEntry(e.text(), e.isPlayer(), e.isError(), false, e.gameTime()));
                 changed = true;
             }
         }
@@ -235,6 +241,6 @@ public class ChatHistoryStorage {
         }
     }
 
-    public record ChatMessageEntry(String text, boolean isPlayer, boolean isError, boolean pending) {
+    public record ChatMessageEntry(String text, boolean isPlayer, boolean isError, boolean pending, long gameTime) {
     }
 }

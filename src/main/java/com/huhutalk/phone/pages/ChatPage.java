@@ -76,10 +76,10 @@ public class ChatPage implements IPhonePage {
             if (!e.isPlayer() && !e.isError()) {
                 List<String> segments = MessageSplitter.split(e.text());
                 for (String seg : segments) {
-                    messages.add(new ChatMessage(seg, false, false, false));
+                    messages.add(new ChatMessage(seg, false, false, false, e.gameTime()));
                 }
             } else {
-                messages.add(new ChatMessage(e.text(), e.isPlayer(), e.isError(), e.pending()));
+                messages.add(new ChatMessage(e.text(), e.isPlayer(), e.isError(), e.pending(), e.gameTime()));
             }
         }
         this.currentInput = ChatHistoryStorage.getDraft(stableId);
@@ -97,7 +97,7 @@ public class ChatPage implements IPhonePage {
         for (int i = messages.size() - 1; i >= 0; i--) {
             ChatMessage m = messages.get(i);
             if (m.isPlayer()) {
-                messages.set(i, new ChatMessage(m.text(), true, m.isError(), true));
+                messages.set(i, new ChatMessage(m.text(), true, m.isError(), true, m.gameTime()));
                 break;
             }
         }
@@ -109,7 +109,7 @@ public class ChatPage implements IPhonePage {
         for (int i = 0; i < messages.size(); i++) {
             ChatMessage m = messages.get(i);
             if (m.pending()) {
-                messages.set(i, new ChatMessage(m.text(), m.isPlayer(), m.isError(), false));
+                messages.set(i, new ChatMessage(m.text(), m.isPlayer(), m.isError(), false, m.gameTime()));
             }
         }
         ChatHistoryStorage.clearPending(stableId);
@@ -165,7 +165,7 @@ public class ChatPage implements IPhonePage {
         scrollOffset = 0;
         // 错误/提示消息：整段显示，不拆句
         if (isError) {
-            messages.add(new ChatMessage(text, false, true, false));
+            messages.add(new ChatMessage(text, false, true, false, currentGameTime()));
             this.waitingResponse = false;
             this.splitting = false;
             this.splitQueue.clear();
@@ -176,7 +176,7 @@ public class ChatPage implements IPhonePage {
         List<String> segments = MessageSplitter.split(text);
         if (segments.size() <= 1) {
             // 无逗号可拆 → 整段显示
-            messages.add(new ChatMessage(text, false, false, false));
+            messages.add(new ChatMessage(text, false, false, false, currentGameTime()));
             this.waitingResponse = false;
             this.splitting = false;
             this.splitQueue.clear();
@@ -208,7 +208,7 @@ public class ChatPage implements IPhonePage {
             if (now - lastSplitTime < typingMs) {
                 break;
             }
-            messages.add(new ChatMessage(splitQueue.get(splitIndex), false, false, false));
+            messages.add(new ChatMessage(splitQueue.get(splitIndex), false, false, false, currentGameTime()));
             splitIndex++;
             lastSplitTime = now;
         }
@@ -228,7 +228,7 @@ public class ChatPage implements IPhonePage {
     private void sendCurrentMessage() {
         if (currentInput.isBlank()) return;
         String text = currentInput;
-        messages.add(new ChatMessage(text, true, false, false));
+        messages.add(new ChatMessage(text, true, false, false, currentGameTime()));
         ChatHistoryStorage.appendMessage(stableId, text, true, false);
         ChatHistoryStorage.setDraft(stableId, "");
         PacketDistributor.sendToServer(new C2SMaidChatPacket(stableId, text));
@@ -250,6 +250,30 @@ public class ChatPage implements IPhonePage {
     private static int lh() { return Math.max(1, (int) (Minecraft.getInstance().font.lineHeight * UiFont.sc(1.0f))); }
     /** 顶部导航栏高度：随字体倍率缩放 */
     private int navH() { return lh() + UiFont.sh(8); }
+
+    /** 当前客户端世界游戏时间（tick）。无世界时返回 0 */
+    private static long currentGameTime() {
+        net.minecraft.client.multiplayer.ClientLevel level = Minecraft.getInstance().level;
+        return level != null ? level.getGameTime() : 0L;
+    }
+
+    /** 多久以前（复用车万女仆 HistoryChatWidget 的换算：24000 tick/天、1000 tick/小时） */
+    private static String formatGameTime(long gameTime) {
+        net.minecraft.client.multiplayer.ClientLevel level = Minecraft.getInstance().level;
+        if (level == null) return "";
+        long diff = level.getGameTime() - gameTime;
+        if (diff < 0) return "";
+        long days = diff / 24000L;
+        long hours = (diff % 24000L) / 1000L;
+        if (days > 0) return days + "天前";
+        if (hours > 0) return hours + "小时前";
+        return "刚刚";
+    }
+
+    /** 气泡上方时间标签的高度（0.5 倍字号 + 间距） */
+    private static int timeH() {
+        return (int) (Minecraft.getInstance().font.lineHeight * UiFont.sc(0.5f)) + UiFont.sh(2);
+    }
 
     // ==================== 输入区 / 拓展栏布局（动态高度） ====================
     /** 输入框左边距 = 发送按钮右边距 = 输入框与发送按钮的间距（三者相等） */
@@ -282,7 +306,8 @@ public class ChatPage implements IPhonePage {
 
     /** 拓展功能栏高度（与单行输入框一致），贴屏幕底部 */
     private int extBarTop(int baseY) { return baseY + phoneH() - singleLineH(); }
-    private int inputBottom(int baseY) { return extBarTop(baseY); }
+    /** 输入框底：面板打开时被顶到面板上方，否则紧贴拓展栏 */
+    private int inputBottom(int baseY) { return bottomPanelOpen ? panelTop(baseY) : extBarTop(baseY); }
     private int inputTop(int baseY) { return inputBottom(baseY) - inputHeight(); }
     private int inputLeft(int baseX) { return baseX + FIELD_MARGIN; }
     private int inputRight(int baseX) { return sendX(baseX) - FIELD_MARGIN; }
@@ -291,9 +316,10 @@ public class ChatPage implements IPhonePage {
     /** 发送按钮垂直中心始终与输入框垂直中心对齐，高度固定 */
     private int sendY(int baseY) { return (inputTop(baseY) + inputBottom(baseY)) / 2 - sendH() / 2; }
 
-    /** 上拉面板高度（打开时占据输入框上方的区域） */
+    /** 上拉面板高度（打开时在拓展栏上方展开） */
     private int panelH() { return bottomPanelOpen ? (int)(phoneH() * 0.18) : 0; }
-    private int panelTop(int baseY) { return inputTop(baseY) - panelH(); }
+    /** 面板顶：直接位于拓展功能栏上方；打开时把输入框往上顶，而不是从输入框上方伸出 */
+    private int panelTop(int baseY) { return extBarTop(baseY) - panelH(); }
 
     private boolean isCursorVisible() {
         return (System.currentTimeMillis() % 1000) < 500;
@@ -425,9 +451,9 @@ public class ChatPage implements IPhonePage {
         // 右上角设置按钮（保留原有功能）
         drawScaledText(g, font, "⚙", gearX, navCenterY - lh() / 2, 0xFFFFFFFF, UiFont.sc(1.0f));
 
-        // ==================== 消息区（面板打开时被上拉面板压缩） ====================
+        // ==================== 消息区（面板打开时输入框上移，消息区同步上移） ====================
         int msgTop = baseY + navH();
-        int msgBottom = (bottomPanelOpen ? panelTop(baseY) : inputTop(baseY)) - 2;
+        int msgBottom = inputTop(baseY) - 2;
         int viewH = Math.max(0, msgBottom - msgTop);
 
         int totalH = 0;
@@ -451,12 +477,12 @@ public class ChatPage implements IPhonePage {
         int iTop = inputTop(baseY);
         drawTopShadow(g, baseX, iTop - 2, w);
 
-        // ==================== 上拉面板（保留原有弹出功能，仅换色 + 细线分隔） ====================
+        // ==================== 上拉面板（位于拓展栏上方；打开时把输入框顶上去） ====================
         if (bottomPanelOpen) {
             int pTop = panelTop(baseY);
-            int pBottom = inputTop(baseY);
+            int pBottom = extBarTop(baseY);
             g.fill(baseX, pTop, baseX + w, pBottom, 0xFFF5E9EF);
-            // 与输入框之间用淡灰色细线分隔
+            // 面板底部用淡灰色细线与拓展功能栏分隔
             g.fill(baseX, pBottom - 1, baseX + w, pBottom, 0xFFD9D2D6);
             int panelMidY = (pTop + pBottom) / 2;
             String panelText = "🚧 面板开发中";
@@ -535,12 +561,12 @@ public class ChatPage implements IPhonePage {
         }
     }
 
-    /** 计算某条消息气泡的高度（与 drawBubble 的换行/行高逻辑一致），用于滚动钳制 */
+    /** 计算某条消息气泡的高度（含上方时间标签，与 drawBubble 的换行/行高逻辑一致），用于滚动钳制 */
     private int bubbleHeight(Font font, ChatMessage m, int phoneW) {
         int maxTextW = (int) ((phoneW - AVATAR * 2 - MARGIN * 4) / uiScale());
         List<FormattedCharSequence> lines = font.split(Component.literal(m.text()), maxTextW);
         int lineH = lh() + 1;
-        return lines.size() * lineH + UiFont.sh(4);
+        return lines.size() * lineH + UiFont.sh(4) + timeH();
     }
 
     private int drawBubble(GuiGraphics g, Font font, int baseX, int yBottom, int phoneW, ChatMessage m) {
@@ -583,6 +609,14 @@ public class ChatPage implements IPhonePage {
                 drawScaledText(g, font, "!", bubbleLeft - UiFont.sh(8), yTop + UiFont.sh(2),
                         0xFFFF3333, UiFont.sc(1.0f));
             }
+            // 发送时间（多久以前）：气泡右上方，0.5 倍灰字
+            String timeText = formatGameTime(m.gameTime());
+            if (!timeText.isEmpty()) {
+                float ts = UiFont.sc(0.5f);
+                drawScaledText(g, font, timeText,
+                        bubbleRight - (int) (font.width(timeText) * ts) - UiFont.sh(2),
+                        yTop - timeH(), 0xFF9A8A90, ts);
+            }
         } else {
             int bubbleLeft = baseX + AVATAR + MARGIN;
             UiShapes.fillRoundedRect(g, bubbleLeft, yTop, bubbleW, bubbleH, radius, bgColor);
@@ -592,8 +626,14 @@ public class ChatPage implements IPhonePage {
                 ty += lineH;
             }
             drawAvatarPlaceholder(g, baseX + 2, yTop, false);
+            // 发送时间（多久以前）：气泡左上方，0.5 倍灰字
+            String timeText = formatGameTime(m.gameTime());
+            if (!timeText.isEmpty()) {
+                float ts = UiFont.sc(0.5f);
+                drawScaledText(g, font, timeText, bubbleLeft + UiFont.sh(2), yTop - timeH(), 0xFF9A8A90, ts);
+            }
         }
-        return bubbleH;
+        return bubbleH + timeH();
     }
 
     private void drawAvatarPlaceholder(GuiGraphics g, int x, int y, boolean isPlayer) {
@@ -762,7 +802,7 @@ public class ChatPage implements IPhonePage {
         Font font = Minecraft.getInstance().font;
         int w = phoneW();
         int msgTop = navH();
-        int msgBottom = (bottomPanelOpen ? panelTop(0) : inputTop(0)) - 2;
+        int msgBottom = inputTop(0) - 2;
         int viewH = Math.max(0, msgBottom - msgTop);
         int totalH = 0;
         for (ChatMessage m : messages) {
@@ -779,6 +819,6 @@ public class ChatPage implements IPhonePage {
         Minecraft.getInstance().setScreen(new PhoneInputScreen(this));
     }
 
-    private record ChatMessage(String text, boolean isPlayer, boolean isError, boolean pending) {
+    private record ChatMessage(String text, boolean isPlayer, boolean isError, boolean pending, long gameTime) {
     }
 }
