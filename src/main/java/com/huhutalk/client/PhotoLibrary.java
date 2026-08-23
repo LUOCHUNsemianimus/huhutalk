@@ -28,6 +28,7 @@ import java.util.stream.Stream;
  *   包内只传 token 给服务端读图识图（单机下客户端写、集成服务端读共享）。
  */
 public final class PhotoLibrary {
+    private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger("huhutalk.photo_library");
     private static final Map<String, ResourceLocation> TEXTURES = new HashMap<>();
     private static final Map<String, int[]> DIMS = new HashMap<>();
     /** 临时（未保存）照片：captured id -> PNG 字节 */
@@ -131,9 +132,15 @@ public final class PhotoLibrary {
         if (key == null) return null;
         byte[] cap = CAPTURED.get(key);
         if (cap != null) return cap;
+        Path p = photoDir().resolve(sanitize(key));
         try {
-            return Files.readAllBytes(photoDir().resolve(sanitize(key)));
+            if (!Files.exists(p)) {
+                LOGGER.error("[HuhuTalk] 读图失败：文件不存在 key={}, path={}", key, p);
+                return null;
+            }
+            return Files.readAllBytes(p);
         } catch (IOException e) {
+            LOGGER.error("[HuhuTalk] 读图失败 key={}, path={}", key, p, e);
             return null;
         }
     }
@@ -185,6 +192,7 @@ public final class PhotoLibrary {
             Files.write(visionTmpDir().resolve(token), pngBytes);
             return token;
         } catch (IOException e) {
+            LOGGER.error("[HuhuTalk] 写 vision_tmp 失败 dir={}", visionTmpDir(), e);
             return null;
         }
     }

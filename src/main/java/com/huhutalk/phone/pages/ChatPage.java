@@ -1278,8 +1278,14 @@ public class ChatPage implements IPhonePage {
     /** 发送"文字 + 一张图"：本地立即显示玩家消息+图气泡，写入 vision_tmp，通知服务端识图后让女仆回复 */
     private void sendImageChat() {
         String text = currentInput;
-        byte[] img = selectedImageBytes;
         String key = selectedImageKey;
+        // 发送时按 key 现读字节（不依赖选中时预存的字节，读图失败可即时发现）
+        byte[] img = key == null ? null : PhotoLibrary.readBytes(key);
+        if (img == null) {
+            LOGGER.error("[HuhuTalk] 发送图片失败：key={} 读图字节为空，退化为纯文字", key);
+            sendCurrentMessage();
+            return;
+        }
 
         // 本地立即显示玩家文字气泡（如有）+ 图片气泡（同组）
         long gameTime = currentGameTime();
@@ -1287,9 +1293,7 @@ public class ChatPage implements IPhonePage {
             messages.add(new ChatMessage(text, true, false, false, gameTime, null, null));
             ChatHistoryStorage.appendMessage(stableId, text, true, false);
         }
-        if (img != null) {
-            messages.add(new ChatMessage("", true, false, false, gameTime, null, key));
-        }
+        messages.add(new ChatMessage("", true, false, false, gameTime, null, key));
         // 写入 vision_tmp，拿 token
         String token = PhotoLibrary.writeVisionTmp(img);
         if (token == null) {
@@ -1300,7 +1304,7 @@ public class ChatPage implements IPhonePage {
             return;
         }
         LOGGER.info("[HuhuTalk] 发送图片聊天: stableId={}, token={}, text='{}', imgBytes={}",
-                stableId, token, text, img == null ? 0 : img.length);
+                stableId, token, text, img.length);
         PacketDistributor.sendToServer(new C2SMaidImageChatPacket(stableId,
                 text == null ? "" : text, token));
         this.waitingResponse = true;
@@ -1656,7 +1660,7 @@ public class ChatPage implements IPhonePage {
 
         if (relX >= sendX(baseX) && relX <= sendX(baseX) + sendW()
                 && relY >= sendY(baseY) && relY <= sendY(baseY) + sendH()) {
-            if (selectedImageBytes != null) {
+            if (selectedImageKey != null) {
                 sendImageChat();
             } else {
                 sendCurrentMessage();
