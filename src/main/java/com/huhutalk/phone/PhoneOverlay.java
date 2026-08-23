@@ -54,6 +54,11 @@ public class PhoneOverlay {
     private static int phoneHeight;
     private static int phoneX, phoneY;
 
+    /** 正在拖动手机（按住顶部状态栏左键） */
+    private static boolean dragging = false;
+    /** 拖拽抓取点：按下瞬间鼠标相对手机左上角的偏移 */
+    private static float grabDX, grabDY;
+
     /** 统一状态栏高度（像素，0.75 倍） */
     private static final int STATUSBAR_H = 12;
     /** 手机最小宽度（像素） */
@@ -110,6 +115,28 @@ public class PhoneOverlay {
         scale = Math.max(0.5f, Math.min(2.0f, newScale));
     }
 
+    /** 水平约束：手机至少保留一半宽度在屏内（左右至多滑出半个手机，顶部栏仍留一半可抓） */
+    private static int clampPhoneX(int x, int screenW) {
+        return Math.max(-phoneWidth / 2, Math.min(screenW - phoneWidth / 2, x));
+    }
+
+    /** 垂直约束：顶部状态栏高度必须完整在屏内（向下可把状态栏以下内容全部滑出） */
+    private static int clampPhoneY(int y, int screenH) {
+        return Math.max(0, Math.min(screenH - STATUSBAR_H, y));
+    }
+
+    /** 当前鼠标在 GUI 缩放坐标下的 X */
+    private static int guiMouseX(Minecraft mc) {
+        return (int) Math.round(mc.mouseHandler.xpos()
+                * mc.getWindow().getGuiScaledWidth() / mc.getWindow().getScreenWidth());
+    }
+
+    /** 当前鼠标在 GUI 缩放坐标下的 Y */
+    private static int guiMouseY(Minecraft mc) {
+        return (int) Math.round(mc.mouseHandler.ypos()
+                * mc.getWindow().getGuiScaledHeight() / mc.getWindow().getScreenHeight());
+    }
+
     // ==================== 状态控制 ====================
 
     public static boolean shouldCaptureMouse() {
@@ -128,6 +155,7 @@ public class PhoneOverlay {
 
     private static void hide() {
         visible = false;
+        dragging = false;
         if (Minecraft.getInstance().screen instanceof PhoneInputScreen) {
             Minecraft.getInstance().setScreen(null);
         }
@@ -251,8 +279,27 @@ public class PhoneOverlay {
         int width = (int)Math.round(totalHeight * aspect);
         phoneWidth = Math.max(MIN_PHONE_W, Math.min(width, screenW - 20));
         phoneHeight = Math.max(20, totalHeight - STATUSBAR_H - WATERMARK_H);
-        phoneX = screenW - phoneWidth - 10;
-        phoneY = Math.max(2, screenH - totalHeight - 10);
+
+        // 默认锚点：右下角（右/下各留 10px）
+        int defX = screenW - phoneWidth - 10;
+        int defY = screenH - totalHeight - 10;
+
+        // 拖动时：手机实时跟随鼠标，并把约束后的位置折算为偏移量落盘
+        if (dragging) {
+            int mx = guiMouseX(mc);
+            int my = guiMouseY(mc);
+            int targetX = (int)Math.round(mx - grabDX);
+            int targetY = (int)Math.round(my - grabDY);
+            int clampedX = clampPhoneX(targetX, screenW);
+            int clampedY = clampPhoneY(targetY, screenH);
+            HuhuTalkClientSettings.setPhoneOffsetRaw(clampedX - defX, clampedY - defY);
+        }
+
+        phoneX = defX + Math.round(HuhuTalkClientSettings.getPhoneOffsetX());
+        phoneY = defY + Math.round(HuhuTalkClientSettings.getPhoneOffsetY());
+        // 约束：水平至多半个手机宽度出屏（顶部栏仍留一半可抓）；垂直保证状态栏高度完整在屏内
+        phoneX = clampPhoneX(phoneX, screenW);
+        phoneY = clampPhoneY(phoneY, screenH);
 
         // 手机壳（纯视觉，包住整个手机）
         PhoneCaseRenderer.renderCase(graphics, phoneX, phoneY, phoneWidth, totalHeight);
@@ -428,6 +475,13 @@ public class PhoneOverlay {
     public static boolean handleMouseClicked(double screenX, double screenY, int button, int action) {
         if (!visible) return false;
 
+        // 拖拽释放：无论鼠标此刻是否还在手机内都要结束拖拽并落盘
+        if (action == GLFW.GLFW_RELEASE && button == GLFW.GLFW_MOUSE_BUTTON_LEFT && dragging) {
+            dragging = false;
+            HuhuTalkClientSettings.save();
+            return true;
+        }
+
         double relX = screenX - phoneX;
         double relY = screenY - phoneY;
         if (relX < 0 || relY < 0 || relX >= phoneWidth || relY >= phoneHeight + STATUSBAR_H + WATERMARK_H) {
@@ -436,11 +490,15 @@ public class PhoneOverlay {
 
         // 状态栏 / 底部导航 / 水印栏 / 右键返回：仅在按下时处理
         if (action == GLFW.GLFW_PRESS) {
-            // 状态栏区域：只处理关闭按钮
+            // 状态栏区域：关闭按钮 / 其余按住左键拖动手机
             if (relY < STATUSBAR_H) {
                 if (relX >= phoneWidth - 14 && relX <= phoneWidth) {
                     hide();
                     updateCursorMode();
+                } else if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+                    dragging = true;
+                    grabDX = (float) (screenX - phoneX);
+                    grabDY = (float) (screenY - phoneY);
                 }
                 return true;
             }
@@ -506,6 +564,7 @@ public class PhoneOverlay {
     /** 进入新世界时调用：关闭手机、清空页面栈 */
     public static void resetForNewWorld() {
         visible = false;
+        dragging = false;
         inChatApp = false;
         pageStack.clear();
         activeTab = Tab.MESSAGE;

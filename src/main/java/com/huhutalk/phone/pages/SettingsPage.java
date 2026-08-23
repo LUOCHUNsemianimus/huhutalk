@@ -316,12 +316,11 @@ public class SettingsPage implements IPhonePage {
         return (int) (font.width(text) * BTN_TEXT_SCALE) + 10;
     }
 
-    /** 竖排箭头按钮（每个 0.5 倍字体大小，取色 #de7e7e） */
+    /** 竖排箭头（每个 0.5 倍字体大小，只保留箭头本身、去掉背景包裹，取色 #de7e7e） */
     private void arrowBtn(GuiGraphics g, Font font, int x, int y, int size, String text) {
-        UiShapes.fillRoundedRect(g, x, y, size, size, size / 2, BTN_COLOR);
         float s = 0.5f;
         drawScaledText(g, font, text, x + (size - font.width(text) * s) / 2f,
-                y + (size - font.lineHeight * s) / 2f, 0xFFFFFFFF, s);
+                y + (size - font.lineHeight * s) / 2f, BTN_COLOR, s);
     }
 
     private void capsuleBtn(GuiGraphics g, Font font, int x, int y, int w, int h, String text, int bg) {

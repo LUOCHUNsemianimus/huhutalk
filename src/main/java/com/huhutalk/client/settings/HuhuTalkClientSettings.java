@@ -33,6 +33,9 @@ public final class HuhuTalkClientSettings {
     private static String phoneAspect = "20:9";
     /** 手机屏幕高度占实际屏幕高度的比例（0.5 ~ 1.0） */
     private static float phoneSize = 0.6f;
+    /** 手机相对默认右下角锚点的水平/垂直拖拽偏移（GUI 缩放坐标，持久化） */
+    private static float phoneOffsetX = 0f;
+    private static float phoneOffsetY = 0f;
     /** 消息免打扰（DND）：开启后女仆消息不再弹未读红点/通知 */
     private static boolean dndEnabled = false;
     /** 消息断句动画开关 */
@@ -55,6 +58,8 @@ public final class HuhuTalkClientSettings {
     public static String getPhoneCaseBlock() { return phoneCaseBlock; }
     public static String getPhoneAspect() { return phoneAspect; }
     public static float getPhoneSize() { return phoneSize; }
+    public static float getPhoneOffsetX() { return phoneOffsetX; }
+    public static float getPhoneOffsetY() { return phoneOffsetY; }
     public static boolean isDndEnabled() { return dndEnabled; }
     public static boolean isMessageAnimationEnabled() { return messageAnimation; }
     public static long getCharTypingMs() { return charTypingMs; }
@@ -156,6 +161,19 @@ public final class HuhuTalkClientSettings {
         phoneSize = Math.max(0.5f, Math.min(1.0f, size));
     }
 
+    /** 拖动手机过程中的高频更新：只改内存，不落盘（松开时由调用方 save） */
+    public static void setPhoneOffsetRaw(float x, float y) {
+        phoneOffsetX = x;
+        phoneOffsetY = y;
+    }
+
+    /** 落盘手机位置偏移 */
+    public static void setPhoneOffset(float x, float y) {
+        phoneOffsetX = x;
+        phoneOffsetY = y;
+        save();
+    }
+
     public static void setDndEnabled(boolean enabled) {
         dndEnabled = enabled;
         save();
@@ -209,6 +227,8 @@ public final class HuhuTalkClientSettings {
             phoneCaseBlock = data.phoneCaseBlock != null ? data.phoneCaseBlock : "";
             if (data.phoneAspect != null && !data.phoneAspect.isBlank()) phoneAspect = data.phoneAspect;
             if (data.phoneSize > 0f) phoneSize = Math.max(0.5f, Math.min(1.0f, data.phoneSize));
+            phoneOffsetX = data.phoneOffsetX;
+            phoneOffsetY = data.phoneOffsetY;
             dndEnabled = data.dndEnabled;
             messageAnimation = data.messageAnimation;
             if (data.charTypingMs > 0) charTypingMs = data.charTypingMs;
@@ -238,6 +258,8 @@ public final class HuhuTalkClientSettings {
             data.phoneCaseBlock = phoneCaseBlock;
             data.phoneAspect = phoneAspect;
             data.phoneSize = phoneSize;
+            data.phoneOffsetX = phoneOffsetX;
+            data.phoneOffsetY = phoneOffsetY;
             data.dndEnabled = dndEnabled;
             data.messageAnimation = messageAnimation;
             data.charTypingMs = charTypingMs;
@@ -258,6 +280,8 @@ public final class HuhuTalkClientSettings {
         String phoneCaseBlock;
         String phoneAspect;
         float phoneSize;
+        float phoneOffsetX;
+        float phoneOffsetY;
         boolean dndEnabled;
         boolean messageAnimation;
         long charTypingMs;
