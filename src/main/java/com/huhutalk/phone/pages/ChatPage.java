@@ -11,6 +11,7 @@ import com.huhutalk.phone.PhoneInputScreen;
 import com.huhutalk.phone.PhoneOverlay;
 import com.huhutalk.phone.UiFont;
 import com.huhutalk.phone.UiShapes;
+import com.huhutalk.phone.voice.VoiceInput;
 import com.huhutalk.util.MessageSplitter;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
@@ -45,6 +46,8 @@ public class ChatPage implements IPhonePage {
     private boolean inputActive = false;
     private int cursorIndex = 0;
     private boolean bottomPanelOpen = false;
+    /** 当前打开的是底部哪个图标的扩展面板（-1 表示未打开） */
+    private int extPanelIcon = -1;
     private int inputScrollOffset = 0;
     /** 是否正在等待女仆回复（用于"对方正在输入…"） */
     private boolean waitingResponse = false;
@@ -68,6 +71,14 @@ public class ChatPage implements IPhonePage {
     private long splitGameTime = 0;
     /** 是否正在断句逐条显示（期间"对方正在输入…"保持） */
     private boolean splitting = false;
+
+    // ==================== 语音（按住说话） ====================
+    /** 语音输入来源：鼠标按住按钮 / F 快捷键 */
+    public enum VoiceSource { MOUSE, KEY }
+    /** 是否正在录音（按住说话进行中） */
+    private boolean voiceActive = false;
+    /** 当前录音来源 */
+    private VoiceSource voiceSource = VoiceSource.KEY;
 
     public ChatPage(String stableId, String maidName) {
         this.stableId = stableId;
@@ -158,6 +169,54 @@ public class ChatPage implements IPhonePage {
 
     public void onPageHide() {
         ChatHistoryStorage.setDraft(stableId, currentInput);
+        cancelVoice();
+    }
+
+    // ==================== 语音（按住说话 / F 快捷键） ====================
+
+    /** 开始录音（按住说话）。未配置 STT 或已在录音时不会重复开启。 */
+    public void startVoice(VoiceSource source) {
+        if (voiceActive) return;
+        if (VoiceInput.isRecording()) return;
+        boolean ok = VoiceInput.start(this::sendText);
+        if (ok) {
+            voiceActive = true;
+            voiceSource = source;
+        } else if (!VoiceInput.isConfigured()) {
+            Minecraft mc = Minecraft.getInstance();
+            if (mc.player != null) {
+                mc.player.sendSystemMessage(Component.literal(
+                        "[HuhuTalk] 未配置语音识别，请先在车万女仆的 AI 设置中配置并启用 STT 站点。"));
+            }
+        }
+    }
+
+    /** 停止录音并发送识别文字。cancel=true 丢弃本次结果（右键取消）。 */
+    public void stopVoice(boolean cancel) {
+        if (!voiceActive && !VoiceInput.isRecording()) return;
+        voiceActive = false;
+        VoiceInput.stop(cancel);
+    }
+
+    /** 右键取消：停止录音并丢弃结果 */
+    public void cancelVoice() {
+        stopVoice(true);
+    }
+
+    /** 是否正在录音（供 PhoneOverlay 在右键时拦截为取消） */
+    public boolean isVoiceRecording() {
+        return voiceActive || VoiceInput.isRecording();
+    }
+
+    /** 把一段文字作为"玩家发送"的消息加入聊天并发送给当前女仆（语音转文字结果走这里） */
+    private void sendText(String text) {
+        if (text == null || text.isBlank()) return;
+        messages.add(new ChatMessage(text, true, false, false, currentGameTime()));
+        ChatHistoryStorage.appendMessage(stableId, text, true, false);
+        ChatHistoryStorage.setDraft(stableId, "");
+        PacketDistributor.sendToServer(new C2SMaidChatPacket(stableId, text));
+        this.waitingResponse = true;
+        scrollOffset = 0;
     }
 
     public void onReceiveMessage(String text, boolean isError) {
@@ -319,10 +378,18 @@ public class ChatPage implements IPhonePage {
     /** 发送按钮垂直中心始终与输入框垂直中心对齐，高度固定 */
     private int sendY(int baseY) { return (inputTop(baseY) + inputBottom(baseY)) / 2 - sendH() / 2; }
 
-    /** 上拉面板高度（打开时在拓展栏上方展开） */
-    private int panelH() { return bottomPanelOpen ? (int)(phoneH() * 0.18) : 0; }
+    /** 上拉面板高度（打开时在拓展栏上方展开）。语音面板（左一图标）更高，好放"按住说话"大按钮。 */
+    private int panelH() {
+        if (!bottomPanelOpen) return 0;
+        return (int)(phoneH() * (extPanelIcon == 0 ? 0.26 : 0.18));
+    }
     /** 面板顶：直接位于拓展功能栏上方；打开时把输入框往上顶，而不是从输入框上方伸出 */
     private int panelTop(int baseY) { return extBarTop(baseY) - panelH(); }
+
+    /** 语音大按钮直径 = 扩展栏(面板)高度的 5/6 */
+    private int voiceBtnD() { return Math.max(1, (int)(panelH() * 5.0 / 6.0)); }
+    /** 语音大按钮圆心（内容区相对坐标） */
+    private int voiceBtnCy() { return (panelTop(0) + extBarTop(0)) / 2; }
 
     private boolean isCursorVisible() {
         return (System.currentTimeMillis() % 1000) < 500;
@@ -421,6 +488,10 @@ public class ChatPage implements IPhonePage {
     public void render(GuiGraphics g, int baseX, int baseY, float partialTick) {
         // 每帧推进断句显示（任务2）
         advanceSplitting();
+        // 鼠标按住说话：左键松开（无论是否在手机范围内）即停止并发送
+        if (voiceActive && voiceSource == VoiceSource.MOUSE && !isLeftMouseDown()) {
+            stopVoice(false);
+        }
         Font font = Minecraft.getInstance().font;
         int w = phoneW();
 
@@ -494,11 +565,15 @@ public class ChatPage implements IPhonePage {
             g.fill(baseX, pTop, baseX + w, pBottom, 0xFFF5E9EF);
             // 面板底部用淡灰色细线与拓展功能栏分隔
             g.fill(baseX, pBottom - 1, baseX + w, pBottom, 0xFFD9D2D6);
-            int panelMidY = (pTop + pBottom) / 2;
-            String panelText = "🚧 面板开发中";
-            drawScaledText(g, font, panelText,
-                    baseX + (w - font.width(panelText) * UiFont.sc(1.0f)) / 2,
-                    panelMidY - lh() / 2, 0xFF8A6A6A, UiFont.sc(1.0f));
+            if (extPanelIcon == 0) {
+                renderVoiceButton(g, font, baseX, pTop, pBottom, w);
+            } else {
+                int panelMidY = (pTop + pBottom) / 2;
+                String panelText = "🚧 面板开发中";
+                drawScaledText(g, font, panelText,
+                        baseX + (w - font.width(panelText) * UiFont.sc(1.0f)) / 2,
+                        panelMidY - lh() / 2, 0xFF8A6A6A, UiFont.sc(1.0f));
+            }
         }
 
         // ==================== 输入框（胶囊形，随内容增高，最多 3 行） ====================
@@ -790,6 +865,27 @@ public class ChatPage implements IPhonePage {
         ensureCursorVisible();
     }
 
+    /** 左键是否处于按下状态（用于"按住说话"的松手检测） */
+    private static boolean isLeftMouseDown() {
+        Minecraft mc = Minecraft.getInstance();
+        return org.lwjgl.glfw.GLFW.glfwGetMouseButton(mc.getWindow().getWindow(),
+                GLFW.GLFW_MOUSE_BUTTON_LEFT) == GLFW.GLFW_PRESS;
+    }
+
+    /** 绘制语音面板里的圆形"按住说话"大按钮（#de7e7e 底白字，居中，直径 = 扩展栏高度 5/6） */
+    private void renderVoiceButton(GuiGraphics g, Font font, int baseX, int pTop, int pBottom, int w) {
+        int d = voiceBtnD();
+        int cx = baseX + w / 2;
+        int cy = (pTop + pBottom) / 2;
+        // 录音中高亮为更深的强调色
+        int color = voiceActive ? 0xFFC2605A : 0xFFDE7E7E;
+        UiShapes.fillRoundedRect(g, cx - d / 2, cy - d / 2, d, d, d / 2, color);
+        String label = voiceActive ? "松开发送" : "按住说话";
+        float ts = UiFont.sc(0.9f);
+        drawScaledText(g, font, label, cx - font.width(label) * ts / 2f,
+                cy - Minecraft.getInstance().font.lineHeight * ts / 2f, 0xFFFFFFFF, ts);
+    }
+
     @Override
     public boolean mouseClicked(double relX, double relY, int button, int action) {
         if (button != GLFW.GLFW_MOUSE_BUTTON_LEFT) return false;
@@ -808,6 +904,19 @@ public class ChatPage implements IPhonePage {
             return true;
         }
 
+        // 语音面板（左一图标）里的圆形"按住说话"按钮：左键按住开始录音（松手检测在 render）
+        if (bottomPanelOpen && extPanelIcon == 0) {
+            int d = voiceBtnD();
+            int cx = w / 2;
+            int cy = voiceBtnCy();
+            double dx = relX - cx, dy = relY - cy;
+            double rr = d / 2.0;
+            if (dx * dx + dy * dy <= rr * rr) {
+                startVoice(VoiceSource.MOUSE);
+                return true;
+            }
+        }
+
         // 拓展功能栏（贴屏幕底部）：点击任意按钮切换上拉面板
         int extTop = extBarTop(0);
         if (relY >= extTop && relY <= phoneH()) {
@@ -815,7 +924,13 @@ public class ChatPage implements IPhonePage {
             int iconSlotW = w / iconCount;
             int clickedIcon = (int)(relX / iconSlotW);
             if (clickedIcon >= 0 && clickedIcon < iconCount) {
-                bottomPanelOpen = !bottomPanelOpen;
+                if (bottomPanelOpen && extPanelIcon == clickedIcon) {
+                    bottomPanelOpen = false;
+                    extPanelIcon = -1;
+                } else {
+                    bottomPanelOpen = true;
+                    extPanelIcon = clickedIcon;
+                }
                 return true;
             }
         }

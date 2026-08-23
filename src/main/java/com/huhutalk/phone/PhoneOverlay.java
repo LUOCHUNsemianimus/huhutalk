@@ -5,6 +5,7 @@ import com.huhutalk.client.settings.HuhuTalkClientSettings;
 import com.huhutalk.client.theme.ColorScheme;
 import com.huhutalk.client.theme.PhoneCaseRenderer;
 import com.huhutalk.client.theme.ThemeManager;
+import com.huhutalk.phone.pages.ChatPage;
 import com.huhutalk.phone.pages.ContactListPage;
 import com.huhutalk.phone.pages.MainPage;
 import com.huhutalk.phone.pages.MessageListPage;
@@ -527,8 +528,13 @@ public class PhoneOverlay {
                 }
             }
 
-            // 右键：App 内部页返回上一页；App 顶层页返回桌面；桌面关闭手机
+            // 右键：录音中优先取消（丢弃本次语音）；否则按 App 内部页/顶层页/桌面处理返回
             if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
+                IPhonePage curPage = getCurrentPage();
+                if (curPage instanceof ChatPage cp && cp.isVoiceRecording()) {
+                    cp.cancelVoice();
+                    return true;
+                }
                 if (isInSubPage()) {
                     popPage();
                 } else if (inChatApp) {

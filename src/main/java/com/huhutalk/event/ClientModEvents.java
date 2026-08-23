@@ -1,6 +1,8 @@
 package com.huhutalk.event;
 
 import com.huhutalk.phone.PhoneOverlay;
+import com.huhutalk.phone.IPhonePage;
+import com.huhutalk.phone.pages.ChatPage;
 import com.mojang.blaze3d.platform.InputConstants;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
@@ -20,6 +22,9 @@ public class ClientModEvents {
     public static final KeyMapping QUICK_VOICE = new KeyMapping(
             "key.phone.voice", GLFW.GLFW_KEY_F, "key.category.phone");
 
+    /** 正在按住 F 说话的聊天页（用于松手时停止录音） */
+    private static ChatPage quickVoicePage = null;
+
     @SubscribeEvent
     public static void registerKeys(RegisterKeyMappingsEvent event) {
         event.register(TOGGLE_PHONE);
@@ -34,14 +39,32 @@ public class ClientModEvents {
         while (TOGGLE_PHONE.consumeClick()) {
             PhoneOverlay.toggle();
         }
-        while (QUICK_VOICE.consumeClick()) {
-            // TODO: 快捷语音
-        }
+        handleQuickVoice(mc);
 
         long window = mc.getWindow().getWindow();
         boolean altDown = InputConstants.isKeyDown(window, GLFW.GLFW_KEY_LEFT_ALT) ||
                 InputConstants.isKeyDown(window, GLFW.GLFW_KEY_RIGHT_ALT);
         PhoneOverlay.setAltDown(altDown);
+    }
+
+    /**
+     * F 键"按住说话"：仅当手机可见且当前页为聊天页时生效。
+     * 按住 F → 开始录音；松开 F → 停止并发送。是否打开扩展面板均可用。
+     */
+    private static void handleQuickVoice(Minecraft mc) {
+        boolean down = InputConstants.isKeyDown(mc.getWindow().getWindow(), QUICK_VOICE.getKey().getValue());
+        if (down && quickVoicePage == null) {
+            if (PhoneOverlay.isVisible()) {
+                IPhonePage cur = PhoneOverlay.getCurrentPage();
+                if (cur instanceof ChatPage cp) {
+                    quickVoicePage = cp;
+                    cp.startVoice(ChatPage.VoiceSource.KEY);
+                }
+            }
+        } else if (!down && quickVoicePage != null) {
+            quickVoicePage.stopVoice(false);
+            quickVoicePage = null;
+        }
     }
 
     @SubscribeEvent
