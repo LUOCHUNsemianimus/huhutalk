@@ -9,6 +9,7 @@ import com.huhutalk.common.PhoneHelper;
 import com.huhutalk.common.StableIdProvider;
 import com.huhutalk.core.contact.MaidContactBook;
 import com.huhutalk.core.contact.MaidContactEntry;
+import com.huhutalk.core.vision.VisionService;
 import com.huhutalk.network.S2CMaidChatErrorPacket;
 import com.huhutalk.network.S2CMaidChatInfoPacket;
 import net.minecraft.server.MinecraftServer;
@@ -17,6 +18,9 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.neoforged.neoforge.network.PacketDistributor;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -97,6 +101,112 @@ public class MaidChatHandler {
 
         HuhuTalkChatCallback callback = new HuhuTalkChatCallback(manager, messages, player, stableId);
         site.client().chat(callback);
+    }
+
+    /**
+     * 处理带一张图片的聊天（C2SMaidImageChatPacket）。
+     * <p>
+     * 图片由客户端写入共享的 {@code vision_tmp} 目录，这里只凭 {@code imageToken} 读取。
+     * 流程：读图 → {@link VisionService} 识图得到描述 → 把描述作为<b>本次调用的临时系统消息</b>
+     * （不写历史、不显示），连同用户文字一起发给聊天 LLM，让女仆对图片做出反应。
+     */
+    public static void handleImageChat(ServerPlayer player, String stableId, String userText, String imageToken) {
+        EntityMaid maid = findMaidByStableId(player.getServer(), stableId);
+        if (maid == null) {
+            PacketDistributor.sendToPlayer(player,
+                    new S2CMaidChatErrorPacket(stableId, "找不到该女仆或女仆不在线"));
+            return;
+        }
+        if (!maid.isOwnedBy(player)) {
+            PacketDistributor.sendToPlayer(player,
+                    new S2CMaidChatErrorPacket(stableId, "这不是你的女仆"));
+            return;
+        }
+        if (!PhoneHelper.hasPhone(maid)) {
+            PacketDistributor.sendToPlayer(player,
+                    new S2CMaidChatInfoPacket(stableId, "该女仆没有佩戴手机，暂时无法联系。", false));
+            return;
+        }
+        MaidAIChatManager manager = maid.getAiChatManager();
+        LLMSite site = manager.getLLMSite();
+        if (site == null || !site.enabled()) {
+            PacketDistributor.sendToPlayer(player,
+                    new S2CMaidChatErrorPacket(stableId, "女仆未配置 AI 或 AI 不可用"));
+            return;
+        }
+
+        String safeToken = sanitizeToken(imageToken);
+        Path imgPath = VisionService.visionTmpDir().resolve(safeToken);
+        if (!Files.exists(imgPath)) {
+            PacketDistributor.sendToPlayer(player,
+                    new S2CMaidChatErrorPacket(stableId, "图片数据缺失，请重试"));
+            return;
+        }
+        // 用户若带了文字，先记入历史（图片描述本身不写历史）
+        if (userText != null && !userText.isBlank()) {
+            manager.addUserHistory(userText);
+        }
+        final String stableIdIn = stableId;
+        final String userTextIn = userText == null ? "" : userText;
+        final EntityMaid maidIn = maid;
+        final ServerPlayer playerIn = player;
+
+        VisionService.describeFile(imgPath, "这是主人刚发给你的一张图片。请仔细观察画面，尽量具体地描述其中发生了什么、有哪些东西。")
+                .whenComplete((desc, throwable) -> {
+                    // 用完即删临时图
+                    try {
+                        Files.deleteIfExists(imgPath);
+                    } catch (IOException ignored) {
+                    }
+                    if (throwable != null) {
+                        PacketDistributor.sendToPlayer(playerIn,
+                                new S2CMaidChatErrorPacket(stableIdIn, "识图失败：" + throwable.getMessage()));
+                        return;
+                    }
+                    if (!maidIn.isAlive()) {
+                        return;
+                    }
+                    // 回到服务端线程再做 LLM 调用（TLM 强制主线程）
+                    playerIn.getServer().submit(() -> {
+                        List<LLMMessage> messages = buildImageMessages(manager, desc, userTextIn);
+                        HuhuTalkChatCallback callback = new HuhuTalkChatCallback(manager, messages, playerIn, stableIdIn);
+                        site.client().chat(callback);
+                    });
+                });
+    }
+
+    /** 构建带图片描述系统消息 + 用户文字的 LLM 消息列表。 */
+    private static List<LLMMessage> buildImageMessages(MaidAIChatManager manager, String desc, String userText) {
+        EntityMaid maid = manager.getMaid();
+        List<LLMMessage> messages = new ArrayList<>();
+        manager.getSetting().ifPresent(setting -> {
+            String language = manager.getChatLanguage();
+            messages.add(LLMMessage.systemChat(maid, setting.getSetting(maid, language)));
+        });
+        manager.getHistorySummaryManager().appendSummaryMessage(messages);
+        manager.getHistory().getDeque().descendingIterator().forEachRemaining(messages::add);
+        // 图片描述作为本次调用的临时系统消息（不写历史、不显示在聊天）
+        messages.add(LLMMessage.systemChat(maid,
+                "主人刚刚给你发来了一张图片。你对画面内容的观察是：\n" + desc
+                        + "\n请基于你对图片的观察自然地回应主人；若主人同时说了话，也要一并回应。"));
+        if (userText != null && !userText.isBlank()) {
+            messages.add(LLMMessage.userChat(maid, userText));
+        } else {
+            messages.add(LLMMessage.userChat(maid, "我发了一张图片给你，你看一下并回应我。"));
+        }
+        return messages;
+    }
+
+    /** 把 token 规整为安全的文件名（防止路径穿越）。 */
+    private static String sanitizeToken(String token) {
+        if (token == null) {
+            return "";
+        }
+        String clean = token.replaceAll("[^a-zA-Z0-9_.\\-]", "_");
+        while (clean.startsWith(".")) {
+            clean = clean.substring(1);
+        }
+        return clean;
     }
 
     private static void handleOfflineMessage(ServerPlayer player, String stableId, String message) {

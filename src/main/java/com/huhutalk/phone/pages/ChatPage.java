@@ -4,7 +4,9 @@ import com.huhutalk.client.ChatHistoryStorage;
 import com.huhutalk.client.MaidAvatarManager;
 import com.huhutalk.client.MaidStatusCache;
 import com.huhutalk.client.NotificationManager;
+import com.huhutalk.client.PhotoLibrary;
 import com.huhutalk.network.C2SMaidChatPacket;
+import com.huhutalk.network.C2SMaidImageChatPacket;
 import com.huhutalk.network.C2SRequestMaidStatusPacket;
 import com.huhutalk.phone.IPhonePage;
 import com.huhutalk.phone.PhoneInputScreen;
@@ -78,6 +80,28 @@ public class ChatPage implements IPhonePage {
     /** 一张女仆表情（资源位置 + 纹理宽高，尺寸从文件名 `-WxH.png` 解析，默认 24x24） */
     private record EmoteEntry(ResourceLocation loc, int w, int h) {}
 
+    // ==================== 拍照 & 图片（📷 / 🖼️） ====================
+    /** 相机模式：正在拍照界面（替代整个聊天界面渲染） */
+    private boolean cameraActive = false;
+    /** 相机已拍下的 PNG 字节（null=还没拍） */
+    private byte[] cameraShot = null;
+    /** 当前选中待发送的图片 key（图库文件名或 captured id；null=未选） */
+    private String selectedImageKey = null;
+    /** 选中图片的 PNG 字节（发送用） */
+    private byte[] selectedImageBytes = null;
+    /** 图片栏横向滚动偏移（像素） */
+    private int galleryScrollOffset = 0;
+    /** 图片栏是否正在长按拖动翻页 */
+    private boolean galleryDragging = false;
+    /** 拖动手势起始 GUI X */
+    private double galleryDragStartX = 0;
+    /** 拖动起始时的滚动偏移 */
+    private int galleryDragStartOffset = 0;
+    /** 图片缩略图画廊的绘制边长 */
+    private static final int GALLERY_ITEM = 56;
+    /** 玩家图片消息气泡里图片的绘制边长 */
+    private static final int IMAGE_DRAW_SIZE = 48;
+
     // ==================== 断句逐条显示（任务2） ====================
     /** 每个字消耗的"打字"时间（毫秒），按字数线性计费 */
     private static final long CHAR_TYPING_MS = 500;
@@ -110,16 +134,16 @@ public class ChatPage implements IPhonePage {
         for (ChatHistoryStorage.ChatMessageEntry e : ChatHistoryStorage.getMessages(stableId)) {
             if (e.emote() != null) {
                 // 表情消息：直接整条恢复（不按逗号拆句），保留 emote 路径
-                messages.add(new ChatMessage(e.text(), e.isPlayer(), e.isError(), e.pending(), e.gameTime(), e.emote()));
+                messages.add(new ChatMessage(e.text(), e.isPlayer(), e.isError(), e.pending(), e.gameTime(), e.emote(), null));
             } else if (!e.isPlayer() && !e.isError()) {
                 // 历史中的女仆正常回复：按断句规则拆成多条气泡显示（与实时收到时一致），
                 // 避免重新进入世界后整段回复被合成一个大块。错误/玩家消息保持原样。
                 List<String> segments = MessageSplitter.split(e.text());
                 for (String seg : segments) {
-                    messages.add(new ChatMessage(seg, false, false, false, e.gameTime(), null));
+                    messages.add(new ChatMessage(seg, false, false, false, e.gameTime(), null, null));
                 }
             } else {
-                messages.add(new ChatMessage(e.text(), e.isPlayer(), e.isError(), e.pending(), e.gameTime(), null));
+                messages.add(new ChatMessage(e.text(), e.isPlayer(), e.isError(), e.pending(), e.gameTime(), null, null));
             }
         }
         this.currentInput = ChatHistoryStorage.getDraft(stableId);
@@ -137,7 +161,7 @@ public class ChatPage implements IPhonePage {
         for (int i = messages.size() - 1; i >= 0; i--) {
             ChatMessage m = messages.get(i);
             if (m.isPlayer()) {
-                messages.set(i, new ChatMessage(m.text(), true, m.isError(), true, m.gameTime(), m.emote()));
+                messages.set(i, new ChatMessage(m.text(), true, m.isError(), true, m.gameTime(), m.emote(), null));
                 break;
             }
         }
@@ -149,7 +173,7 @@ public class ChatPage implements IPhonePage {
         for (int i = 0; i < messages.size(); i++) {
             ChatMessage m = messages.get(i);
             if (m.pending()) {
-                messages.set(i, new ChatMessage(m.text(), m.isPlayer(), m.isError(), false, m.gameTime(), m.emote()));
+                messages.set(i, new ChatMessage(m.text(), m.isPlayer(), m.isError(), false, m.gameTime(), m.emote(), null));
             }
         }
         ChatHistoryStorage.clearPending(stableId);
@@ -239,7 +263,7 @@ public class ChatPage implements IPhonePage {
     /** 把一段文字作为"玩家发送"的消息加入聊天并发送给当前女仆（语音转文字结果走这里） */
     private void sendText(String text) {
         if (text == null || text.isBlank()) return;
-        messages.add(new ChatMessage(text, true, false, false, currentGameTime(), null));
+        messages.add(new ChatMessage(text, true, false, false, currentGameTime(), null, null));
         ChatHistoryStorage.appendMessage(stableId, text, true, false);
         ChatHistoryStorage.setDraft(stableId, "");
         PacketDistributor.sendToServer(new C2SMaidChatPacket(stableId, text));
@@ -265,7 +289,7 @@ public class ChatPage implements IPhonePage {
         String pendingEmoteLocal = (emote == null || emote.isEmpty()) ? null : emote;
         // 错误/提示消息：整段显示，不拆句
         if (isError) {
-            messages.add(new ChatMessage(text, false, true, false, currentGameTime(), null));
+            messages.add(new ChatMessage(text, false, true, false, currentGameTime(), null, null));
             this.pendingReplyEmote = null;
             this.waitingResponse = false;
             this.splitting = false;
@@ -278,7 +302,7 @@ public class ChatPage implements IPhonePage {
         List<String> segments = MessageSplitter.split(text);
         if (segments.size() <= 1 && pendingEmoteLocal == null) {
             // 无逗号可拆且无附件 → 整段显示
-            messages.add(new ChatMessage(text, false, false, false, groupTime, null));
+            messages.add(new ChatMessage(text, false, false, false, groupTime, null, null));
             this.pendingReplyEmote = null;
             this.waitingResponse = false;
             this.splitting = false;
@@ -313,13 +337,13 @@ public class ChatPage implements IPhonePage {
             if (now - lastSplitTime < typingMs) {
                 break;
             }
-            messages.add(new ChatMessage(splitQueue.get(splitIndex), false, false, false, splitGameTime, null));
+            messages.add(new ChatMessage(splitQueue.get(splitIndex), false, false, false, splitGameTime, null, null));
             splitIndex++;
             lastSplitTime = now;
         }
         // 文本全部显示完 → 附带的表情作为同一分组尾部出现
         if (splitIndex >= splitQueue.size() && pendingReplyEmote != null) {
-            messages.add(new ChatMessage("", false, false, false, splitGameTime, pendingReplyEmote));
+            messages.add(new ChatMessage("", false, false, false, splitGameTime, pendingReplyEmote, null));
             pendingReplyEmote = null;
             lastSplitTime = now;
         }
@@ -339,7 +363,7 @@ public class ChatPage implements IPhonePage {
     private void sendCurrentMessage() {
         if (currentInput.isBlank()) return;
         String text = currentInput;
-        messages.add(new ChatMessage(text, true, false, false, currentGameTime(), null));
+        messages.add(new ChatMessage(text, true, false, false, currentGameTime(), null, null));
         ChatHistoryStorage.appendMessage(stableId, text, true, false);
         ChatHistoryStorage.setDraft(stableId, "");
         PacketDistributor.sendToServer(new C2SMaidChatPacket(stableId, text));
@@ -549,6 +573,12 @@ public class ChatPage implements IPhonePage {
         Font font = Minecraft.getInstance().font;
         int w = phoneW();
 
+        // 相机模式：替代整个聊天界面渲染
+        if (cameraActive) {
+            renderCameraMode(g, font, baseX, baseY, w);
+            return;
+        }
+
         // 页面底色 #f0e4ea（比消息列表略深），覆盖黑色手机底层
         g.fill(baseX, baseY + navH(), baseX + w, baseY + phoneH(), 0xFFF0E4EA);
 
@@ -623,6 +653,8 @@ public class ChatPage implements IPhonePage {
                 renderVoiceButton(g, font, baseX, pTop, pBottom, w);
             } else if (extPanelIcon == 1) {
                 renderEmotePanel(g, font, baseX, pTop, pBottom, w);
+            } else if (extPanelIcon == 2) {
+                renderGalleryPanel(g, font, baseX, pTop, pBottom, w);
             } else {
                 int panelMidY = (pTop + pBottom) / 2;
                 String panelText = "🚧 面板开发中";
@@ -729,6 +761,10 @@ public class ChatPage implements IPhonePage {
         if (m.emote() != null) {
             return emoteBubbleSize() + (groupTop ? timeH() : 0);
         }
+        // 玩家图片消息：固定高度
+        if (m.image() != null) {
+            return imageBubbleSize() + (groupTop ? timeH() : 0);
+        }
         int maxTextW = (int) ((phoneW - AVATAR * 2 - MARGIN * 4) / uiScale());
         List<FormattedCharSequence> lines = font.split(Component.literal(m.text()), maxTextW);
         int lineH = lh() + 1;
@@ -746,6 +782,10 @@ public class ChatPage implements IPhonePage {
         // 表情消息：走纯图片气泡（始终带头像）
         if (m.emote() != null) {
             return drawEmoteBubble(g, font, baseX, yBottom, phoneW, m, showAvatar, groupTop);
+        }
+        // 玩家图片消息：走本地图片气泡（始终带头像）
+        if (m.image() != null) {
+            return drawImageBubble(g, font, baseX, yBottom, phoneW, m, showAvatar, groupTop);
         }
         boolean isError = m.isError();
         boolean isPlayer = m.isPlayer();
@@ -950,6 +990,309 @@ public class ChatPage implements IPhonePage {
                 cy - Minecraft.getInstance().font.lineHeight * ts / 2f, 0xFFFFFFFF, ts);
     }
 
+    // ==================== 拍照（📷）& 图片（🖼️） ====================
+
+    /** 进入相机模式（替代聊天界面） */
+    private void enterCameraMode() {
+        cameraActive = true;
+        cameraShot = null;
+        bottomPanelOpen = false;
+        extPanelIcon = -1;
+    }
+
+    /** 退出相机模式，回到聊天界面 */
+    private void exitCameraMode() {
+        cameraActive = false;
+        cameraShot = null;
+    }
+
+    /** 渲染相机界面：取景框占位 + 拍照胶囊 + 返回 +（拍后）保存/确认/缩略图 */
+    private void renderCameraMode(GuiGraphics g, Font font, int baseX, int baseY, int w) {
+        int h = phoneH();
+        // 相机底（深色）
+        g.fill(baseX, baseY, baseX + w, baseY + h, 0xFF1A1A1A);
+        // 顶部导航：返回 ←
+        g.fill(baseX, baseY, baseX + w, baseY + navH(), 0xFFDE7E7E);
+        drawScaledText(g, font, "←", baseX + UiFont.sh(6), baseY + navH() / 2 - lh() / 2,
+                0xFFFFFFFF, UiFont.sc(1.0f));
+        drawScaledText(g, font, "拍照", baseX + UiFont.sh(22), baseY + navH() / 2 - lh() / 2,
+                0xFFFFFFFF, UiFont.sc(1.0f));
+
+        int viewTop = baseY + navH() + UiFont.sh(8);
+        int viewH = h - navH() - UiFont.sh(16);
+        int viewBottom = viewTop + viewH;
+        // 取景框占位：半透明深色框 + 十字准星
+        g.fill(baseX + UiFont.sh(8), viewTop, baseX + w - UiFont.sh(8), viewBottom, 0xFF333333);
+        int cx = baseX + w / 2;
+        int cy = (viewTop + viewBottom) / 2;
+        g.fill(cx - 10, cy - 1, cx + 10, cy + 1, 0x66FFFFFF);
+        g.fill(cx - 1, cy - 10, cx + 1, cy + 10, 0x66FFFFFF);
+        drawScaledText(g, font, "取景框（demo）", cx - font.width("取景框（demo）") * UiFont.sc(1.0f) / 2,
+                cy - lh() / 2, 0x66FFFFFF, UiFont.sc(1.0f));
+
+        if (cameraShot != null) {
+            // 右上角：保存
+            drawCameraButton(g, font, baseX + w - UiFont.sh(54), baseY + navH() + UiFont.sh(6),
+                    UiFont.sh(44), UiFont.sh(22), "保存");
+            // 右下角：确认
+            drawCameraButton(g, font, baseX + w - UiFont.sh(54), viewBottom - UiFont.sh(36),
+                    UiFont.sh(44), UiFont.sh(22), "确认");
+            // 左下角：已拍缩略图
+            ResourceLocation tex = PhotoLibrary.getOrLoadTexture("__camshot__");
+            int t = UiFont.sh(36);
+            UiShapes.fillRoundedRect(g, baseX + UiFont.sh(12), viewBottom - UiFont.sh(48), t, t, UiFont.sh(4), 0xFFFFFFFF);
+            if (tex != null) {
+                int[] d = PhotoLibrary.getTextureSize("__camshot__");
+                g.blit(tex, baseX + UiFont.sh(12), viewBottom - UiFont.sh(48), t, t,
+                        0.0f, 0.0f, d[0], d[1], d[0], d[1]);
+            }
+        }
+
+        // 中下部：拍照胶囊
+        int btnW = UiFont.sh(88);
+        int btnH = UiFont.sh(30);
+        UiShapes.fillRoundedRect(g, cx - btnW / 2, viewBottom + UiFont.sh(8), btnW, btnH, btnH / 2, 0xFFFFFFFF);
+        drawScaledText(g, font, cameraShot != null ? "重拍" : "拍照",
+                cx - font.width(cameraShot != null ? "重拍" : "拍照") * UiFont.sc(1.0f) / 2,
+                viewBottom + UiFont.sh(8) + (btnH - lh()) / 2, 0xFFDE7E7E, UiFont.sc(1.0f));
+    }
+
+    /** 绘制相机界面里的小胶囊按钮 */
+    private void drawCameraButton(GuiGraphics g, Font font, int x, int y, int w, int h, String text) {
+        UiShapes.fillRoundedRect(g, x, y, w, h, h / 2, 0xFFDE7E7E);
+        drawScaledText(g, font, text, x + (w - font.width(text) * UiFont.sc(1.0f)) / 2f,
+                y + (h - lh()) / 2, 0xFFFFFFFF, UiFont.sc(1.0f));
+    }
+
+    /** 相机模式的鼠标点击处理 */
+    private boolean handleCameraClick(double relX, double relY, int w) {
+        int h = phoneH();
+        // 左上角返回
+        if (relX >= 0 && relX <= 60 && relY >= 0 && relY <= navH()) {
+            exitCameraMode();
+            return true;
+        }
+        int viewTop = navH() + UiFont.sh(8);
+        int viewH = h - navH() - UiFont.sh(16);
+        int viewBottom = viewTop + viewH;
+        int cx = w / 2;
+
+        if (cameraShot != null) {
+            // 右上角保存
+            if (hit(relX, relY, w - UiFont.sh(54), navH() + UiFont.sh(6), UiFont.sh(44), UiFont.sh(22))) {
+                savePhoto();
+                return true;
+            }
+            // 右下角确认
+            if (hit(relX, relY, w - UiFont.sh(54), viewBottom - UiFont.sh(36), UiFont.sh(44), UiFont.sh(22))) {
+                confirmPhoto();
+                return true;
+            }
+        }
+        // 中下部拍照/重拍胶囊
+        int btnW = UiFont.sh(88);
+        int btnH = UiFont.sh(30);
+        if (hit(relX, relY, cx - btnW / 2, viewBottom + UiFont.sh(8), btnW, btnH)) {
+            takePhoto();
+            return true;
+        }
+        return true;
+    }
+
+    /** 拍照：截取主渲染目标存为 cameraShot，并注册为可渲染纹理 */
+    private void takePhoto() {
+        byte[] png = PhotoLibrary.captureMainTargetPng();
+        if (png == null) {
+            return;
+        }
+        cameraShot = png;
+        PhotoLibrary.registerCapturedBytes("__camshot__", png);
+    }
+
+    /** 确认：进入选中（待发送），不持久化 → 返回聊天 */
+    private void confirmPhoto() {
+        if (cameraShot != null) {
+            selectedImageKey = "__camshot__";
+            selectedImageBytes = cameraShot;
+        }
+        exitCameraMode();
+    }
+
+    /** 保存：持久化到图库 → 返回聊天 */
+    private void savePhoto() {
+        if (cameraShot != null) {
+            PhotoLibrary.saveToGallery(cameraShot);
+        }
+        exitCameraMode();
+    }
+
+    // ==================== 图片面板（🖼️） ====================
+
+    /** 图片栏显示的条目：当前选中（可能是未保存的临时照）排最前，其后是图库已保存照片 */
+    private List<String> galleryDisplayItems() {
+        List<String> gallery = PhotoLibrary.listGallery();
+        List<String> out = new ArrayList<>();
+        if (selectedImageKey != null && !gallery.contains(selectedImageKey)) {
+            out.add(selectedImageKey); // 相机"确认但不保存"的临时照
+        }
+        out.addAll(gallery);
+        return out;
+    }
+
+    /** 图片栏内容总宽（用于滚动钳制） */
+    private int galleryContentWidth() {
+        return Math.max(0, galleryDisplayItems().size() * (GALLERY_ITEM + UiFont.sh(8)) - UiFont.sh(8) + UiFont.sh(24));
+    }
+
+    /** 图片栏可滚动范围 */
+    private int galleryMaxScroll() {
+        int viewW = phoneW() - UiFont.sh(20);
+        return Math.max(0, galleryContentWidth() - viewW);
+    }
+
+    private int clampGalleryScroll(int offset) {
+        return Math.max(0, Math.min(offset, galleryMaxScroll()));
+    }
+
+    /** 渲染图片面板：横向画廊，每张右上角选中圆标（灰/粉） */
+    private void renderGalleryPanel(GuiGraphics g, Font font, int baseX, int pTop, int pBottom, int w) {
+        // 拖动更新（长按拖动翻页）
+        if (galleryDragging) {
+            updateGalleryDrag();
+        }
+        List<String> items = galleryDisplayItems();
+        int viewH = Math.max(0, pBottom - pTop);
+        galleryScrollOffset = clampGalleryScroll(galleryScrollOffset);
+        int itemY = pTop + UiFont.sh(6);
+        int itemSize = GALLERY_ITEM;
+        int gap = UiFont.sh(8);
+        int startX = baseX + UiFont.sh(12) - galleryScrollOffset;
+
+        g.enableScissor(baseX, pTop, baseX + w, pBottom);
+        if (items.isEmpty()) {
+            drawScaledText(g, font, "暂无照片，先用📷拍一张吧",
+                    baseX + (w - font.width("暂无照片，先用📷拍一张吧") * UiFont.sc(1.0f)) / 2,
+                    itemY, 0xFF8A6A6A, UiFont.sc(1.0f));
+            g.disableScissor();
+            return;
+        }
+        for (int i = 0; i < items.size(); i++) {
+            String key = items.get(i);
+            int x = startX + i * (itemSize + gap);
+            if (x + itemSize < baseX || x > baseX + w) {
+                continue;
+            }
+            // 选中描边
+            boolean selected = selectedImageKey != null && selectedImageKey.equals(key);
+            int border = selected ? 0xFFDE7E7E : 0xFFFFFFFF;
+            UiShapes.fillRoundedRect(g, x, itemY, itemSize, itemSize, UiFont.sh(4), border);
+            ResourceLocation tex = PhotoLibrary.getOrLoadTexture(key);
+            if (tex != null) {
+                int[] d = PhotoLibrary.getTextureSize(key);
+                int inset = UiFont.sh(2);
+                g.blit(tex, x + inset, itemY + inset, itemSize - inset * 2, itemSize - inset * 2,
+                        0.0f, 0.0f, d[0], d[1], d[0], d[1]);
+            } else {
+                g.fill(x + UiFont.sh(2), itemY + UiFont.sh(2), x + itemSize - UiFont.sh(2),
+                        itemY + itemSize - UiFont.sh(2), 0xFFB0BEC5);
+            }
+            // 右上角选中圆标：灰(25%) / 粉 #de7e7e
+            int dotR = UiFont.sh(7);
+            int dotX = x + itemSize - dotR * 2 - UiFont.sh(2);
+            int dotY = itemY + UiFont.sh(2);
+            UiShapes.fillRoundedRect(g, dotX, dotY, dotR * 2, dotR * 2, dotR,
+                    selected ? 0xFFDE7E7E : 0x40000000);
+        }
+        g.disableScissor();
+    }
+
+    /** 是否点击到图片栏某张图的选中圆标 */
+    private boolean hitGalleryDot(double relX, double relY) {
+        List<String> items = galleryDisplayItems();
+        if (items.isEmpty()) {
+            return false;
+        }
+        int pTop = panelTop(0), pBottom = extBarTop(0);
+        if (relY < pTop || relY >= pBottom) {
+            return false;
+        }
+        int itemSize = GALLERY_ITEM;
+        int gap = UiFont.sh(8);
+        int startX = UiFont.sh(12) - galleryScrollOffset;
+        int dotR = UiFont.sh(7);
+        for (int i = 0; i < items.size(); i++) {
+            String key = items.get(i);
+            int x = startX + i * (itemSize + gap);
+            int dotX = x + itemSize - dotR * 2 - UiFont.sh(2);
+            int dotY = pTop + UiFont.sh(6) + UiFont.sh(2);
+            if (relX >= dotX && relX <= dotX + dotR * 2 && relY >= dotY && relY <= dotY + dotR * 2) {
+                if (selectedImageKey != null && selectedImageKey.equals(key)) {
+                    selectedImageKey = null;
+                    selectedImageBytes = null;
+                } else {
+                    selectedImageKey = key;
+                    selectedImageBytes = PhotoLibrary.readBytes(key);
+                }
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 长按拖动翻页：用当前鼠标 X 更新横向偏移 */
+    private void updateGalleryDrag() {
+        Minecraft mc = Minecraft.getInstance();
+        double guiX = mc.mouseHandler.xpos() * mc.getWindow().getGuiScaledWidth() / mc.getWindow().getScreenWidth();
+        double relX = guiX - PhoneOverlay.getPhoneX();
+        double delta = relX - galleryDragStartX;
+        if (!isLeftMouseDown()) {
+            galleryDragging = false;
+            return;
+        }
+        galleryScrollOffset = clampGalleryScroll(galleryDragStartOffset - (int) delta);
+    }
+
+    // ==================== 发送联动 ====================
+
+    /** 发送"文字 + 一张图"：本地立即显示玩家消息+图气泡，写入 vision_tmp，通知服务端识图后让女仆回复 */
+    private void sendImageChat() {
+        String text = currentInput;
+        byte[] img = selectedImageBytes;
+        String key = selectedImageKey;
+
+        // 本地立即显示玩家文字气泡（如有）+ 图片气泡（同组）
+        long gameTime = currentGameTime();
+        if (text != null && !text.isBlank()) {
+            messages.add(new ChatMessage(text, true, false, false, gameTime, null, null));
+            ChatHistoryStorage.appendMessage(stableId, text, true, false);
+        }
+        if (img != null) {
+            messages.add(new ChatMessage("", true, false, false, gameTime, null, key));
+        }
+        // 写入 vision_tmp，拿 token
+        String token = PhotoLibrary.writeVisionTmp(img);
+        if (token == null) {
+            PacketDistributor.sendToServer(new C2SMaidChatPacket(stableId, text == null ? "" : text));
+            this.waitingResponse = true;
+            resetAfterSend();
+            return;
+        }
+        PacketDistributor.sendToServer(new C2SMaidImageChatPacket(stableId,
+                text == null ? "" : text, token));
+        this.waitingResponse = true;
+        resetAfterSend();
+    }
+
+    /** 发送后复位输入框与选中图 */
+    private void resetAfterSend() {
+        currentInput = "";
+        cursorIndex = 0;
+        inputScrollOffset = 0;
+        scrollOffset = 0;
+        selectedImageKey = null;
+        selectedImageBytes = null;
+    }
+
     // ==================== 表情包（左二 🦊 按钮） ====================
 
     /** 枚举车万女仆(TLM)表情包目录下所有 PNG 表情（跨命名空间/资源包），按资源名排序。 */
@@ -1073,7 +1416,7 @@ public class ChatPage implements IPhonePage {
     /** 发送一张表情给女仆：本地立即显示玩家表情，1 秒后随机回复一张（不经过大模型）。 */
     private void sendEmote(ResourceLocation emote) {
         String path = emote.toString();
-        messages.add(new ChatMessage("", true, false, false, currentGameTime(), path));
+        messages.add(new ChatMessage("", true, false, false, currentGameTime(), path, null));
         ChatHistoryStorage.appendMessage(stableId, "", path, true, false);
         ChatHistoryStorage.setDraft(stableId, "");
         currentInput = "";
@@ -1097,7 +1440,7 @@ public class ChatPage implements IPhonePage {
                 continue;
             }
             EmoteEntry reply = emotes.get(EMOTE_RANDOM.nextInt(emotes.size()));
-            messages.add(new ChatMessage("", false, false, false, currentGameTime(), reply.loc().toString()));
+            messages.add(new ChatMessage("", false, false, false, currentGameTime(), reply.loc().toString(), null));
             ChatHistoryStorage.appendMessage(stableId, "", reply.loc().toString(), false, false);
             scrollOffset = 0;
         }
@@ -1162,6 +1505,49 @@ public class ChatPage implements IPhonePage {
         return bubbleH + (groupTop ? timeH() : 0);
     }
 
+    /** 玩家图片气泡尺寸（宽/高），含内边距 */
+    private int imageBubbleSize() {
+        return IMAGE_DRAW_SIZE + UiFont.sh(8);
+    }
+
+    /** 绘制一条玩家发送的本地图片气泡（始终带头像）。 */
+    private int drawImageBubble(GuiGraphics g, Font font, int baseX, int yBottom, int phoneW, ChatMessage m,
+                                boolean showAvatar, boolean groupTop) {
+        int pad = UiFont.sh(4);
+        int bubbleW = imageBubbleSize();
+        int bubbleH = imageBubbleSize();
+        int yTop = yBottom - bubbleH;
+        int radius = Math.max(2, bubbleH / 4);
+        ResourceLocation rl = PhotoLibrary.getOrLoadTexture(m.image());
+        int[] d = PhotoLibrary.getTextureSize(m.image());
+
+        int bubbleLeft = baseX + phoneW - AVATAR - MARGIN - bubbleW; // 玩家图片在右侧
+        UiShapes.fillRoundedRect(g, bubbleLeft, yTop, bubbleW, bubbleH, radius, 0xFF5294BF);
+        if (rl != null) {
+            g.blit(rl, bubbleLeft + pad, yTop + pad, IMAGE_DRAW_SIZE, IMAGE_DRAW_SIZE,
+                    0.0f, 0.0f, d[0], d[1], d[0], d[1]);
+        } else {
+            g.fill(bubbleLeft + pad, yTop + pad, bubbleLeft + pad + IMAGE_DRAW_SIZE,
+                    yTop + pad + IMAGE_DRAW_SIZE, 0xFFB0BEC5);
+        }
+        drawAvatarPlaceholder(g, baseX + phoneW - AVATAR - 2, yTop, true);
+        if (groupTop) {
+            String timeText = formatGameTime(m.gameTime());
+            if (!timeText.isEmpty()) {
+                float ts = UiFont.sc(0.5f);
+                int centerX = baseX + phoneW / 2;
+                drawScaledText(g, font, timeText,
+                        centerX - font.width(timeText) * ts / 2f, yTop - timeH(), 0xFF9A8A90, ts);
+            }
+        }
+        return bubbleH + (groupTop ? timeH() : 0);
+    }
+
+    /** 矩形命中判定（relX/relY 相对手机左上角） */
+    private static boolean hit(double x, double y, int rx, int ry, int rw, int rh) {
+        return x >= rx && x <= rx + rw && y >= ry && y <= ry + rh;
+    }
+
     @Override
     public boolean mouseClicked(double relX, double relY, int button, int action) {
         if (button != GLFW.GLFW_MOUSE_BUTTON_LEFT) return false;
@@ -1169,6 +1555,11 @@ public class ChatPage implements IPhonePage {
 
         int baseX = 0, baseY = 0;
         int w = phoneW();
+
+        // 相机模式：独立处理拍照 / 确认 / 保存 / 返回
+        if (cameraActive) {
+            return handleCameraClick(relX, relY, w);
+        }
 
         if (relX >= 0 && relX <= 60 && relY >= 0 && relY <= navH()) {
             PhoneOverlay.popPage();
@@ -1202,13 +1593,29 @@ public class ChatPage implements IPhonePage {
             }
         }
 
-        // 拓展功能栏（贴屏幕底部）：点击任意按钮切换上拉面板
+        // 图片面板（🖼️）：点圆标选中/取消；否则开始长按拖动翻页
+        if (bottomPanelOpen && extPanelIcon == 2) {
+            if (hitGalleryDot(relX, relY)) {
+                return true;
+            }
+            galleryDragging = true;
+            galleryDragStartX = relX;
+            galleryDragStartOffset = galleryScrollOffset;
+            return true;
+        }
+
+        // 拓展功能栏（贴屏幕底部）：点击任意按钮切换上拉面板 / 进入相机
         int extTop = extBarTop(0);
         if (relY >= extTop && relY <= phoneH()) {
             int iconCount = BOTTOM_ICONS.length;
             int iconSlotW = w / iconCount;
             int clickedIcon = (int)(relX / iconSlotW);
             if (clickedIcon >= 0 && clickedIcon < iconCount) {
+                if (clickedIcon == 3) {
+                    // 📷 相机：进入拍照界面（替代聊天）
+                    enterCameraMode();
+                    return true;
+                }
                 if (bottomPanelOpen && extPanelIcon == clickedIcon) {
                     bottomPanelOpen = false;
                     extPanelIcon = -1;
@@ -1222,7 +1629,11 @@ public class ChatPage implements IPhonePage {
 
         if (relX >= sendX(baseX) && relX <= sendX(baseX) + sendW()
                 && relY >= sendY(baseY) && relY <= sendY(baseY) + sendH()) {
-            sendCurrentMessage();
+            if (selectedImageBytes != null) {
+                sendImageChat();
+            } else {
+                sendCurrentMessage();
+            }
             return true;
         }
 
@@ -1248,6 +1659,15 @@ public class ChatPage implements IPhonePage {
             }
         }
 
+        // 图片面板打开且鼠标在面板内：滚轮左右翻页（scrollDeltaY 正=下滚 → 右翻）
+        if (bottomPanelOpen && extPanelIcon == 2) {
+            int pTop = panelTop(0), pBottom = extBarTop(0);
+            if (relY >= pTop && relY <= pBottom) {
+                galleryScrollOffset = clampGalleryScroll(galleryScrollOffset + (int)(scrollDelta * 20));
+                return true;
+            }
+        }
+
         Font font = Minecraft.getInstance().font;
         int w = phoneW();
         int msgTop = navH();
@@ -1269,6 +1689,6 @@ public class ChatPage implements IPhonePage {
         Minecraft.getInstance().setScreen(new PhoneInputScreen(this));
     }
 
-    private record ChatMessage(String text, boolean isPlayer, boolean isError, boolean pending, long gameTime, String emote) {
+    private record ChatMessage(String text, boolean isPlayer, boolean isError, boolean pending, long gameTime, String emote, String image) {
     }
 }
