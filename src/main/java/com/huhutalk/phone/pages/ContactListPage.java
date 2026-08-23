@@ -46,14 +46,20 @@ public class ContactListPage implements IPhonePage {
     private static final int TEXT_SUB = 0xFF888888;
     private static final int AVATAR_COLOR = 0xFFB0BEC5;
     private static final int SOS_BADGE = 0xFFE53935;
-    private static final int GROUP_HEADER_H = 20;
-    private static final int ITEM_HEIGHT = 38;
-    /** 状态小字 / 分组标题缩放 */
-    private static final float SMALL_SCALE = 0.75f;
+    private static final int GROUP_HEADER_H = 18;
+    /** 分组标题缩放 */
+    private static final float GROUP_SCALE = 0.75f;
+    /** 条目名称字号 */
+    private static final float NAME_SCALE = 1.5f;
 
-    /** 头像边长 = 上行默认字号高度 + 下行 0.75 倍字号高度（与消息列表一致） */
+    /** 头像边长 = 名称(1.5x) + 状态(1.0x) 文字高度之和 */
     private static int avatarSize() {
-        return (int) (Minecraft.getInstance().font.lineHeight * 1.75f);
+        return (int) (Minecraft.getInstance().font.lineHeight * (NAME_SCALE + 1.0f));
+    }
+
+    /** 女仆条目行高度 = 头像高度 + 上下留白 */
+    private static int itemH() {
+        return avatarSize() + 12;
     }
 
     private static final int ROW_GROUP = 0;
@@ -165,19 +171,19 @@ public class ContactListPage implements IPhonePage {
     /** 分组标题行：底色与页面一致、灰字 0.75x、右侧展开/收起三角箭头 */
     private void renderGroupHeader(GuiGraphics g, Font font, int baseX, int w, int y, String group, boolean collapsed) {
         // 背景与页面底色一致，无需额外填充
-        int titleH = (int) (font.lineHeight * SMALL_SCALE);
-        drawScaledText(g, font, group, baseX + 10, y + (GROUP_HEADER_H - titleH) / 2, GROUP_TITLE_COLOR, SMALL_SCALE);
+        int titleH = (int) (font.lineHeight * GROUP_SCALE);
+        drawScaledText(g, font, group, baseX + 10, y + (GROUP_HEADER_H - titleH) / 2, GROUP_TITLE_COLOR, GROUP_SCALE);
         String arrow = collapsed ? "▸" : "▾";
         g.drawString(font, arrow, baseX + w - font.width(arrow) - 10,
                 y + (GROUP_HEADER_H - font.lineHeight) / 2 + 1, GROUP_TITLE_COLOR, false);
     }
 
-    /** 女仆条目：左侧头像(照片)，右侧两行（名称 / 在线+工作状态 0.75x），整体垂直居中 */
+    /** 女仆条目：左侧头像(照片)，右侧两行（名称 1.5x / 在线+工作状态 1.0x），整体垂直居中 */
     private void renderMaidItem(GuiGraphics g, Font font, int baseX, int w, int y,
                                 S2CMaidListPacket.MaidDisplayInfo info) {
         int avatarSize = avatarSize();
         int avatarX = baseX + 10;
-        int avatarY = y + (ITEM_HEIGHT - avatarSize) / 2;
+        int avatarY = y + (itemH() - avatarSize) / 2;
         ResourceLocation tex = MaidAvatarManager.getOrLoadTexture(info.stableId());
         if (tex != null) {
             int[] d = MaidAvatarManager.getTextureSize(info.stableId());
@@ -195,22 +201,23 @@ public class ContactListPage implements IPhonePage {
         // 右侧两行（垂直居中）
         int nameX = avatarX + avatarSize + 8;
         int lineH = font.lineHeight;
-        int statusH = (int) (lineH * SMALL_SCALE);
-        int centerY = y + ITEM_HEIGHT / 2;
-        int nameY = centerY - (lineH + statusH) / 2;
-        int statusY = nameY + lineH + 1;
-        g.drawString(font, info.name(), nameX, nameY, TEXT_COLOR, false);
+        int nameH = (int) (lineH * NAME_SCALE);
+        int statusH = lineH;
+        int centerY = y + itemH() / 2;
+        int nameY = centerY - (nameH + statusH) / 2;
+        int statusY = nameY + nameH + 1;
+        drawScaledText(g, font, info.name(), nameX, nameY, TEXT_COLOR, NAME_SCALE);
 
-        // 下行：在线状态 + 工作状态（0.75x），过长截断
+        // 下行：在线状态 + 工作状态（1.0x），过长截断
         String statusText = statusText(info.status());
         String work = MaidStatusCache.get(info.stableId());
         String line2 = work.isEmpty() ? statusText : statusText + " · " + work;
         int line2MaxW = Math.max(1, w - (nameX - baseX) - 14);
-        line2 = truncateScaled(font, line2, line2MaxW, SMALL_SCALE);
-        drawScaledText(g, font, line2, nameX, statusY, TEXT_SUB, SMALL_SCALE);
+        line2 = truncateScaled(font, line2, line2MaxW, 1.0f);
+        g.drawString(font, line2, nameX, statusY, TEXT_SUB, false);
 
         // 底部分隔线
-        g.fill(baseX + 10, y + ITEM_HEIGHT - 1, baseX + w - 10, y + ITEM_HEIGHT, 0x22000000);
+        g.fill(baseX + 10, y + itemH() - 1, baseX + w - 10, y + itemH(), 0x22000000);
     }
 
     /** 将全量女仆列表按分组聚合成行序列；已收起的分组只保留标题行 */
@@ -239,7 +246,7 @@ public class ContactListPage implements IPhonePage {
     }
 
     private static int rowHeight(Row row) {
-        return row.kind() == ROW_GROUP ? GROUP_HEADER_H : ITEM_HEIGHT;
+        return row.kind() == ROW_GROUP ? GROUP_HEADER_H : itemH();
     }
 
     private static String statusText(MaidStatus status) {

@@ -32,12 +32,12 @@ public class SettingsPage implements IPhonePage {
     private static final int DIVIDER = 0xFFE5DBE1;
     private static final int CARD_R = 8;
     private static final int RECT_PAD = 3;
-    private static final int ROW_H = 30;
-    private static final int GROUP_TITLE_TOP = 14;
-    private static final int GROUP_TITLE_TO_CARD = 8;
-    private static final int SOS_H = 30;
+    private static final int ROW_H = 24;
+    private static final int GROUP_TITLE_TOP = 8;
+    private static final int GROUP_TITLE_TO_CARD = 4;
+    private static final int SOS_H = 26;
     /** 胶囊控件高度（适配单行文字） */
-    private static final int CONT_H = 20;
+    private static final int CONT_H = 18;
     private static final List<String> ASPECT_OPTIONS = List.of("20:9", "9:16", "4:3");
 
     /** 滚动偏移（像素） */
