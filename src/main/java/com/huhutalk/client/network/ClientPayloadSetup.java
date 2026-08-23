@@ -42,13 +42,21 @@ public class ClientPayloadSetup {
 
     private static void handleResponse(S2CMaidChatResponsePacket packet, IPayloadContext context) {
         context.enqueueWork(() -> {
-            ChatHistoryStorage.appendMessage(packet.stableId(), packet.responseText(), false, false);
+            String text = packet.responseText();
+            String emote = packet.emote();
+            boolean hasEmote = emote != null && !emote.isEmpty();
+            // 文本与附件表情分别落盘（同一 tick 写入 → 同 gameTime → 重进后仍同组）
+            ChatHistoryStorage.appendMessage(packet.stableId(), text, false, false);
+            if (hasEmote) {
+                ChatHistoryStorage.appendMessage(packet.stableId(), "", emote, false, false);
+            }
             IPhonePage current = PhoneOverlay.getCurrentPage();
             if (current instanceof ChatPage chatPage && chatPage.getStableId().equals(packet.stableId())) {
-                chatPage.onReceiveMessage(packet.responseText(), false);
+                chatPage.onReceiveMessage(text, false, hasEmote ? emote : null);
             } else {
-                // 未读按断句分段数累加，与聊天页逐条气泡显示保持一致
-                NotificationManager.addUnread(packet.stableId(), MessageSplitter.split(packet.responseText()).size());
+                // 未读按断句分段数累加，与聊天页逐条气泡显示保持一致；有附件表情再 +1
+                NotificationManager.addUnread(packet.stableId(),
+                        MessageSplitter.split(text).size() + (hasEmote ? 1 : 0));
             }
         });
     }

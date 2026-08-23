@@ -64,15 +64,15 @@ public final class SignalDelayManager {
      * <p>延迟为 0 时立即发送；否则按玩家维度推入延迟队列，由服务端 tick 到点投递。
      * 调用方需保证在服务端线程执行（与现有 {@code server.submit(...)} 一致）。
      */
-    public static void sendDelayedReply(ServerPlayer player, String stableId, String text) {
+    public static void sendDelayedReply(ServerPlayer player, String stableId, String text, String emote) {
         int delayTicks = delayTicksFor(player);
         if (delayTicks <= 0) {
-            PacketDistributor.sendToPlayer(player, new S2CMaidChatResponsePacket(stableId, text));
+            PacketDistributor.sendToPlayer(player, new S2CMaidChatResponsePacket(stableId, text, emote));
             return;
         }
         MinecraftServer server = player.server;
         long dispatchTick = server.getTickCount() + delayTicks;
-        QUEUE.add(new DelayedSend(dispatchTick, player, new S2CMaidChatResponsePacket(stableId, text)));
+        QUEUE.add(new DelayedSend(dispatchTick, player, new S2CMaidChatResponsePacket(stableId, text, emote)));
     }
 
     /** 服务端每 tick 处理到点的延迟消息（注册于 ServerTickEvent.Post） */

@@ -93,6 +93,8 @@ public class ChatPage implements IPhonePage {
     private long splitGameTime = 0;
     /** 是否正在断句逐条显示（期间"对方正在输入…"保持） */
     private boolean splitting = false;
+    /** 本次回复待显示的表情附件（ResourceLocation 字符串，null=无）。文本短句显示完后，作为同组附件尾部出现 */
+    private String pendingReplyEmote = null;
 
     // ==================== 语音（按住说话） ====================
     /** 语音输入来源：鼠标按住按钮 / F 快捷键 */
@@ -160,6 +162,7 @@ public class ChatPage implements IPhonePage {
         this.splitting = false;
         this.splitQueue.clear();
         this.splitIndex = 0;
+        this.pendingReplyEmote = null;
         markLastSentPending();
     }
 
@@ -245,24 +248,38 @@ public class ChatPage implements IPhonePage {
     }
 
     public void onReceiveMessage(String text, boolean isError) {
+        onReceiveMessage(text, isError, null);
+    }
+
+    /**
+     * 收到女仆回复。
+     *
+     * @param emote 可选的表情附件（ResourceLocation 字符串，null/空=无）。有附件时，表情作为本次回复的
+     *              附件在同一时刻分组尾部显示。
+     */
+    public void onReceiveMessage(String text, boolean isError, String emote) {
         // 收到女仆回复/提示 → 视为送达，清除未送达标记
         clearPending();
         // 回到最新消息（让新回复可见）
         scrollOffset = 0;
+        String pendingEmoteLocal = (emote == null || emote.isEmpty()) ? null : emote;
         // 错误/提示消息：整段显示，不拆句
         if (isError) {
             messages.add(new ChatMessage(text, false, true, false, currentGameTime(), null));
+            this.pendingReplyEmote = null;
             this.waitingResponse = false;
             this.splitting = false;
             this.splitQueue.clear();
             this.splitIndex = 0;
             return;
         }
-        // 正常女仆回复：按逗号断句，逐条显示（仅在手机页面渲染层处理，历史存储仍存整段）
+        long groupTime = currentGameTime();
+        // 正常女仆回复：按逗号断句，逐条显示；表情作为附件在同一时刻分组尾部出现
         List<String> segments = MessageSplitter.split(text);
-        if (segments.size() <= 1) {
-            // 无逗号可拆 → 整段显示
-            messages.add(new ChatMessage(text, false, false, false, currentGameTime(), null));
+        if (segments.size() <= 1 && pendingEmoteLocal == null) {
+            // 无逗号可拆且无附件 → 整段显示
+            messages.add(new ChatMessage(text, false, false, false, groupTime, null));
+            this.pendingReplyEmote = null;
             this.waitingResponse = false;
             this.splitting = false;
             this.splitQueue.clear();
@@ -274,7 +291,8 @@ public class ChatPage implements IPhonePage {
         splitQueue.clear();
         splitQueue.addAll(segments);
         splitIndex = 0;
-        splitGameTime = currentGameTime(); // 该回复的所有短句共享同一发送时间
+        splitGameTime = groupTime; // 该回复的所有短句 + 附件表情共享同一发送时间
+        pendingReplyEmote = pendingEmoteLocal;
         splitting = true;
         waitingResponse = true; // 断句期间保持"对方正在输入…"
         lastSplitTime = System.currentTimeMillis();
@@ -282,7 +300,7 @@ public class ChatPage implements IPhonePage {
 
     /**
      * 每帧推进断句显示：每条短句出现的延迟 = <b>它自己</b>的字数 × 每字耗时（每字 0.5s、封顶 2.4s）。
-     * 长句打字慢、短句快；全部显示完才结束"正在输入…"。在 render 每帧调用。
+     * 长句打字慢、短句快；全部显示完（含附件表情）才结束"正在输入…"。在 render 每帧调用。
      */
     private void advanceSplitting() {
         if (!splitting) {
@@ -299,8 +317,14 @@ public class ChatPage implements IPhonePage {
             splitIndex++;
             lastSplitTime = now;
         }
-        // 全部显示完 → 结束"正在输入…"
-        if (splitIndex >= splitQueue.size()) {
+        // 文本全部显示完 → 附带的表情作为同一分组尾部出现
+        if (splitIndex >= splitQueue.size() && pendingReplyEmote != null) {
+            messages.add(new ChatMessage("", false, false, false, splitGameTime, pendingReplyEmote));
+            pendingReplyEmote = null;
+            lastSplitTime = now;
+        }
+        // 全部显示完（含附件表情）→ 结束"正在输入…"
+        if (splitIndex >= splitQueue.size() && pendingReplyEmote == null) {
             splitting = false;
             waitingResponse = false;
         }

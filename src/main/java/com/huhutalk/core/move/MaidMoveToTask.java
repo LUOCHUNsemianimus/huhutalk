@@ -131,7 +131,7 @@ public class MaidMoveToTask extends Behavior<EntityMaid> {
             MaidMoveData.markArrivedNotified(maid);
             if (maid.getOwner() instanceof ServerPlayer owner && owner.isAlive()) {
                 String stableId = MaidStableIdHelper.getOrCreateStableId(maid);
-                PacketDistributor.sendToPlayer(owner, new S2CMaidChatResponsePacket(stableId, text));
+                PacketDistributor.sendToPlayer(owner, new S2CMaidChatResponsePacket(stableId, text, ""));
             }
         }
     }

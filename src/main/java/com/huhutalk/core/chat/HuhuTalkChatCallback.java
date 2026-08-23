@@ -16,6 +16,8 @@ import java.util.List;
 public class HuhuTalkChatCallback extends LLMCallback {
     private final ServerPlayer sender;
     private final String stableId;
+    /** 本次回复待附带的表情资源路径（空串=无）。由 {@link SendEmoteTool} 调用 {@link #attachEmote} 设置 */
+    private String pendingEmote = "";
 
     public HuhuTalkChatCallback(MaidAIChatManager chatManager, List<LLMMessage> messages,
                                 ServerPlayer sender, String stableId) {
@@ -25,6 +27,11 @@ public class HuhuTalkChatCallback extends LLMCallback {
         this.needAddTools = true;
     }
 
+    /** 把一张表情挂到本次回复上（表情作为文本回复的附件，客户端同组显示） */
+    public void attachEmote(String emotePath) {
+        this.pendingEmote = emotePath == null ? "" : emotePath;
+    }
+
     @Override
     public void onSuccess(ResponseChat responseChat) {
         super.onSuccess(responseChat);
@@ -32,9 +39,10 @@ public class HuhuTalkChatCallback extends LLMCallback {
         if (sender != null && sender.isAlive() && !replyText.isBlank()) {
             if (getMaid().level() instanceof ServerLevel serverLevel) {
                 MinecraftServer server = serverLevel.getServer();
+                String emote = pendingEmote;
                 server.submit(() -> {
                     // 按玩家所在维度应用信号延迟：主世界满格 / 其余维度中等 / 地狱差
-                    SignalDelayManager.sendDelayedReply(sender, stableId, replyText);
+                    SignalDelayManager.sendDelayedReply(sender, stableId, replyText, emote);
                 });
             }
         }
