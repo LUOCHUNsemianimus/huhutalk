@@ -101,6 +101,23 @@ public class ChatHistoryStorage {
         return list.get(list.size() - 1).text();
     }
 
+    /**
+     * 某会话最后一条消息的<b>预览文本</b>（消息列表用）。
+     * 普通消息返回文本本身；若最后一条是表情消息，则返回其映射词，如 "（干杯）"。
+     */
+    public static String getLastMessagePreview(String stableId) {
+        List<ChatMessageEntry> list = currentHistory().get(stableId);
+        if (list == null || list.isEmpty()) {
+            return "";
+        }
+        ChatMessageEntry last = list.get(list.size() - 1);
+        if (last.emote() != null && !last.emote().isEmpty()) {
+            String preview = com.huhutalk.core.chat.SendEmoteTool.previewText(last.emote());
+            return preview != null ? preview : "（表情）";
+        }
+        return last.text();
+    }
+
     /** 某会话的消息条数（无会话返回 0） */
     public static int getConversationCount(String stableId) {
         List<ChatMessageEntry> list = currentHistory().get(stableId);

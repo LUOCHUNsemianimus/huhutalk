@@ -276,7 +276,7 @@ public class MessageListPage implements IPhonePage {
         drawScaledText(g, font, truncatedName, textX, top, TEXT_COLOR, UiFont.sc(NAME_SCALE));
 
         // 下行：最后一条消息预览（0.75 倍）
-        String last = ChatHistoryStorage.getLastMessage(stableId);
+        String last = ChatHistoryStorage.getLastMessagePreview(stableId);
         if (last == null || last.isEmpty()) {
             last = "（无消息内容）";
         }

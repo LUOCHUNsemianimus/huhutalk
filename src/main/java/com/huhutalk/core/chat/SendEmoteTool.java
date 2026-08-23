@@ -60,6 +60,48 @@ public class SendEmoteTool implements ITool<SendEmoteTool.Result> {
             emotion: one of the predefined emotions (see the parameter list). Choose the closest fit; do not invent new names.
             """.trim();
 
+    /** 表情文件名 → 中文词（用于消息列表预览等展示；与 EMOTION_TO_EMOJI 一一对应） */
+    private static final Map<String, String> EMOJI_LABEL = new LinkedHashMap<>();
+
+    static {
+        EMOJI_LABEL.put("emoji_01.png", "害羞");
+        EMOJI_LABEL.put("emoji_02.png", "开心");
+        EMOJI_LABEL.put("emoji_03.png", "沉默");
+        EMOJI_LABEL.put("emoji_04.png", "吃瓜");
+        EMOJI_LABEL.put("emoji_05.png", "爆了");
+        EMOJI_LABEL.put("emoji_06.png", "不行");
+        EMOJI_LABEL.put("emoji_07.png", "大笑");
+        EMOJI_LABEL.put("emoji_08.png", "干杯");
+        EMOJI_LABEL.put("emoji_09.png", "努力");
+        EMOJI_LABEL.put("emoji_10.png", "生气");
+        EMOJI_LABEL.put("emoji_11.png", "害怕");
+        EMOJI_LABEL.put("emoji_12.png", "发财");
+        EMOJI_LABEL.put("emoji_13.png", "疑惑");
+        EMOJI_LABEL.put("emoji_14.png", "困");
+        EMOJI_LABEL.put("emoji_15.png", "没血");
+        EMOJI_LABEL.put("emoji_16.png", "我吗");
+        EMOJI_LABEL.put("emoji_17.png", "哭哭");
+        EMOJI_LABEL.put("emoji_18.png", "饿");
+        EMOJI_LABEL.put("emoji_19.png", "带我走");
+        EMOJI_LABEL.put("emoji_20-24x24.png", "逗你");
+    }
+
+    /** 由表情资源路径反查中文词；未知路径返回 null */
+    public static String labelForPath(String emotePath) {
+        if (emotePath == null) {
+            return null;
+        }
+        int idx = emotePath.lastIndexOf('/');
+        String file = idx >= 0 ? emotePath.substring(idx + 1) : emotePath;
+        return EMOJI_LABEL.get(file);
+    }
+
+    /** 表情的预览文本，如 "（干杯）"；未知路径返回 null */
+    public static String previewText(String emotePath) {
+        String label = labelForPath(emotePath);
+        return label == null ? null : "（" + label + "）";
+    }
+
     private static final Codec<Result> CODEC = RecordCodecBuilder.create(instance -> instance.group(
             Codec.STRING.fieldOf(EMOTION).forGetter(Result::emotion)
     ).apply(instance, Result::new));
