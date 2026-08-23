@@ -53,9 +53,14 @@ public class MessageListPage implements IPhonePage {
     /** 列表滚动偏移（像素） */
     private int scrollOffset = 0;
 
-    /** 头像边长 = 上行 ID 文字高度 + 下行预览文字高度 */
+    /** 上行：联系人名称缩放（1.25 倍默认大小） */
+    private static final float NAME_SCALE = 1.25f;
+    /** 下行：最后一条消息预览缩放（0.75 倍默认大小，保持不变） */
+    private static final float SUMMARY_SCALE = 0.75f;
+
+    /** 头像边长 = 上行名称文字高度(1.25x) + 下行预览文字高度(0.75x) */
     private static int avatarSize(Font font) {
-        return (int)(font.lineHeight * 1.75f);
+        return (int)(font.lineHeight * (NAME_SCALE + SUMMARY_SCALE));
     }
 
     /** 会话条目行高度 = 头像高度 + 上下留白 */
@@ -174,8 +179,8 @@ public class MessageListPage implements IPhonePage {
         List<String> ids = ChatHistoryStorage.getConversationIds();
         Map<String, String> names = buildNameMap();
 
-        // 列表变短时把滚动钳制回合法区间，避免出现空白
-        int maxScroll = Math.max(0, ids.size() * itemH - viewH);
+        // 列表变短时把滚动钳制回合法区间，避免出现空白；底部留余量以便滑出导航栏遮挡内容
+        int maxScroll = Math.max(0, ids.size() * itemH + scrollPad() - viewH);
         scrollOffset = Math.max(0, Math.min(scrollOffset, maxScroll));
 
         if (ids.isEmpty()) {
@@ -262,22 +267,22 @@ public class MessageListPage implements IPhonePage {
         int textX = avatarX + avatarSize + 6;
         int textMaxW = Math.max(1, w - avatarSize - 14);
 
-        // 上行：联系人 ID（默认字号）
-        g.drawString(font, truncate(font, name, textMaxW), textX, top, TEXT_COLOR, false);
+        // 上行：联系人 ID（1.25 倍）
+        String truncatedName = truncate(font, name, (int)(textMaxW / NAME_SCALE));
+        drawScaledText(g, font, truncatedName, textX, top, TEXT_COLOR, NAME_SCALE);
 
         // 下行：最后一条消息预览（0.75 倍）
         String last = ChatHistoryStorage.getLastMessage(stableId);
         if (last == null || last.isEmpty()) {
             last = "（无消息内容）";
         }
-        final float summaryScale = 0.75f;
-        String preview = truncate(font, last, (int)(textMaxW / summaryScale));
-        int previewY = top + font.lineHeight;
-        drawScaledText(g, font, preview, textX, previewY, TEXT_SUB, summaryScale);
+        String preview = truncate(font, last, (int)(textMaxW / SUMMARY_SCALE));
+        int previewY = top + (int)(font.lineHeight * NAME_SCALE);
+        drawScaledText(g, font, preview, textX, previewY, TEXT_SUB, SUMMARY_SCALE);
 
         // 未送达红"!"：标在预览右侧
         if (ChatHistoryStorage.hasPendingMessages(stableId)) {
-            drawScaledText(g, font, "!", textX + font.width(preview) * summaryScale + 3, previewY, UNREAD_BG, summaryScale);
+            drawScaledText(g, font, "!", textX + font.width(preview) * SUMMARY_SCALE + 3, previewY, UNREAD_BG, SUMMARY_SCALE);
         }
 
         // 底部分隔线
@@ -325,7 +330,7 @@ public class MessageListPage implements IPhonePage {
 
         List<String> ids = ChatHistoryStorage.getConversationIds();
         int itemH = itemH(Minecraft.getInstance().font);
-        int maxScroll = Math.max(0, ids.size() * itemH - viewH);
+        int maxScroll = Math.max(0, ids.size() * itemH + scrollPad() - viewH);
         scrollOffset = Math.max(0, Math.min(scrollOffset - (int)(scrollDelta * 10), maxScroll));
         return true;
     }
@@ -333,6 +338,11 @@ public class MessageListPage implements IPhonePage {
     /** 顶部标题栏高度：随字体缩放（跟随 GUI 字体大小），保证与消息条目一致 */
     private static int navH() {
         return Minecraft.getInstance().font.lineHeight + 8;
+    }
+
+    /** 滚轮下滑底部余量：略高于底部导航栏，让被导航栏盖住的内容能滑出来 */
+    private static int scrollPad() {
+        return PhoneOverlay.getBottomNavHeight() + 30;
     }
 
     // ==================== 绘图辅助 ====================

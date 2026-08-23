@@ -30,13 +30,18 @@ import java.util.Set;
  * 联系人列表页（底部导航「联系人」tab 顶层页）。
  * <p>
  * 顶栏 #de7e7e，左侧依次：玩家头颅 + 玩家ID + 「联系人」。页面底 #f5ebee。
- * 女仆条目按分组聚合；条目左为头像（女仆照片）、右为两行（名称 / 在线+工作状态 0.75x）。
+ * 女仆条目按分组聚合；条目左为头像（女仆照片）、右为两行（名称 1.2x / 在线+工作状态 0.7x）。
  * 分组标题栏背景与页面一致、标题灰字 0.75x、右侧三角箭头；点击标题栏展开/收起（默认全展开）。
  */
 public class ContactListPage implements IPhonePage {
     /** 顶部标题栏高度：随字体缩放 */
     private static int navH() {
         return Minecraft.getInstance().font.lineHeight + 8;
+    }
+
+    /** 滚轮下滑底部余量：略高于底部导航栏，让被导航栏盖住的内容能滑出来 */
+    private static int scrollPad() {
+        return PhoneOverlay.getBottomNavHeight() + 30;
     }
 
     private static final int PAGE_BG = 0xFFF5EBEE;
@@ -50,11 +55,13 @@ public class ContactListPage implements IPhonePage {
     /** 分组标题缩放 */
     private static final float GROUP_SCALE = 0.75f;
     /** 条目名称字号 */
-    private static final float NAME_SCALE = 1.5f;
+    private static final float NAME_SCALE = 1.2f;
+    /** 条目状态字号 */
+    private static final float STATUS_SCALE = 0.7f;
 
-    /** 头像边长 = 名称(1.5x) + 状态(1.0x) 文字高度之和 */
+    /** 头像边长 = 名称(1.2x) + 状态(0.7x) 文字高度之和 */
     private static int avatarSize() {
-        return (int) (Minecraft.getInstance().font.lineHeight * (NAME_SCALE + 1.0f));
+        return (int) (Minecraft.getInstance().font.lineHeight * (NAME_SCALE + STATUS_SCALE));
     }
 
     /** 女仆条目行高度 = 头像高度 + 上下留白 */
@@ -116,7 +123,7 @@ public class ContactListPage implements IPhonePage {
             contentH += rowHeight(row);
         }
         int viewH = Math.max(0, contentBottom - contentTop);
-        int maxScroll = Math.max(0, contentH - viewH);
+        int maxScroll = Math.max(0, contentH + scrollPad() - viewH);
         scrollOffset = Math.max(0, Math.min(scrollOffset, maxScroll));
 
         if (rows.isEmpty()) {
@@ -202,19 +209,19 @@ public class ContactListPage implements IPhonePage {
         int nameX = avatarX + avatarSize + 8;
         int lineH = font.lineHeight;
         int nameH = (int) (lineH * NAME_SCALE);
-        int statusH = lineH;
+        int statusH = (int) (lineH * STATUS_SCALE);
         int centerY = y + itemH() / 2;
         int nameY = centerY - (nameH + statusH) / 2;
         int statusY = nameY + nameH + 1;
         drawScaledText(g, font, info.name(), nameX, nameY, TEXT_COLOR, NAME_SCALE);
 
-        // 下行：在线状态 + 工作状态（1.0x），过长截断
+        // 下行：在线状态 + 工作状态（STATUS_SCALE），过长截断
         String statusText = statusText(info.status());
         String work = MaidStatusCache.get(info.stableId());
         String line2 = work.isEmpty() ? statusText : statusText + " · " + work;
         int line2MaxW = Math.max(1, w - (nameX - baseX) - 14);
-        line2 = truncateScaled(font, line2, line2MaxW, 1.0f);
-        g.drawString(font, line2, nameX, statusY, TEXT_SUB, false);
+        line2 = truncateScaled(font, line2, line2MaxW, STATUS_SCALE);
+        drawScaledText(g, font, line2, nameX, statusY, TEXT_SUB, STATUS_SCALE);
 
         // 底部分隔线
         g.fill(baseX + 10, y + itemH() - 1, baseX + w - 10, y + itemH(), 0x22000000);
@@ -294,7 +301,7 @@ public class ContactListPage implements IPhonePage {
             contentH += rowHeight(row);
         }
         int viewH = Math.max(0, h - navH - bottomNavH);
-        scrollOffset = Math.max(0, Math.min(scrollOffset, Math.max(0, contentH - viewH)));
+        scrollOffset = Math.max(0, Math.min(scrollOffset, Math.max(0, contentH + scrollPad() - viewH)));
 
         int y = navH - scrollOffset;
         for (Row row : rows) {
@@ -331,7 +338,7 @@ public class ContactListPage implements IPhonePage {
             contentH += rowHeight(row);
         }
         int viewH = Math.max(0, h - navH - bottomNavH);
-        int maxScroll = Math.max(0, contentH - viewH);
+        int maxScroll = Math.max(0, contentH + scrollPad() - viewH);
         scrollOffset = Math.max(0, Math.min(scrollOffset - (int) (scrollDelta * 10), maxScroll));
         return true;
     }

@@ -26,7 +26,8 @@ public class SettingsPage implements IPhonePage {
     private static final int PAGE_BG = 0xFFF0E4EA;
     private static final int TOPBAR_BG = 0xFFDE7E7E;
     private static final int CARD_BG = 0xFFFFF5F8;
-    private static final int GROUP_TITLE_COLOR = 0xFF9A8A90;
+    /** 分组标题颜色：深灰色 */
+    private static final int GROUP_TITLE_COLOR = 0xFF555555;
     private static final int TEXT_COLOR = 0xFF333333;
     private static final int TEXT_SUB = 0xFF888888;
     private static final int DIVIDER = 0xFFE5DBE1;
@@ -34,10 +35,17 @@ public class SettingsPage implements IPhonePage {
     private static final int RECT_PAD = 3;
     private static final int ROW_H = 24;
     private static final int GROUP_TITLE_TOP = 8;
-    private static final int GROUP_TITLE_TO_CARD = 4;
+    /** 分组标题底到卡片顶的间距（使 UI 更松弛，不戳进卡片） */
+    private static final int CARD_GAP = 10;
     private static final int SOS_H = 26;
-    /** 胶囊控件高度（适配单行文字） */
-    private static final int CONT_H = 18;
+    /** 分组标题缩放（0.75 倍） */
+    private static final float GROUP_SCALE = 0.75f;
+    /** 所有按钮统一强调色 #de7e7e */
+    private static final int BTN_COLOR = 0xFFDE7E7E;
+    /** 按钮内文字缩放（相对默认字体） */
+    private static final float BTN_TEXT_SCALE = 0.7f;
+    /** 开关未激活时的淡灰色 */
+    private static final int SWITCH_OFF = 0xFFB9AAB0;
     private static final List<String> ASPECT_OPTIONS = List.of("20:9", "9:16", "4:3");
 
     /** 滚动偏移（像素） */
@@ -47,6 +55,11 @@ public class SettingsPage implements IPhonePage {
 
     private static int navH() {
         return Minecraft.getInstance().font.lineHeight + 8;
+    }
+
+    /** 滚轮下滑底部余量：略高于底部导航栏，让被导航栏盖住的内容能滑出来 */
+    private static int scrollPad() {
+        return PhoneOverlay.getBottomNavHeight() + 30;
     }
 
     public SettingsPage() {
@@ -73,15 +86,17 @@ public class SettingsPage implements IPhonePage {
         Layout L = new Layout();
         L.navH = font.lineHeight + 8;
         int y = L.navH + 8;
+        // 分组标题按 0.75 倍缩放后的文字高度
+        int titleH = (int) (font.lineHeight * GROUP_SCALE);
 
         // SOS 胶囊（页面顶部首位）
         L.sosY = y;
         L.sosH = SOS_H;
         y += L.sosH + GROUP_TITLE_TOP;
 
-        // 消息 分组（1 行）
+        // 消息 分组（1 行）：标题在上，卡片在标题下方留出间距
         L.msgTitleY = y;
-        y += GROUP_TITLE_TO_CARD;
+        y += titleH + CARD_GAP;
         L.msgRow[0] = y;
         y += ROW_H;
         L.msgRectY = L.msgRow[0] - RECT_PAD;
@@ -91,7 +106,7 @@ public class SettingsPage implements IPhonePage {
 
         // 动画 分组（3 行）
         L.animTitleY = y;
-        y += GROUP_TITLE_TO_CARD;
+        y += titleH + CARD_GAP;
         for (int i = 0; i < 3; i++) {
             L.animRow[i] = y;
             y += ROW_H;
@@ -103,7 +118,7 @@ public class SettingsPage implements IPhonePage {
 
         // 配色 分组（2 行）
         L.colorTitleY = y;
-        y += GROUP_TITLE_TO_CARD;
+        y += titleH + CARD_GAP;
         for (int i = 0; i < 2; i++) {
             L.colorRow[i] = y;
             y += ROW_H;
@@ -115,7 +130,7 @@ public class SettingsPage implements IPhonePage {
 
         // 显示 分组（2 行）
         L.dispTitleY = y;
-        y += GROUP_TITLE_TO_CARD;
+        y += titleH + CARD_GAP;
         for (int i = 0; i < 2; i++) {
             L.dispRow[i] = y;
             y += ROW_H;
@@ -152,7 +167,7 @@ public class SettingsPage implements IPhonePage {
         int topY = baseY + L.navH + 4;
         int bottomY = baseY + h - PhoneOverlay.getBottomNavHeight() - 4;
         int viewH = Math.max(0, bottomY - topY);
-        int maxScroll = Math.max(0, L.contentH - viewH);
+        int maxScroll = Math.max(0, L.contentH + scrollPad() - viewH);
         scrollOffset = Math.max(0, Math.min(scrollOffset, maxScroll));
 
         g.enableScissor(baseX, topY, baseX + w, bottomY);
@@ -179,7 +194,7 @@ public class SettingsPage implements IPhonePage {
     private void renderMsgGroup(GuiGraphics g, Font font, Layout L, int baseX, int baseY) {
         int rectX = baseX + 10;
         int rectW = PhoneOverlay.getPhoneWidth() - 20;
-        g.drawString(font, "消息", baseX + 12, ly(L, baseY, L.msgTitleY), GROUP_TITLE_COLOR);
+        drawScaledText(g, font, "消息", baseX + 12, ly(L, baseY, L.msgTitleY), GROUP_TITLE_COLOR, GROUP_SCALE);
         UiShapes.fillRoundedRect(g, rectX, ly(L, baseY, L.msgRectY), rectW, L.msgRectH, CARD_R, CARD_BG);
         // 消息免打扰
         int rowY = ly(L, baseY, L.msgRow[0]);
@@ -189,7 +204,7 @@ public class SettingsPage implements IPhonePage {
     private void renderAnimGroup(GuiGraphics g, Font font, Layout L, int baseX, int baseY) {
         int rectX = baseX + 10;
         int rectW = PhoneOverlay.getPhoneWidth() - 20;
-        g.drawString(font, "动画", baseX + 12, ly(L, baseY, L.animTitleY), GROUP_TITLE_COLOR);
+        drawScaledText(g, font, "动画", baseX + 12, ly(L, baseY, L.animTitleY), GROUP_TITLE_COLOR, GROUP_SCALE);
         UiShapes.fillRoundedRect(g, rectX, ly(L, baseY, L.animRectY), rectW, L.animRectH, CARD_R, CARD_BG);
         // 消息动画
         int y0 = ly(L, baseY, L.animRow[0]);
@@ -205,33 +220,31 @@ public class SettingsPage implements IPhonePage {
     }
 
     private void renderColorGroup(GuiGraphics g, Font font, Layout L, int baseX, int baseY) {
-        ColorScheme scheme = ThemeManager.getActive();
         int rectX = baseX + 10;
         int rectW = PhoneOverlay.getPhoneWidth() - 20;
-        g.drawString(font, "配色", baseX + 12, ly(L, baseY, L.colorTitleY), GROUP_TITLE_COLOR);
+        drawScaledText(g, font, "配色", baseX + 12, ly(L, baseY, L.colorTitleY), GROUP_TITLE_COLOR, GROUP_SCALE);
         UiShapes.fillRoundedRect(g, rectX, ly(L, baseY, L.colorRectY), rectW, L.colorRectH, CARD_R, CARD_BG);
         // 配色方案
         int y0 = ly(L, baseY, L.colorRow[0]);
-        drawButtonRow(g, font, rectX, rectW, y0, "配色方案：" + scheme.displayName(), "切换", scheme.accentSoftActive());
+        drawButtonRow(g, font, rectX, rectW, y0, "配色方案：" + ThemeManager.getActive().displayName(), "切换");
         drawDivider(g, rectX, rectW, y0 + ROW_H);
         // 手机壳
         int y1 = ly(L, baseY, L.colorRow[1]);
         String caseText = HuhuTalkClientSettings.getPhoneCaseBlock();
         String caseDisplay = caseText.isBlank() ? "手机壳：默认"
                 : "手机壳：" + caseText.substring(caseText.indexOf(':') + 1);
-        drawButtonRow(g, font, rectX, rectW, y1, caseDisplay, "选壳", scheme.accentSoftActive());
+        drawButtonRow(g, font, rectX, rectW, y1, caseDisplay, "选壳");
     }
 
     private void renderDisplayGroup(GuiGraphics g, Font font, Layout L, int baseX, int baseY) {
-        ColorScheme scheme = ThemeManager.getActive();
         int rectX = baseX + 10;
         int rectW = PhoneOverlay.getPhoneWidth() - 20;
-        g.drawString(font, "显示", baseX + 12, ly(L, baseY, L.dispTitleY), GROUP_TITLE_COLOR);
+        drawScaledText(g, font, "显示", baseX + 12, ly(L, baseY, L.dispTitleY), GROUP_TITLE_COLOR, GROUP_SCALE);
         UiShapes.fillRoundedRect(g, rectX, ly(L, baseY, L.dispRectY), rectW, L.dispRectH, CARD_R, CARD_BG);
         // 屏幕比例
         int y0 = ly(L, baseY, L.dispRow[0]);
         drawButtonRow(g, font, rectX, rectW, y0, "屏幕比例：" + HuhuTalkClientSettings.getPhoneAspect(),
-                "切换", scheme.accentSoftActive());
+                "切换");
         drawDivider(g, rectX, rectW, y0 + ROW_H);
         // 屏幕大小（滑块）
         int y1 = ly(L, baseY, L.dispRow[1]);
@@ -248,36 +261,36 @@ public class SettingsPage implements IPhonePage {
     private void drawToggleRow(GuiGraphics g, Font font, int rectX, int rectW, int y,
                                String label, boolean on) {
         g.drawString(font, label, rectX + 12, y + (ROW_H - font.lineHeight) / 2 + 1, TEXT_COLOR, false);
-        // 胶囊开关（右对齐）
-        int swH = 18;
-        int swW = 40;
+        // 胶囊开关（右对齐）：激活 #de7e7e，未激活淡灰
+        int swH = contH(font);
+        int swW = swH * 2;
         int swX = rectX + rectW - swW - 10;
         int swY = y + (ROW_H - swH) / 2;
-        UiShapes.fillRoundedRect(g, swX, swY, swW, swH, swH / 2, on ? 0xFFDE7E7E : 0xFFB9AAB0);
-        int knob = on ? swX + swW - swH + 2 : swX + 2;
-        UiShapes.fillRoundedRect(g, knob, swY + 2, swH - 4, swH - 4, (swH - 4) / 2, 0xFFFFFFFF);
+        UiShapes.fillRoundedRect(g, swX, swY, swW, swH, swH / 2, on ? BTN_COLOR : SWITCH_OFF);
+        int knob = on ? swX + swW - swH + 1 : swX + 1;
+        UiShapes.fillRoundedRect(g, knob, swY + 1, swH - 2, swH - 2, (swH - 2) / 2, 0xFFFFFFFF);
     }
 
     private void drawStepperRow(GuiGraphics g, Font font, int rectX, int rectW, int y,
                                 String label, long value) {
         g.drawString(font, label + "：" + value, rectX + 12, y + (ROW_H - font.lineHeight) / 2 + 1, TEXT_COLOR, false);
-        // 胶囊 - / +
-        int btnH = CONT_H;
-        int btnY = y + (ROW_H - btnH) / 2;
-        int minusX = rectX + rectW - 66;
-        int plusX = rectX + rectW - 36;
-        capsuleBtn(g, font, minusX, btnY, 24, btnH, "−", 0xFF888888);
-        capsuleBtn(g, font, plusX, btnY, 24, btnH, "＋", 0xFF888888);
+        // 竖排上下箭头（▲ 增 / ▼ 减），每个 0.5 倍字体大小，#de7e7e
+        int btn = contH(font);
+        int gap = 2;
+        int right = rectX + rectW - btn - 10;
+        int topY = y + (ROW_H - (btn * 2 + gap)) / 2;
+        arrowBtn(g, font, right, topY, btn, "▲");
+        arrowBtn(g, font, right, topY + btn + gap, btn, "▼");
     }
 
     private void drawButtonRow(GuiGraphics g, Font font, int rectX, int rectW, int y,
-                               String label, String btnText, int btnColor) {
+                               String label, String btnText) {
         g.drawString(font, label, rectX + 12, y + (ROW_H - font.lineHeight) / 2 + 1, TEXT_COLOR, false);
-        int btnW = 44;
-        int btnH = CONT_H;
-        int btnX = rectX + rectW - btnW - 10;
+        int btnH = contH(font);
+        int bw = btnW(font, btnText);
+        int btnX = rectX + rectW - bw - 10;
         int btnY = y + (ROW_H - btnH) / 2;
-        capsuleBtn(g, font, btnX, btnY, btnW, btnH, btnText, btnColor);
+        capsuleBtn(g, font, btnX, btnY, bw, btnH, btnText, BTN_COLOR);
     }
 
     private void drawSizeRow(GuiGraphics g, Font font, int rectX, int rectW, int y) {
@@ -293,10 +306,39 @@ public class SettingsPage implements IPhonePage {
         UiShapes.fillRoundedRect(g, handleX - 5, trackY - 3, 10, 9, 4, 0xFFDE7E7E);
     }
 
+    /** 按钮高度 = 0.9 倍默认字体大小 */
+    private static int contH(Font font) {
+        return Math.max(1, (int) (font.lineHeight * 0.9f));
+    }
+
+    /** 按钮宽度：正好包裹文字（文字缩放后宽度 + 两侧留白） */
+    private static int btnW(Font font, String text) {
+        return (int) (font.width(text) * BTN_TEXT_SCALE) + 10;
+    }
+
+    /** 竖排箭头按钮（每个 0.5 倍字体大小，取色 #de7e7e） */
+    private void arrowBtn(GuiGraphics g, Font font, int x, int y, int size, String text) {
+        UiShapes.fillRoundedRect(g, x, y, size, size, size / 2, BTN_COLOR);
+        float s = 0.5f;
+        drawScaledText(g, font, text, x + (size - font.width(text) * s) / 2f,
+                y + (size - font.lineHeight * s) / 2f, 0xFFFFFFFF, s);
+    }
+
     private void capsuleBtn(GuiGraphics g, Font font, int x, int y, int w, int h, String text, int bg) {
         UiShapes.fillRoundedRect(g, x, y, w, h, h / 2, bg);
-        g.drawString(font, text, x + (w - font.width(text)) / 2, y + (h - font.lineHeight) / 2 + 1,
-                0xFFFFFFFF, false);
+        float s = BTN_TEXT_SCALE;
+        drawScaledText(g, font, text, x + (w - font.width(text) * s) / 2f,
+                y + (h - font.lineHeight * s) / 2f, 0xFFFFFFFF, s);
+    }
+
+    /** 以任意倍率绘制文本（无阴影） */
+    private static void drawScaledText(GuiGraphics g, Font font, String text, float x, float y,
+                                       int color, float scale) {
+        float inv = 1.0f / scale;
+        g.pose().pushPose();
+        g.pose().scale(scale, scale, 1.0f);
+        g.drawString(font, text, x * inv, y * inv, color, false);
+        g.pose().popPose();
     }
 
     private static void drawDivider(GuiGraphics g, int rectX, int rectW, int y) {
@@ -355,40 +397,42 @@ public class SettingsPage implements IPhonePage {
             HuhuTalkClientSettings.setMessageAnimation(!HuhuTalkClientSettings.isMessageAnimationEnabled());
             return true;
         }
-        // 动画：每字耗时 stepper
-        if (hitStepper(relX, ly, L.animRow[1], rectW)) {
+        // 动画：每字耗时 stepper（▲ 增 / ▼ 减）
+        int charStep = hitStepper(relX, ly, L.animRow[1], rectW);
+        if (charStep != 0) {
             long v = HuhuTalkClientSettings.getCharTypingMs();
-            if (relX <= rectX + rectW - 42) {
-                HuhuTalkClientSettings.setCharTypingMs(Math.max(50, v - 50));
-            } else {
+            if (charStep == 1) {
                 HuhuTalkClientSettings.setCharTypingMs(v + 50);
+            } else {
+                HuhuTalkClientSettings.setCharTypingMs(Math.max(50, v - 50));
             }
             return true;
         }
-        // 动画：单句上限 stepper
-        if (hitStepper(relX, ly, L.animRow[2], rectW)) {
+        // 动画：单句上限 stepper（▲ 增 / ▼ 减）
+        int maxStep = hitStepper(relX, ly, L.animRow[2], rectW);
+        if (maxStep != 0) {
             long v = HuhuTalkClientSettings.getMaxTypingMs();
-            if (relX <= rectX + rectW - 42) {
-                HuhuTalkClientSettings.setMaxTypingMs(Math.max(100, v - 100));
-            } else {
+            if (maxStep == 1) {
                 HuhuTalkClientSettings.setMaxTypingMs(v + 100);
+            } else {
+                HuhuTalkClientSettings.setMaxTypingMs(Math.max(100, v - 100));
             }
             return true;
         }
 
         // 配色：配色方案切换
-        if (hitButton(relX, ly, L.colorRow[0], rectW)) {
+        if (hitButton(relX, ly, L.colorRow[0], rectW, "切换")) {
             ThemeManager.cycleNext();
             return true;
         }
         // 配色：手机壳
-        if (hitButton(relX, ly, L.colorRow[1], rectW)) {
+        if (hitButton(relX, ly, L.colorRow[1], rectW, "选壳")) {
             PhoneOverlay.pushPage(new PhoneCasePickerPage());
             return true;
         }
 
         // 显示：屏幕比例
-        if (hitButton(relX, ly, L.dispRow[0], rectW)) {
+        if (hitButton(relX, ly, L.dispRow[0], rectW, "切换")) {
             cycleAspect();
             return true;
         }
@@ -401,25 +445,33 @@ public class SettingsPage implements IPhonePage {
         return false;
     }
 
-    /** 命中 stepper 行的 - / + 按钮区域 */
-    private boolean hitStepper(double x, double y, int rowY, int rectW) {
-        int btnH = CONT_H;
-        int btnY = rowY + (ROW_H - btnH) / 2;
-        return hit(x, y, 10 + rectW - 66, btnY, 54, btnH);
+    /** 命中 stepper 行竖排箭头：返回 1=▲增、2=▼减、0=未命中 */
+    private int hitStepper(double x, double y, int rowY, int rectW) {
+        Font font = Minecraft.getInstance().font;
+        int btn = contH(font);
+        int gap = 2;
+        int right = 10 + rectW - btn - 10;
+        int topY = rowY + (ROW_H - (btn * 2 + gap)) / 2;
+        if (hit(x, y, right, topY, btn, btn)) return 1;
+        if (hit(x, y, right, topY + btn + gap, btn, btn)) return 2;
+        return 0;
     }
 
     /** 命中单按钮行（切换/选壳）的按钮区域 */
-    private boolean hitButton(double x, double y, int rowY, int rectW) {
-        int btnH = CONT_H;
+    private boolean hitButton(double x, double y, int rowY, int rectW, String btnText) {
+        Font font = Minecraft.getInstance().font;
+        int btnH = contH(font);
+        int bw = btnW(font, btnText);
+        int btnX = 10 + rectW - bw - 10;
         int btnY = rowY + (ROW_H - btnH) / 2;
-        return hit(x, y, 10 + rectW - 54, btnY, 44, btnH);
+        return hit(x, y, btnX, btnY, bw, btnH);
     }
 
     @Override
     public boolean mouseScrolled(double relX, double relY, double scrollDelta) {
         Layout L = computeLayout();
         int viewH = Math.max(0, PhoneOverlay.getPhoneHeight() - L.navH);
-        int maxScroll = Math.max(0, L.contentH - viewH);
+        int maxScroll = Math.max(0, L.contentH + scrollPad() - viewH);
         scrollOffset = Math.max(0, Math.min(scrollOffset - (int) (scrollDelta * 20), maxScroll));
         return true;
     }
