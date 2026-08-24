@@ -92,7 +92,7 @@ public class SettingsPage implements IPhonePage {
         int msgTitleY, msgRectY, msgRectH;
         int[] msgRow = new int[1];
         int animTitleY, animRectY, animRectH;
-        int[] animRow = new int[3];
+        int[] animRow = new int[4]; // 消息动画 / 每字耗时 / 单句上限 / 切屏动画(全局总开关)
         int colorTitleY, colorRectY, colorRectH;
         int[] colorRow = new int[2];
         int dispTitleY, dispRectY, dispRectH;
@@ -123,16 +123,16 @@ public class SettingsPage implements IPhonePage {
         y = L.msgRow[0] + rowH() + rectPad();
         y += groupTitleTop();
 
-        // 动画 分组（3 行）
+        // 动画 分组（4 行）
         L.animTitleY = y;
         y += titleH + cardGap();
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < 4; i++) {
             L.animRow[i] = y;
             y += rowH();
         }
         L.animRectY = L.animRow[0] - rectPad();
-        L.animRectH = (L.animRow[2] + rowH()) - L.animRectY + rectPad();
-        y = L.animRow[2] + rowH() + rectPad();
+        L.animRectH = (L.animRow[3] + rowH()) - L.animRectY + rectPad();
+        y = L.animRow[3] + rowH() + rectPad();
         y += groupTitleTop();
 
         // 配色 分组（2 行）
@@ -237,6 +237,10 @@ public class SettingsPage implements IPhonePage {
         // 单句上限
         int y2 = ly(L, baseY, L.animRow[2]);
         drawStepperRow(g, font, rectX, rectW, y2, "单句上限(ms)", HuhuTalkClientSettings.getMaxTypingMs());
+        drawDivider(g, rectX, rectW, y2 + rowH());
+        // 切屏动画（全局界面动画总开关）
+        int y3 = ly(L, baseY, L.animRow[3]);
+        drawToggleRow(g, font, rectX, rectW, y3, "切屏动画", HuhuTalkClientSettings.isUiAnimationEnabled());
     }
 
     private void renderColorGroup(GuiGraphics g, Font font, Layout L, int baseX, int baseY) {
@@ -508,6 +512,11 @@ public class SettingsPage implements IPhonePage {
             } else {
                 HuhuTalkClientSettings.setMaxTypingMs(Math.max(100, v - 100));
             }
+            return true;
+        }
+        // 动画：切屏动画（全局界面动画总开关）
+        if (hit(relX, ly, rectX, L.animRow[3], rectW, rowH())) {
+            HuhuTalkClientSettings.setUiAnimation(!HuhuTalkClientSettings.isUiAnimationEnabled());
             return true;
         }
 

@@ -40,6 +40,8 @@ public final class HuhuTalkClientSettings {
     private static boolean dndEnabled = false;
     /** 消息断句动画开关 */
     private static boolean messageAnimation = true;
+    /** 「切屏动画」全局界面动画总开关：关闭后所有界面瞬时切换，所有动画逻辑跳过 */
+    private static boolean uiAnimation = true;
     /** 断句每字耗时（毫秒） */
     private static long charTypingMs = 500;
     /** 断句单句耗时上限（毫秒） */
@@ -66,6 +68,8 @@ public final class HuhuTalkClientSettings {
     public static float getPhoneOffsetY() { return phoneOffsetY; }
     public static boolean isDndEnabled() { return dndEnabled; }
     public static boolean isMessageAnimationEnabled() { return messageAnimation; }
+    /** 「切屏动画」全局界面动画总开关 */
+    public static boolean isUiAnimationEnabled() { return uiAnimation; }
     public static long getCharTypingMs() { return charTypingMs; }
     public static long getMaxTypingMs() { return maxTypingMs; }
     public static float getUiFontScale() { return uiFontScale; }
@@ -190,6 +194,12 @@ public final class HuhuTalkClientSettings {
         save();
     }
 
+    /** 切换「切屏动画」全局界面动画总开关 */
+    public static void setUiAnimation(boolean enabled) {
+        uiAnimation = enabled;
+        save();
+    }
+
     public static void setCharTypingMs(long ms) {
         charTypingMs = Math.max(50, ms);
         save();
@@ -270,6 +280,7 @@ public final class HuhuTalkClientSettings {
             phoneOffsetY = data.phoneOffsetY;
             dndEnabled = data.dndEnabled;
             messageAnimation = data.messageAnimation;
+            uiAnimation = data.uiAnimation;
             if (data.charTypingMs > 0) charTypingMs = data.charTypingMs;
             if (data.maxTypingMs > 0) maxTypingMs = data.maxTypingMs;
             if (data.uiFontScale > 0f) uiFontScale = Math.max(0.5f, Math.min(2.0f, data.uiFontScale));
@@ -304,6 +315,7 @@ public final class HuhuTalkClientSettings {
             data.phoneOffsetY = phoneOffsetY;
             data.dndEnabled = dndEnabled;
             data.messageAnimation = messageAnimation;
+            data.uiAnimation = uiAnimation;
             data.charTypingMs = charTypingMs;
             data.maxTypingMs = maxTypingMs;
             data.uiFontScale = uiFontScale;
@@ -328,6 +340,7 @@ public final class HuhuTalkClientSettings {
         float phoneOffsetY;
         boolean dndEnabled;
         boolean messageAnimation;
+        boolean uiAnimation;
         long charTypingMs;
         long maxTypingMs;
         float uiFontScale;

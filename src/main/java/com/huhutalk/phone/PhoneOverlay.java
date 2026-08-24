@@ -5,6 +5,8 @@ import com.huhutalk.client.settings.HuhuTalkClientSettings;
 import com.huhutalk.client.theme.ColorScheme;
 import com.huhutalk.client.theme.PhoneCaseRenderer;
 import com.huhutalk.client.theme.ThemeManager;
+import com.huhutalk.phone.anim.AnimEasing;
+import com.huhutalk.phone.anim.AnimTween;
 import com.huhutalk.phone.pages.ChatPage;
 import com.huhutalk.phone.pages.ContactListPage;
 import com.huhutalk.phone.pages.MainPage;
@@ -66,6 +68,13 @@ public class PhoneOverlay {
     private static boolean dragging = false;
     /** 拖拽抓取点：按下瞬间鼠标相对手机左上角的偏移 */
     private static float grabDX, grabDY;
+
+    /** 手机容器动画状态机：呼出/收起为整机 Overlay 动画（唯一需要鼠标逆矩阵矫正的动画） */
+    private enum ContainerAnim { IDLE, ENTER, EXIT }
+    private static ContainerAnim containerAnim = ContainerAnim.IDLE;
+    private static AnimTween containerTween = null;
+    /** 本帧手机渲染用左上角 Y（含呼出/收起动画位移）；鼠标命中判定据此做逆矩阵矫正 */
+    private static int renderedPhoneY = 0;
 
     /** 统一状态栏高度（基准像素；运行时经 UiFont.sh 随字体倍率缩放） */
     private static final int STATUSBAR_H = 12;
@@ -161,25 +170,57 @@ public class PhoneOverlay {
         updateCursorMode();
     }
 
-    private static void hide() {        visible = false;
+    private static void hide() {
+        // 已在收起退场中：丢弃重复指令（不重复开新动画）
+        if (uiAnimEnabled() && containerAnim == ContainerAnim.EXIT) {
+            return;
+        }
+        // 切屏动画开启：走整机下滑退场（EXIT），播完才真正隐藏
+        if (uiAnimEnabled() && !captureHidden) {
+            containerAnim = ContainerAnim.EXIT;
+            containerTween = new AnimTween();
+            return;
+        }
+        doHideNow();
+    }
+
+    /** 立即隐藏手机（无动画）：清空拖动与容器动画状态，关闭输入屏，恢复鼠标 */
+    private static void doHideNow() {
+        visible = false;
         dragging = false;
+        containerAnim = ContainerAnim.IDLE;
+        containerTween = null;
         if (Minecraft.getInstance().screen instanceof PhoneInputScreen) {
             Minecraft.getInstance().setScreen(null);
         }
+        updateCursorMode();
     }
 
     /**
      * 显示手机：保留上次关闭时的页面（页面栈不重置）。
      * 仅当栈为空（首次打开 / 新世界重置后）才进入手机桌面 MainPage；
      * 否则回到关闭前所在的页面（含 HuhuTalk 内容区顶层页与内部页）。
+     * 切屏动画开启时整机自屏幕底部向上滑入（ENTER），关闭时瞬时出现。
      */
     private static void show() {
         visible = true;
+        if (uiAnimEnabled() && !captureHidden) {
+            containerAnim = ContainerAnim.ENTER;
+            containerTween = new AnimTween();
+        } else {
+            containerAnim = ContainerAnim.IDLE;
+            containerTween = null;
+        }
         if (pageStack.isEmpty()) {
             inChatApp = false;
             activeTab = Tab.MESSAGE;
             pageStack.push(new MainPage());
         }
+    }
+
+    /** 「切屏动画」全局界面动画总开关是否开启（关闭时所有动画逻辑跳过，瞬时切换） */
+    private static boolean uiAnimEnabled() {
+        return HuhuTalkClientSettings.isUiAnimationEnabled();
     }
 
     /** 从桌面进入 HuhuTalk App 内容区（默认消息 tab，显示底部导航） */
@@ -329,8 +370,8 @@ public class PhoneOverlay {
         int defX = screenW - phoneWidth - 10;
         int defY = screenH - totalHeight - 10;
 
-        // 拖动时：手机实时跟随鼠标，并把约束后的位置折算为偏移量落盘
-        if (dragging) {
+        // 拖动时：手机实时跟随鼠标，并把约束后的位置折算为偏移量落盘（呼出/收起动画期间禁止拖动）
+        if (dragging && containerAnim == ContainerAnim.IDLE) {
             int mx = guiMouseX(mc);
             int my = guiMouseY(mc);
             int targetX = (int)Math.round(mx - grabDX);
@@ -346,8 +387,39 @@ public class PhoneOverlay {
         phoneX = clampPhoneX(phoneX, screenW);
         phoneY = clampPhoneY(phoneY, screenH);
 
+        // 手机容器动画：呼出/收起沿 Y 轴滑动（唯一需要鼠标逆矩阵矫正的动画）。
+        // 起点/终点统一以「屏幕下缘 ↔ 静止位置」计算，故手机无论被拖到哪个位置都从屏幕底部滑入/滑出。
+        float animOffsetY = 0f;
+        if (uiAnimEnabled()) {
+            if (containerAnim != ContainerAnim.IDLE && containerTween != null) {
+                float raw = containerTween.raw();
+                float baseOffset = (float) (screenH - phoneY); // 静止位置到屏幕下缘的距离
+                if (containerAnim == ContainerAnim.ENTER) {
+                    // 呼出：ease-out 从屏幕下缘上滑到静止位置
+                    animOffsetY = baseOffset * (1f - AnimEasing.easeOut(raw));
+                    if (raw >= 1f) {
+                        containerAnim = ContainerAnim.IDLE;
+                        containerTween = null;
+                    }
+                } else if (containerAnim == ContainerAnim.EXIT) {
+                    // 收起：ease-in 下滑出屏幕下缘，播完才真正隐藏
+                    animOffsetY = baseOffset * AnimEasing.easeIn(raw);
+                    if (raw >= 1f) {
+                        doHideNow();
+                        return;
+                    }
+                }
+            }
+        } else {
+            // 全局总开关关闭：瞬时切换，重置动画状态
+            containerAnim = ContainerAnim.IDLE;
+            containerTween = null;
+        }
+        int ry = phoneY + Math.round(animOffsetY);
+        renderedPhoneY = ry;
+
         // 手机壳（纯视觉，包住整个手机）。镂空内收状态栏/水印栏高度，托住上下导航栏圆角
-        PhoneCaseRenderer.renderCase(graphics, phoneX, phoneY, phoneWidth, totalHeight,
+        PhoneCaseRenderer.renderCase(graphics, phoneX, ry, phoneWidth, totalHeight,
                 UiFont.sh(STATUSBAR_H), UiFont.sh(WATERMARK_H));
 
         // 当前页面
@@ -356,24 +428,24 @@ public class PhoneOverlay {
         boolean cameraTransparent = page instanceof ChatPage cp && cp.isCameraMode();
 
         // 手机背景（圆角：上圆角=状态栏高，下圆角=水印栏高）。相机模式下透明，露出游戏画面
-        fillRoundedRect(graphics, phoneX, phoneY, phoneWidth, totalHeight, UiFont.sh(STATUSBAR_H), UiFont.sh(WATERMARK_H),
+        fillRoundedRect(graphics, phoneX, ry, phoneWidth, totalHeight, UiFont.sh(STATUSBAR_H), UiFont.sh(WATERMARK_H),
                 cameraTransparent ? 0x00111111 : 0xEE111111);
 
         // 统一状态栏（圆角顶）
-        renderStatusBar(graphics, phoneX, phoneY, phoneWidth);
+        renderStatusBar(graphics, phoneX, ry, phoneWidth);
 
         // 当前页面内容区：从状态栏下方开始，到水印栏上方结束
         if (page != null) {
-            page.render(graphics, phoneX, phoneY + UiFont.sh(STATUSBAR_H), partialTick);
+            page.render(graphics, phoneX, ry + UiFont.sh(STATUSBAR_H), partialTick);
         }
 
         // 底部导航（仅 HuhuTalk App 内且处于顶层页时显示），悬浮于水印栏上方并上抬留出空隙
         if (inChatApp && !isInSubPage()) {
-            renderBottomNav(graphics, phoneX, phoneY + totalHeight - UiFont.sh(WATERMARK_H) - bottomNavH() - navRaise(), phoneWidth);
+            renderBottomNav(graphics, phoneX, ry + totalHeight - UiFont.sh(WATERMARK_H) - bottomNavH() - navRaise(), phoneWidth);
         }
 
         // 底部水印栏（圆角底）
-        renderWatermark(graphics, phoneX, phoneY + totalHeight - UiFont.sh(WATERMARK_H), phoneWidth, UiFont.sh(WATERMARK_H));
+        renderWatermark(graphics, phoneX, ry + totalHeight - UiFont.sh(WATERMARK_H), phoneWidth, UiFont.sh(WATERMARK_H));
 
         // 屏幕亮度滤镜：按设置叠一层黑色圆角蒙版，把「手机屏 + 手机壳」一起变暗（0~70% 不透明度）。
         // 亮度 1 = 满亮度不调；往低调，蒙版越不透明（最低叠 70%）。不拦截点击。
@@ -382,7 +454,7 @@ public class PhoneOverlay {
             int alpha = Math.round((1f - brightness) * 0.70f * 255); // 0~178 → 0~70%
             int dimColor = (alpha << 24) | 0x000000;
             int caseX = phoneX - PhoneCaseRenderer.CASE_THICKNESS;
-            int caseY = phoneY - PhoneCaseRenderer.CASE_THICKNESS;
+            int caseY = ry - PhoneCaseRenderer.CASE_THICKNESS;
             int caseW = phoneWidth + PhoneCaseRenderer.CASE_THICKNESS * 2;
             int caseH = totalHeight + PhoneCaseRenderer.CASE_THICKNESS * 2;
             fillRoundedRect(graphics, caseX, caseY, caseW, caseH,
@@ -573,6 +645,19 @@ public class PhoneOverlay {
     public static boolean handleMouseClicked(double screenX, double screenY, int button, int action) {
         if (!visible) return false;
 
+        // 手机容器动画期间（呼出/收起）：
+        // - 收起(EXIT)：吞掉一切输入（手机正在离场）；
+        // - 呼出(ENTER)：除「右键强制收起」外全部丢弃（规则 3）。
+        if (uiAnimEnabled() && containerAnim != ContainerAnim.IDLE) {
+            if (action == GLFW.GLFW_PRESS
+                    && button == GLFW.GLFW_MOUSE_BUTTON_RIGHT
+                    && containerAnim == ContainerAnim.ENTER) {
+                hide();          // 紧急强制收起
+                updateCursorMode();
+            }
+            return true;
+        }
+
         // 拖拽释放：无论鼠标此刻是否还在手机内都要结束拖拽并落盘
         if (action == GLFW.GLFW_RELEASE && button == GLFW.GLFW_MOUSE_BUTTON_LEFT && dragging) {
             dragging = false;
@@ -580,8 +665,9 @@ public class PhoneOverlay {
             return true;
         }
 
+        // 逆矩阵矫正：容器动画期间渲染位移了 phoneY，命中判定必须对准渲染位置 renderedPhoneY
         double relX = screenX - phoneX;
-        double relY = screenY - phoneY;
+        double relY = screenY - renderedPhoneY;
         if (relX < 0 || relY < 0 || relX >= phoneWidth || relY >= phoneHeight + UiFont.sh(STATUSBAR_H) + UiFont.sh(WATERMARK_H)) {
             return false;
         }
@@ -651,10 +737,14 @@ public class PhoneOverlay {
 
     public static boolean handleMouseScroll(double screenX, double screenY, double scrollDelta) {
         if (!visible) return false;
+        // 容器动画期间吞掉滚轮（呼出/收起时不可滚动页面）
+        if (uiAnimEnabled() && containerAnim != ContainerAnim.IDLE) {
+            return true;
+        }
         IPhonePage page = getCurrentPage();
         if (page == null) return false;
         double relX = screenX - phoneX;
-        double relY = screenY - phoneY;
+        double relY = screenY - renderedPhoneY;
         if (relX >= 0 && relY >= 0 && relX < phoneWidth && relY < phoneHeight + UiFont.sh(STATUSBAR_H)) {
             if (relY < UiFont.sh(STATUSBAR_H)) {
                 return true;
@@ -664,11 +754,13 @@ public class PhoneOverlay {
         return true;
     }
 
-    /** 进入新世界时调用：关闭手机、清空页面栈 */
+    /** 进入新世界时调用：关闭手机、清空页面栈（无动画，强制瞬时） */
     public static void resetForNewWorld() {
         visible = false;
         dragging = false;
         inChatApp = false;
+        containerAnim = ContainerAnim.IDLE;
+        containerTween = null;
         pageStack.clear();
         activeTab = Tab.MESSAGE;
         if (Minecraft.getInstance().screen instanceof PhoneInputScreen) {
