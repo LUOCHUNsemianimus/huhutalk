@@ -69,6 +69,11 @@ public final class PhotoLibrary {
         return Minecraft.getInstance().gameDirectory.toPath().resolve("huhutalk").resolve("vision_tmp");
     }
 
+    /** 手机内置手册（设置 APP）的图片目录：放入 PNG，条目按文件名引用 */
+    public static Path manualDir() {
+        return Minecraft.getInstance().gameDirectory.toPath().resolve("huhutalk").resolve("manual");
+    }
+
     /**
      * 截取主渲染目标并转为 PNG 字节（相机"拍照"用）。
      * 必须在渲染线程调用；截图会带上 HUD / 手机 overlay（demo 阶段可接受）。
@@ -153,8 +158,8 @@ public final class PhotoLibrary {
         if (key == null) return null;
         byte[] cap = CAPTURED.get(key);
         if (cap != null) return cap;
-        // 依次查：图库 / 聊天图片 / （兜底）两处目录下的文件
-        for (Path dir : new Path[]{photoDir(), chatImageDir()}) {
+        // 依次查：图库 / 聊天图片 / 手册图片（兜底四处目录下的文件）
+        for (Path dir : new Path[]{photoDir(), chatImageDir(), manualDir()}) {
             Path p = dir.resolve(sanitize(key));
             try {
                 if (Files.exists(p)) {

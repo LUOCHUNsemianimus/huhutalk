@@ -10,6 +10,7 @@ import com.huhutalk.phone.pages.ContactListPage;
 import com.huhutalk.phone.pages.MainPage;
 import com.huhutalk.phone.pages.MessageListPage;
 import com.huhutalk.phone.pages.SettingsPage;
+import com.mojang.math.Axis;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
@@ -102,8 +103,8 @@ public class PhoneOverlay {
     public static int getPhoneX() { return phoneX; }
     public static int getPhoneY() { return phoneY; }
     public static float getScale() { return scale; }
-    /** 主界面 APP 网格列数（MainPage 占位用，固定 2） */
-    public static int getGridColumns() { return 2; }
+    /** 主界面 APP 网格列数（MainPage 桌面图标每行固定 3 个） */
+    public static int getGridColumns() { return 3; }
 
     /** 屏幕比例字符串 → 返回 宽/高 比值；未知值回退 20:9。约定：长边为高、短边为宽，故 宽/高 = 后数/前数 */
     public static float aspectRatio(String aspect) {
@@ -375,18 +376,47 @@ public class PhoneOverlay {
     private static void renderStatusBar(GuiGraphics graphics, int baseX, int baseY, int w) {
         Font font = Minecraft.getInstance().font;
         fillRoundedRect(graphics, baseX, baseY, w, UiFont.sh(STATUSBAR_H), UiFont.sh(STATUSBAR_H), 0, 0xFF222222);
-        // 时间（向左留出圆角，往中间移一点）
-        drawScaledText(graphics, font, Component.literal("12:00").getVisualOrderText(),
+        // 时间（跟随世界内部时间，向左留出圆角，往中间移一点）
+        drawScaledText(graphics, font, Component.literal(gameTimeString()).getVisualOrderText(),
                 baseX + 14, baseY + 3, 0xFFFFFFFF, UiFont.sc(0.75f));
         int rightX = baseX + w;
         // 关闭 X（离开右圆角）
         drawScaledText(graphics, font, Component.literal("X").getVisualOrderText(),
                 rightX - UiFont.sh(12), baseY + 3, 0xFFFF0000, UiFont.sc(0.75f));
-        // 电源：emoji 🔋（离开右圆角，位于 X 左侧）
-        drawScaledText(graphics, font, Component.literal("🔋").getVisualOrderText(),
-                rightX - UiFont.sh(32), baseY + 3, 0xFFFFFFFF, UiFont.sc(0.75f));
-        // 信号（0.75 倍，离开右圆角，位于电源左侧）
+        // 电池：垂直电池图标（🔋 旋转 90° 仿现实电池，尺寸为原 emoji 的 1.5 倍，位于 X 左侧）
+        renderBattery(graphics, rightX - UiFont.sh(28), baseY + UiFont.sh(STATUSBAR_H) / 2);
+        // 信号（0.75 倍，离开右圆角，位于电池左侧）
         renderSignalBars(graphics, rightX - UiFont.sh(50), baseY, UiFont.sh(STATUSBAR_H));
+    }
+
+    /** 电池图标：将 🔋 emoji 旋转 90° 变为垂直（正极触点朝上），仿现实电池，尺寸为原 emoji 的 1.5 倍 */
+    private static void renderBattery(GuiGraphics g, int centerX, int centerY) {
+        Font font = Minecraft.getInstance().font;
+        FormattedCharSequence glyph = Component.literal("🔋").getVisualOrderText();
+        float gw = font.width(glyph);
+        float gh = font.lineHeight;
+        float scale = UiFont.sc(0.75f) * 1.5f; // 1.5 倍
+        g.pose().pushPose();
+        g.pose().translate(centerX, centerY, 0);
+        g.pose().mulPose(Axis.ZP.rotationDegrees(90)); // 顺时针 90°，使正极朝上
+        g.pose().scale(scale, scale, 1f);
+        g.drawString(font, glyph, -gw / 2f, -gh / 2f, 0xFFFFFFFF, false);
+        g.pose().popPose();
+    }
+
+    /**
+     * 当前世界内部时间，格式化为 HH:MM。
+     * Minecraft 时间轴：dayTime%24000，0=6:00、6000=12:00、12000=18:00、18000=0:00。
+     */
+    private static String gameTimeString() {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.level == null) {
+            return "12:00";
+        }
+        long dayTime = mc.level.getDayTime() % 24000;
+        int hours = (int) ((dayTime / 1000 + 6) % 24);
+        int minutes = (int) ((dayTime % 1000) * 60 / 1000);
+        return String.format("%02d:%02d", hours, minutes);
     }
 
     /** 底部水印栏：深蓝底 + 白色加粗版本文字（圆角底；文字 0.75 倍、用空格分隔，过宽时缩放适配） */
@@ -443,9 +473,9 @@ public class PhoneOverlay {
     }
 
     private static void renderSignalBars(GuiGraphics graphics, int startX, int baseY, int barAreaH) {
-        int[] hs = {5, 7, 9}; // 原 {6,9,12} × 0.75 取整
-        int barW = 2;         // 原 3 × 0.75
-        int spacing = 4;      // 原 5 × 0.75
+        int[] hs = {5, 4, 3}; // 从左到右依次降低；原 {5,7,9} × 0.6 取整
+        int barW = 1;         // 变细
+        int spacing = 3;      // 与宽度保持紧凑
         ResourceKey<Level> dim = signalDimension();
         for (int i = 0; i < 3; i++) {
             int x = startX + i * spacing;

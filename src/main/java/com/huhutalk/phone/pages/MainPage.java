@@ -1,10 +1,12 @@
 package com.huhutalk.phone.pages;
 
 import com.huhutalk.client.NotificationManager;
+import com.huhutalk.client.settings.HuhuTalkClientSettings;
 import com.huhutalk.network.C2SSOSPacket;
 import com.huhutalk.phone.IPhonePage;
 import com.huhutalk.phone.PhoneOverlay;
 import com.huhutalk.phone.UiFont;
+import com.huhutalk.phone.UiShapes;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
@@ -16,13 +18,19 @@ import java.util.List;
 import java.util.function.Supplier;
 
 /**
- * 手机主界面。
- * - APP 图标网格（按 gridColumns 动态调整）
+ * 手机主界面（桌面）。
+ * - 桌面背景 {@link #DESKTOP_BG}（临时色，后续在屏幕中间渲染更多内容）
+ * - APP 图标：圆角正方形，每行 {@link #APP_COLS} 个，纵向向下延伸；行数随手机长宽比变化
+ *   （20:9 → 5 行、9:16 → 4 行、4:3 → 3 行）
  * - TALK 图标右上角未读红点
- * - ✅ 顶部状态栏端口：左时间 / 中信号 / 右电量 + 关闭按钮
  * - SOS 紧急呼叫按钮（召来全部已佩戴手机的女仆并进入战斗保护）
  */
 public class MainPage implements IPhonePage {
+    /** 桌面背景色（临时 #f0e4ea；后续替换为正式配色并在中间渲染更多内容） */
+    private static final int DESKTOP_BG = 0xFFF0E4EA;
+    /** 每行 app 图标个数 */
+    private static final int APP_COLS = 3;
+
     private final List<AppInfo> apps = new ArrayList<>();
     /** SOS 点击后的短暂提示（毫秒时间戳） */
     private long sosFlashUntil = 0;
@@ -36,25 +44,46 @@ public class MainPage implements IPhonePage {
         apps.add(new AppInfo("打人", 0xFF8000, false, null));
     }
 
+    /** 网格行数：随手机长宽比变化。20:9→5、9:16→4、4:3→3，未知回退 5。 */
+    private static int gridRows() {
+        return switch (HuhuTalkClientSettings.getPhoneAspect()) {
+            case "4:3" -> 3;
+            case "9:16" -> 4;
+            default -> 5; // "20:9" 及其它
+        };
+    }
+
+    /** 图标区顶部起始 Y（内容区相对坐标） */
+    private static int gridStartY(int h) {
+        int topPad = Math.max(4, (int) (h * 0.03));
+        return topPad + Math.max(4, (int) (h * 0.04));
+    }
+
+    /**
+     * 计算第 i 个 app 图标的矩形（内容区相对坐标，未含 baseX/baseY）。
+     * 渲染（加 baseX/baseY）与点击命中（直接用 relX/relY）共用，保证一致。
+     * out = {x, y, iconW, iconH}。
+     */
+    private static void appRect(int w, int h, int i, int[] out) {
+        int margin = Math.max(4, (int) (w * 0.06));
+        int iconW = Math.max(10, (w - margin * (APP_COLS + 1)) / APP_COLS);
+        int iconH = iconW; // 圆角正方形
+        int startY = gridStartY(h);
+        int row = i / APP_COLS;
+        int col = i % APP_COLS;
+        out[0] = margin + col * (iconW + margin);
+        out[1] = startY + row * (iconH + margin);
+        out[2] = iconW;
+        out[3] = iconH;
+    }
+
     /** 计算 TALK 图标的红点位置，渲染与点击共用 */
     private boolean getTalkIconPos(int[] out) {
         int w = PhoneOverlay.getPhoneWidth();
         int h = PhoneOverlay.getPhoneHeight();
-        int navH = (int)(h * 0.08);
-        int margin = (int)(w * 0.08);
-        int cols = PhoneOverlay.getGridColumns();
-        int iconW = (w - margin * (cols + 1)) / cols;
-        int iconH = (int)(iconW * 0.8);
-        int startY = navH + (int)(h * 0.05);
-
         for (int i = 0; i < apps.size(); i++) {
             if ("TALK".equals(apps.get(i).label)) {
-                int row = i / cols;
-                int col = i % cols;
-                out[0] = margin + col * (iconW + margin);
-                out[1] = startY + row * (iconH + margin);
-                out[2] = iconW;
-                out[3] = iconH;
+                appRect(w, h, i, out);
                 return true;
             }
         }
@@ -67,46 +96,45 @@ public class MainPage implements IPhonePage {
         int h = PhoneOverlay.getPhoneHeight();
         var font = Minecraft.getInstance().font;
 
-        // 统一状态栏已由 PhoneOverlay 渲染，这里只留顶部小留白
-        int topPad = (int)(h * 0.03);
+        // 桌面背景（临时色 #f0e4ea，覆盖整个内容区；后续在此之上渲染更多内容）
+        graphics.fill(baseX, baseY, baseX + w, baseY + h, DESKTOP_BG);
 
-        // ============ APP 图标网格 ============
-        int margin = (int)(w * 0.08);
-        int cols = PhoneOverlay.getGridColumns();
-        int iconW = (w - margin * (cols + 1)) / cols;
-        int iconH = (int)(iconW * 0.8);
-        int startY = topPad + (int)(h * 0.05);
-
+        // ============ APP 图标网格（圆角正方形，每行 3 个，纵向延伸） ============
+        int[] rect = new int[4];
         for (int i = 0; i < apps.size(); i++) {
-            int row = i / cols;
-            int col = i % cols;
-            int x = baseX + margin + col * (iconW + margin);
-            int y = baseY + startY + row * (iconH + margin);
+            appRect(w, h, i, rect);
+            int x = baseX + rect[0];
+            int y = baseY + rect[1];
+            int iconW = rect[2];
+            int iconH = rect[3];
 
             AppInfo app = apps.get(i);
-            graphics.fill(x, y, x + iconW, y + iconH, app.color | 0xFF000000);
-            int textX = x + iconW / 2 - (int)(font.width(app.label) * UiFont.sc(1.0f)) / 2;
-            int textY = y + iconH / 2 - (int)(font.lineHeight * UiFont.sc(1.0f)) / 2;
+            // 圆角正方形图标
+            int r = Math.max(4, iconW / 4);
+            UiShapes.fillRoundedRect(graphics, x, y, iconW, iconH, r, app.color | 0xFF000000);
+            // 文字居中
+            int textX = x + iconW / 2 - (int) (font.width(app.label) * UiFont.sc(1.0f)) / 2;
+            int textY = y + iconH / 2 - (int) (font.lineHeight * UiFont.sc(1.0f)) / 2;
             drawScaledText(graphics, font, app.label, textX, textY, 0xFFFFFFFF, UiFont.sc(1.0f));
 
             // TALK 红点
             if ("TALK".equals(app.label)) {
                 int unread = NotificationManager.getTotalUnread();
                 if (unread > 0) {
-                    int dotX = x + iconW - 14;
+                    int dotX = x + iconW - 12;
                     int dotY = y - 6;
-                    graphics.fill(dotX, dotY, dotX + 14, dotY + 14, 0xFFFF0000);
+                    graphics.fill(dotX, dotY, dotX + 12, dotY + 12, 0xFFFF0000);
                     String num = unread > 99 ? "99+" : String.valueOf(unread);
-                    drawScaledText(graphics, font, num, dotX + 2, dotY + 3, 0xFFFFFFFF, UiFont.sc(1.0f));
+                    drawScaledText(graphics, font, num, dotX + 2, dotY + 1, 0xFFFFFFFF, UiFont.sc(0.75f));
                 }
             }
         }
 
         // SOS 点击后的短暂提示
         if (System.currentTimeMillis() < sosFlashUntil && !sosMessage.isEmpty()) {
-            int msgW = (int)(font.width(sosMessage) * UiFont.sc(1.0f));
-            int msgY = startY - (int)(h * 0.02);
-            graphics.fill(baseX + 4, msgY - UiFont.sh(2), baseX + w - 4, msgY + (int)(font.lineHeight * UiFont.sc(1.0f)) + UiFont.sh(2), 0xAA000000);
+            int msgW = (int) (font.width(sosMessage) * UiFont.sc(1.0f));
+            int msgY = gridStartY(h) - (int) (h * 0.02);
+            graphics.fill(baseX + 4, msgY - UiFont.sh(2), baseX + w - 4, msgY + (int) (font.lineHeight * UiFont.sc(1.0f)) + UiFont.sh(2), 0xAA000000);
             drawScaledText(graphics, font, sosMessage, baseX + (w - msgW) / 2, msgY, 0xFFFF6666, UiFont.sc(1.0f));
         }
     }
@@ -118,20 +146,10 @@ public class MainPage implements IPhonePage {
 
         int w = PhoneOverlay.getPhoneWidth();
         int h = PhoneOverlay.getPhoneHeight();
-        // 与 render 顶部留白一致
-        int topPad = (int)(h * 0.03);
-
-        int margin = (int)(w * 0.08);
-        int cols = PhoneOverlay.getGridColumns();
-        int iconW = (w - margin * (cols + 1)) / cols;
-        int iconH = (int)(iconW * 0.8);
-        int startY = topPad + (int)(h * 0.05);
-
+        int[] rect = new int[4];
         for (int i = 0; i < apps.size(); i++) {
-            int row = i / cols;
-            int col = i % cols;
-            int x = margin + col * (iconW + margin);
-            int y = startY + row * (iconH + margin);
+            appRect(w, h, i, rect);
+            int x = rect[0], y = rect[1], iconW = rect[2], iconH = rect[3];
 
             if (relX >= x && relX <= x + iconW && relY >= y && relY <= y + iconH) {
                 AppInfo app = apps.get(i);
