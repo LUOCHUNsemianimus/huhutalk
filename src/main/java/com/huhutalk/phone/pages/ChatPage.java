@@ -90,6 +90,8 @@ public class ChatPage implements IPhonePage {
     private String selectedImageKey = null;
     /** 选中图片的 PNG 字节（发送用） */
     private byte[] selectedImageBytes = null;
+    /** 已发送、等待识图结果的图片 key（用于灰滤镜与错误红!标记）；null=无待识图 */
+    private String pendingImageKey = null;
     /** 图片栏横向滚动偏移（像素） */
     private int galleryScrollOffset = 0;
     /** 图片栏是否正在长按拖动翻页 */
@@ -165,7 +167,7 @@ public class ChatPage implements IPhonePage {
         for (int i = messages.size() - 1; i >= 0; i--) {
             ChatMessage m = messages.get(i);
             if (m.isPlayer()) {
-                messages.set(i, new ChatMessage(m.text(), true, m.isError(), true, m.gameTime(), m.emote(), null));
+                messages.set(i, new ChatMessage(m.text(), true, m.isError(), true, m.gameTime(), m.emote(), m.image()));
                 break;
             }
         }
@@ -177,10 +179,12 @@ public class ChatPage implements IPhonePage {
         for (int i = 0; i < messages.size(); i++) {
             ChatMessage m = messages.get(i);
             if (m.pending()) {
-                messages.set(i, new ChatMessage(m.text(), m.isPlayer(), m.isError(), false, m.gameTime(), m.emote(), null));
+                messages.set(i, new ChatMessage(m.text(), m.isPlayer(), m.isError(), false, m.gameTime(), m.emote(), m.image()));
             }
         }
         ChatHistoryStorage.clearPending(stableId);
+        // 图片识图等待态：回复/送达到达即视为图片已被女仆看到
+        this.pendingImageKey = null;
     }
 
     /** 消息入离线队列：停止"输入中"并标红"!"（不显示提示文字） */
@@ -735,6 +739,12 @@ public class ChatPage implements IPhonePage {
             // 去掉默认字体阴影，避免 emoji 图标发糊
             drawScaledText(g, font, icon, cx - font.width(icon) * UiFont.sc(1.0f) / 2,
                     extCenterY - lh() / 2 + 1, 0xFF6A5A5A, UiFont.sc(1.0f));
+            // 图片栏（🖼️，index 2）有选中图时，图标右上角加一个小方形粉点（#de6f8d）示意有选中
+            if (i == 2 && selectedImageKey != null) {
+                int dot = UiFont.sh(5);
+                UiShapes.fillRoundedRect(g, cx + btnSize / 2 - dot - UiFont.sh(1),
+                        extCenterY - btnSize / 2 + UiFont.sh(1), dot, dot, 1, 0xFFDE6F8D);
+            }
         }
     }
 
@@ -1122,12 +1132,13 @@ public class ChatPage implements IPhonePage {
 
     /** 拍照：截取主渲染目标存为 cameraShot，并注册为可渲染纹理 */
     private void takePhoto() {
-        byte[] png = PhotoLibrary.captureMainTargetPng();
-        if (png == null) {
-            return;
-        }
-        cameraShot = png;
-        PhotoLibrary.registerCapturedBytes("__camshot__", png);
+        // 临时隐藏手机一帧，抓取干净的纯游戏画面（增加沉浸感）
+        PhoneOverlay.hideForCapture(png -> {
+            if (png != null) {
+                cameraShot = png;
+                PhotoLibrary.registerCapturedBytes("__camshot__", png);
+            }
+        });
     }
 
     /** 确认：进入选中（待发送），不持久化 → 返回聊天 */
@@ -1275,7 +1286,7 @@ public class ChatPage implements IPhonePage {
 
     // ==================== 发送联动 ====================
 
-    /** 发送"文字 + 一张图"：本地立即显示玩家消息+图气泡，写入 vision_tmp，通知服务端识图后让女仆回复 */
+    /** 发送"文字 + 一张图"：本地立即显示玩家消息+图气泡，压缩后写入 vision_tmp，通知服务端识图后让女仆回复 */
     private void sendImageChat() {
         String text = currentInput;
         String key = selectedImageKey;
@@ -1287,15 +1298,17 @@ public class ChatPage implements IPhonePage {
             return;
         }
 
-        // 本地立即显示玩家文字气泡（如有）+ 图片气泡（同组）
+        // 本地立即显示玩家文字气泡（如有）+ 图片气泡（同组）；图片气泡标记 pending（识图未回 → 灰滤镜）
         long gameTime = currentGameTime();
         if (text != null && !text.isBlank()) {
             messages.add(new ChatMessage(text, true, false, false, gameTime, null, null));
             ChatHistoryStorage.appendMessage(stableId, text, true, false);
         }
-        messages.add(new ChatMessage("", true, false, false, gameTime, null, key));
-        // 写入 vision_tmp，拿 token
-        String token = PhotoLibrary.writeVisionTmp(img);
+        messages.add(new ChatMessage("", true, false, true, gameTime, null, key));
+        pendingImageKey = key;
+        // 压缩图片提速识图，再写 vision_tmp
+        byte[] small = PhotoLibrary.downscalePng(img, 768);
+        String token = PhotoLibrary.writeVisionTmp(small);
         if (token == null) {
             LOGGER.error("[HuhuTalk] 发送图片失败：vision_tmp 写入失败，退化为纯文字");
             PacketDistributor.sendToServer(new C2SMaidChatPacket(stableId, text == null ? "" : text));
@@ -1303,12 +1316,27 @@ public class ChatPage implements IPhonePage {
             resetAfterSend();
             return;
         }
-        LOGGER.info("[HuhuTalk] 发送图片聊天: stableId={}, token={}, text='{}', imgBytes={}",
-                stableId, token, text, img.length);
+        LOGGER.info("[HuhuTalk] 发送图片聊天: stableId={}, token={}, text='{}', origBytes={}, scaledBytes={}",
+                stableId, token, text, img.length, small.length);
         PacketDistributor.sendToServer(new C2SMaidImageChatPacket(stableId,
                 text == null ? "" : text, token));
         this.waitingResponse = true;
         resetAfterSend();
+    }
+
+    /** 识图报错：把等待中的图片气泡标为错误（渲染红色感叹号），并清除等待态 */
+    public void onVisionError() {
+        if (pendingImageKey == null) {
+            return;
+        }
+        for (int i = messages.size() - 1; i >= 0; i--) {
+            ChatMessage m = messages.get(i);
+            if (m.image() != null && pendingImageKey.equals(m.image())) {
+                messages.set(i, new ChatMessage(m.text(), m.isPlayer(), true, false, m.gameTime(), m.emote(), m.image()));
+                break;
+            }
+        }
+        pendingImageKey = null;
     }
 
     /** 发送后复位输入框与选中图 */
@@ -1554,9 +1582,19 @@ public class ChatPage implements IPhonePage {
         if (rl != null) {
             g.blit(rl, bubbleLeft + pad, yTop + pad, IMAGE_DRAW_SIZE, IMAGE_DRAW_SIZE,
                     0.0f, 0.0f, d[0], d[1], d[0], d[1]);
+            // 等待识图：图片上盖一层 30% 灰色滤镜，示意"女仆还没看到"
+            if (m.pending()) {
+                g.fill(bubbleLeft + pad, yTop + pad, bubbleLeft + pad + IMAGE_DRAW_SIZE,
+                        yTop + pad + IMAGE_DRAW_SIZE, 0x4D808080);
+            }
         } else {
             g.fill(bubbleLeft + pad, yTop + pad, bubbleLeft + pad + IMAGE_DRAW_SIZE,
                     yTop + pad + IMAGE_DRAW_SIZE, 0xFFB0BEC5);
+        }
+        // 识图出错：图片左侧标小红感叹号
+        if (m.isError()) {
+            drawScaledText(g, font, "!", bubbleLeft - UiFont.sh(8), yTop + UiFont.sh(2),
+                    0xFFFF3333, UiFont.sc(1.0f));
         }
         drawAvatarPlaceholder(g, baseX + phoneW - AVATAR - 2, yTop, true);
         if (groupTop) {

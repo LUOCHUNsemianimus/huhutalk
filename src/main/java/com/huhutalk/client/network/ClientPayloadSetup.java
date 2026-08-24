@@ -66,6 +66,8 @@ public class ClientPayloadSetup {
             ChatHistoryStorage.appendMessage(packet.stableId(), "[错误] " + packet.error(), false, true);
             IPhonePage current = PhoneOverlay.getCurrentPage();
             if (current instanceof ChatPage chatPage && chatPage.getStableId().equals(packet.stableId())) {
+                // 先标记等待中的图片为识图错误（红!），再显示错误提示
+                chatPage.onVisionError();
                 chatPage.onReceiveMessage("[错误] " + packet.error(), true);
             }
             NotificationManager.addUnread(packet.stableId());

@@ -73,5 +73,10 @@ public class ClientModEvents {
                 ResourceLocation.fromNamespaceAndPath("huhutalk", "phone_overlay"),
                 (guiGraphics, deltaTracker) -> PhoneOverlay.render(guiGraphics, deltaTracker.getGameTimeDeltaTicks())
         );
+        // 相机拍照抓取层：位于手机层之后；手机被临时隐藏的那一帧，这里抓取干净的纯游戏画面
+        event.registerAboveAll(
+                ResourceLocation.fromNamespaceAndPath("huhutalk", "phone_capture_grab"),
+                (guiGraphics, deltaTracker) -> PhoneOverlay.consumeCaptureGrab()
+        );
     }
 }

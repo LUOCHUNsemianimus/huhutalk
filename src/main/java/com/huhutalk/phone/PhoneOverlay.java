@@ -55,6 +55,12 @@ public class PhoneOverlay {
     private static int phoneHeight;
     private static int phoneX, phoneY;
 
+    /** 相机拍照临时隐藏手机：隐藏期间手机不渲染（让截图是干净的纯游戏画面） */
+    private static boolean captureHidden = false;
+    /** 下一帧（手机已隐藏后）是否需要抓取一次主渲染目标 */
+    private static boolean grabPending = false;
+    private static java.util.function.Consumer<byte[]> grabCallback = null;
+
     /** 正在拖动手机（按住顶部状态栏左键） */
     private static boolean dragging = false;
     /** 拖拽抓取点：按下瞬间鼠标相对手机左上角的偏移 */
@@ -154,8 +160,7 @@ public class PhoneOverlay {
         updateCursorMode();
     }
 
-    private static void hide() {
-        visible = false;
+    private static void hide() {        visible = false;
         dragging = false;
         if (Minecraft.getInstance().screen instanceof PhoneInputScreen) {
             Minecraft.getInstance().setScreen(null);
@@ -264,10 +269,44 @@ public class PhoneOverlay {
         };
     }
 
+    // ==================== 相机拍照隐藏 ====================
+
+    /**
+     * 相机拍照：临时隐藏手机一帧，让下一帧的抓取层截到干净的纯游戏画面，再把 PNG 字节回调出去。
+     * 必须在渲染线程调用。
+     */
+    public static void hideForCapture(java.util.function.Consumer<byte[]> onDone) {
+        captureHidden = true;
+        grabPending = true;
+        grabCallback = onDone;
+    }
+
+    /**
+     * 由手机之后注册的 GUI 抓取层每帧调用：若处于"已隐藏待抓取"状态，抓主渲染目标转 PNG 并回调，随后恢复手机。
+     * 在渲染线程执行。
+     */
+    public static void consumeCaptureGrab() {
+        if (!grabPending || !captureHidden) {
+            return;
+        }
+        grabPending = false;
+        captureHidden = false;
+        java.util.function.Consumer<byte[]> cb = grabCallback;
+        grabCallback = null;
+        if (cb == null) {
+            return;
+        }
+        byte[] png = com.huhutalk.client.PhotoLibrary.captureMainTargetPng();
+        cb.accept(png);
+    }
+
     // ==================== 渲染 ====================
 
     public static void render(GuiGraphics graphics, float partialTick) {
         if (!visible) return;
+
+        // 相机拍照临时隐藏：本帧不渲染手机，让后续抓取层拿到干净的纯游戏画面
+        if (captureHidden) return;
 
         Minecraft mc = Minecraft.getInstance();
         int screenW = mc.getWindow().getGuiScaledWidth();

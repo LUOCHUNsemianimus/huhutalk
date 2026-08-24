@@ -183,6 +183,42 @@ public final class PhotoLibrary {
 
     // ==================== 发送临时图 ====================
 
+    /**
+     * 把 PNG 压缩降采样到长边不超过 {@code maxDim} 像素（用于提速识图；若已小于则原样返回）。
+     * 图库里的原图不经过这里，只有发送前压缩。
+     */
+    public static byte[] downscalePng(byte[] png, int maxDim) {
+        if (png == null || png.length == 0) {
+            return png;
+        }
+        try {
+            NativeImage img = NativeImage.read(new ByteArrayInputStream(png));
+            int w = img.getWidth(), h = img.getHeight();
+            int max = Math.max(w, h);
+            if (max <= maxDim) {
+                img.close();
+                return png;
+            }
+            float scale = (float) maxDim / max;
+            int nw = Math.max(1, Math.round(w * scale));
+            int nh = Math.max(1, Math.round(h * scale));
+            NativeImage out = new NativeImage(nw, nh, true);
+            out.resizeSubRectTo(0, 0, nw, nh, img);
+            img.close();
+            Path tmp = Files.createTempFile("huhutalk_scale", ".png");
+            try {
+                out.writeToFile(tmp);
+                return Files.readAllBytes(tmp);
+            } finally {
+                out.close();
+                Files.deleteIfExists(tmp);
+            }
+        } catch (IOException e) {
+            LOGGER.warn("[HuhuTalk] 图片压缩失败，使用原图", e);
+            return png;
+        }
+    }
+
     /** 把要发送的 PNG 写入共享 vision_tmp 目录，返回 token（文件名）；失败返回 null */
     public static String writeVisionTmp(byte[] pngBytes) {
         if (pngBytes == null || pngBytes.length == 0) return null;
