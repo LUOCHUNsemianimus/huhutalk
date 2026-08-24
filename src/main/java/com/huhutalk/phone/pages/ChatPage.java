@@ -1353,6 +1353,7 @@ public class ChatPage implements IPhonePage {
             PacketDistributor.sendToServer(new C2SMaidChatPacket(stableId, text == null ? "" : text));
             this.waitingResponse = true;
             resetAfterSend();
+            ChatHistoryStorage.setDraft(stableId, "");
             return;
         }
         LOGGER.info("[HuhuTalk] 发送图片聊天: stableId={}, token={}, text='{}', imgBytes={}",
@@ -1360,7 +1361,9 @@ public class ChatPage implements IPhonePage {
         PacketDistributor.sendToServer(new C2SMaidImageChatPacket(stableId,
                 text == null ? "" : text, token));
         this.waitingResponse = true;
+        // 清空输入框与草稿（否则重进页面草稿里还存着已发出去的这份文字）
         resetAfterSend();
+        ChatHistoryStorage.setDraft(stableId, "");
     }
 
     /** 识图报错：把等待中的图片气泡标为错误（渲染红色感叹号），并清除等待态 */
