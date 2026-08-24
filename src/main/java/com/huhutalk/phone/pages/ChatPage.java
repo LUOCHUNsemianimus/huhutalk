@@ -135,7 +135,10 @@ public class ChatPage implements IPhonePage {
         this.stableId = stableId;
         this.maidName = maidName;
         for (ChatHistoryStorage.ChatMessageEntry e : ChatHistoryStorage.getMessages(stableId)) {
-            if (e.emote() != null) {
+            if (e.image() != null) {
+                // 图片消息：直接整条恢复（图片已持久化在 chat_images，重进后仍可渲染）
+                messages.add(new ChatMessage(e.text(), e.isPlayer(), e.isError(), e.pending(), e.gameTime(), null, e.image()));
+            } else if (e.emote() != null) {
                 // 表情消息：直接整条恢复（不按逗号拆句），保留 emote 路径
                 messages.add(new ChatMessage(e.text(), e.isPlayer(), e.isError(), e.pending(), e.gameTime(), e.emote(), null));
             } else if (!e.isPlayer() && !e.isError()) {
@@ -1258,17 +1261,42 @@ public class ChatPage implements IPhonePage {
             int dotX = x + itemSize - dotR * 2 - UiFont.sh(2);
             int dotY = pTop + UiFont.sh(6) + UiFont.sh(2);
             if (relX >= dotX && relX <= dotX + dotR * 2 && relY >= dotY && relY <= dotY + dotR * 2) {
-                if (selectedImageKey != null && selectedImageKey.equals(key)) {
-                    selectedImageKey = null;
-                    selectedImageBytes = null;
-                } else {
-                    selectedImageKey = key;
-                    selectedImageBytes = PhotoLibrary.readBytes(key);
-                }
+                toggleGallerySelect(key);
                 return true;
             }
         }
         return false;
+    }
+
+    /** 命中图片主体的 key（点图片本身也算选中，便于新手）；未命中返回 null */
+    private String hitGalleryItem(double relX, double relY) {
+        List<String> items = galleryDisplayItems();
+        if (items.isEmpty()) {
+            return null;
+        }
+        int pTop = panelTop(0);
+        int itemSize = GALLERY_ITEM;
+        int gap = UiFont.sh(8);
+        int startX = UiFont.sh(12) - galleryScrollOffset;
+        int itemY = pTop + UiFont.sh(6);
+        for (int i = 0; i < items.size(); i++) {
+            int x = startX + i * (itemSize + gap);
+            if (relX >= x && relX <= x + itemSize && relY >= itemY && relY <= itemY + itemSize) {
+                return items.get(i);
+            }
+        }
+        return null;
+    }
+
+    /** 切换某张图的选中状态 */
+    private void toggleGallerySelect(String key) {
+        if (selectedImageKey != null && selectedImageKey.equals(key)) {
+            selectedImageKey = null;
+            selectedImageBytes = null;
+        } else {
+            selectedImageKey = key;
+            selectedImageBytes = PhotoLibrary.readBytes(key);
+        }
     }
 
     /** 长按拖动翻页：用当前鼠标 X 更新横向偏移 */
@@ -1298,17 +1326,23 @@ public class ChatPage implements IPhonePage {
             return;
         }
 
-        // 本地立即显示玩家文字气泡（如有）+ 图片气泡（同组）；图片气泡标记 pending（识图未回 → 灰滤镜）
         long gameTime = currentGameTime();
         if (text != null && !text.isBlank()) {
             messages.add(new ChatMessage(text, true, false, false, gameTime, null, null));
             ChatHistoryStorage.appendMessage(stableId, text, true, false);
         }
-        messages.add(new ChatMessage("", true, false, true, gameTime, null, key));
-        pendingImageKey = key;
-        // 压缩图片提速识图，再写 vision_tmp
-        byte[] small = PhotoLibrary.downscalePng(img, 768);
-        String token = PhotoLibrary.writeVisionTmp(small);
+        // 持久化图片到 chat_images，得到稳定 key（重进页面仍可渲染）；失败则退回原 key
+        String chatKey = PhotoLibrary.persistChatImage(img);
+        if (chatKey == null) {
+            chatKey = key;
+        }
+        messages.add(new ChatMessage("", true, false, true, gameTime, null, chatKey));
+        pendingImageKey = chatKey;
+        // 图片写历史（含 image 引用），重进页面可恢复图片气泡
+        ChatHistoryStorage.appendMessage(stableId, "", null, chatKey, true, false);
+
+        // 用原图写 vision_tmp 识图（暂不做压缩，保证识图正确性）
+        String token = PhotoLibrary.writeVisionTmp(img);
         if (token == null) {
             LOGGER.error("[HuhuTalk] 发送图片失败：vision_tmp 写入失败，退化为纯文字");
             PacketDistributor.sendToServer(new C2SMaidChatPacket(stableId, text == null ? "" : text));
@@ -1316,8 +1350,8 @@ public class ChatPage implements IPhonePage {
             resetAfterSend();
             return;
         }
-        LOGGER.info("[HuhuTalk] 发送图片聊天: stableId={}, token={}, text='{}', origBytes={}, scaledBytes={}",
-                stableId, token, text, img.length, small.length);
+        LOGGER.info("[HuhuTalk] 发送图片聊天: stableId={}, token={}, text='{}', imgBytes={}",
+                stableId, token, text, img.length);
         PacketDistributor.sendToServer(new C2SMaidImageChatPacket(stableId,
                 text == null ? "" : text, token));
         this.waitingResponse = true;
@@ -1659,11 +1693,16 @@ public class ChatPage implements IPhonePage {
             }
         }
 
-        // 图片面板（🖼️）：仅在面板区域内处理圆标/拖动；面板外的点击（如底栏）放行，避免吞掉其它按钮
+        // 图片面板（🖼️）：仅在面板区域内处理选中/拖动；面板外的点击（如底栏）放行，避免吞掉其它按钮
         if (bottomPanelOpen && extPanelIcon == 2) {
             int gTop = panelTop(0), gBottom = extBarTop(0);
             if (relY >= gTop && relY < gBottom) {
                 if (hitGalleryDot(relX, relY)) {
+                    return true;
+                }
+                String body = hitGalleryItem(relX, relY);
+                if (body != null) {
+                    toggleGallerySelect(body);
                     return true;
                 }
                 galleryDragging = true;

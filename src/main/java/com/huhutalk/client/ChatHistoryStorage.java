@@ -53,14 +53,19 @@ public class ChatHistoryStorage {
     }
 
     public static void appendMessage(String stableId, String text, boolean isPlayer, boolean isError) {
-        appendMessage(stableId, text, null, isPlayer, isError);
+        appendMessage(stableId, text, null, null, isPlayer, isError);
     }
 
     /** 带表情的消息（emote 为表情资源路径，null=普通文本）。玩家/女仆表情消息均走这里落盘 */
     public static void appendMessage(String stableId, String text, String emote, boolean isPlayer, boolean isError) {
+        appendMessage(stableId, text, emote, null, isPlayer, isError);
+    }
+
+    /** 带图片的消息（image 为图片 key/文件名，null=无）。玩家发送图片消息走这里落盘，重进页面可恢复图片气泡 */
+    public static void appendMessage(String stableId, String text, String emote, String image, boolean isPlayer, boolean isError) {
         currentHistory()
                 .computeIfAbsent(stableId, k -> new ArrayList<>())
-                .add(new ChatMessageEntry(text, isPlayer, isError, false, currentGameTime(), emote));
+                .add(new ChatMessageEntry(text, isPlayer, isError, false, currentGameTime(), emote, image));
         saveToDisk(currentWorldKey); // 写入即落盘
     }
 
@@ -111,6 +116,9 @@ public class ChatHistoryStorage {
             return "";
         }
         ChatMessageEntry last = list.get(list.size() - 1);
+        if (last.image() != null && !last.image().isEmpty()) {
+            return "（图片）";
+        }
         if (last.emote() != null && !last.emote().isEmpty()) {
             String preview = com.huhutalk.core.chat.SendEmoteTool.previewText(last.emote());
             return preview != null ? preview : "（表情）";
@@ -133,7 +141,7 @@ public class ChatHistoryStorage {
         for (int i = list.size() - 1; i >= 0; i--) {
             ChatMessageEntry e = list.get(i);
             if (e.isPlayer()) {
-                list.set(i, new ChatMessageEntry(e.text(), true, e.isError(), true, e.gameTime(), e.emote()));
+                list.set(i, new ChatMessageEntry(e.text(), true, e.isError(), true, e.gameTime(), e.emote(), e.image()));
                 saveToDisk(currentWorldKey);
                 return true;
             }
@@ -151,7 +159,7 @@ public class ChatHistoryStorage {
         for (int i = 0; i < list.size(); i++) {
             ChatMessageEntry e = list.get(i);
             if (e.pending()) {
-                list.set(i, new ChatMessageEntry(e.text(), e.isPlayer(), e.isError(), false, e.gameTime(), e.emote()));
+                list.set(i, new ChatMessageEntry(e.text(), e.isPlayer(), e.isError(), false, e.gameTime(), e.emote(), e.image()));
                 changed = true;
             }
         }
@@ -263,6 +271,6 @@ public class ChatHistoryStorage {
         }
     }
 
-    public record ChatMessageEntry(String text, boolean isPlayer, boolean isError, boolean pending, long gameTime, String emote) {
+    public record ChatMessageEntry(String text, boolean isPlayer, boolean isError, boolean pending, long gameTime, String emote, String image) {
     }
 }

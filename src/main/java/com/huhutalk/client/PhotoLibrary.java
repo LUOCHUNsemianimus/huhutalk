@@ -43,6 +43,27 @@ public final class PhotoLibrary {
         return Minecraft.getInstance().gameDirectory.toPath().resolve("huhutalk").resolve("photos");
     }
 
+    /** 已发送图片的持久化目录（用于聊天历史重进后仍能渲染图片气泡） */
+    public static Path chatImageDir() {
+        return Minecraft.getInstance().gameDirectory.toPath().resolve("huhutalk").resolve("chat_images");
+    }
+
+    /** 把一张要发送的图片持久化到 chat_images，返回其文件名；失败返回 null */
+    public static String persistChatImage(byte[] pngBytes) {
+        if (pngBytes == null || pngBytes.length == 0) {
+            return null;
+        }
+        try {
+            Files.createDirectories(chatImageDir());
+            String name = "img_" + System.currentTimeMillis() + ".png";
+            Files.write(chatImageDir().resolve(name), pngBytes);
+            return name;
+        } catch (IOException e) {
+            LOGGER.error("[HuhuTalk] 持久化聊天图片失败 dir={}", chatImageDir(), e);
+            return null;
+        }
+    }
+
     /** 识图临时目录（客户端写入，单机集成服务端从同一路径读取） */
     public static Path visionTmpDir() {
         return Minecraft.getInstance().gameDirectory.toPath().resolve("huhutalk").resolve("vision_tmp");
@@ -127,22 +148,24 @@ public final class PhotoLibrary {
 
     // ==================== 读取 / 纹理 ====================
 
-    /** 读某张图的 PNG 字节（key 可为图库文件名或 captured id）；失败返回 null */
+    /** 读某张图的 PNG 字节（key 可为图库文件名 / 聊天图片文件名 / captured id）；失败返回 null */
     public static byte[] readBytes(String key) {
         if (key == null) return null;
         byte[] cap = CAPTURED.get(key);
         if (cap != null) return cap;
-        Path p = photoDir().resolve(sanitize(key));
-        try {
-            if (!Files.exists(p)) {
-                LOGGER.error("[HuhuTalk] 读图失败：文件不存在 key={}, path={}", key, p);
-                return null;
+        // 依次查：图库 / 聊天图片 / （兜底）两处目录下的文件
+        for (Path dir : new Path[]{photoDir(), chatImageDir()}) {
+            Path p = dir.resolve(sanitize(key));
+            try {
+                if (Files.exists(p)) {
+                    return Files.readAllBytes(p);
+                }
+            } catch (IOException e) {
+                LOGGER.error("[HuhuTalk] 读图失败 key={}, path={}", key, p, e);
             }
-            return Files.readAllBytes(p);
-        } catch (IOException e) {
-            LOGGER.error("[HuhuTalk] 读图失败 key={}, path={}", key, p, e);
-            return null;
         }
+        LOGGER.error("[HuhuTalk] 读图失败：文件不存在 key={}", key);
+        return null;
     }
 
     /** 获取某张图的纹理（自动从文件/缓存加载并注册） */
