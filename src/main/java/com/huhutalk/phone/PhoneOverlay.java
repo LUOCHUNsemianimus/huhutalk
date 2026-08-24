@@ -539,21 +539,22 @@ public class PhoneOverlay {
     }
 
     /**
-     * 以指定左上角 (x,y) 与全局透明度 alpha 绘制一个页面。
-     * 平移交由 pose 完成；透明度经 RenderSystem.setShaderColor 的 alpha 通道统一调制
+     * 以指定屏幕左上角 (x,y) 与全局透明度 alpha 绘制一个页面。
+     * <p>
+     * 必须把真实屏幕坐标作为 baseX/baseY 直接传给页面，而非用 pose 平移——
+     * 因为页面内部的 scissor（滚动裁剪、顶栏遮罩）把 baseX/baseY 当作屏幕绝对坐标，
+     * 不感知 pose 变换；用 pose.translate 传 (0,0) 会导致裁剪错乱、背景错位。
+     * 透明度经 RenderSystem.setShaderColor 的 alpha 通道统一调制
      * （fill 与 drawString 使用的 position_color/position_tex_color 着色器都会乘上该值），
      * 渲染后务必恢复为不透明，以免污染后续绘制。
      */
     private static void renderPageTranslated(GuiGraphics g, IPhonePage page, int x, int y, float alpha) {
         if (page == null) return;
-        g.pose().pushPose();
-        g.pose().translate(x, y, 0);
         RenderSystem.enableBlend();
         RenderSystem.setShaderColor(1f, 1f, 1f, alpha);
-        page.render(g, 0, 0, 0f);
+        page.render(g, x, y, 0f);
         RenderSystem.setShaderColor(1f, 1f, 1f, 1f);
         RenderSystem.disableBlend();
-        g.pose().popPose();
     }
 
     /** 统一状态栏：时间 / 信号 / 电源 / 关闭（圆角顶；内容 0.75 倍×全局倍率、离开圆角范围） */
