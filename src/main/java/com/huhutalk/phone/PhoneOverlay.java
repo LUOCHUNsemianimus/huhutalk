@@ -12,6 +12,7 @@ import com.huhutalk.phone.pages.ContactListPage;
 import com.huhutalk.phone.pages.MainPage;
 import com.huhutalk.phone.pages.MessageListPage;
 import com.huhutalk.phone.pages.SettingsPage;
+import com.huhutalk.phone.UiShapes;
 import com.mojang.math.Axis;
 import com.mojang.blaze3d.systems.RenderSystem;
 import net.minecraft.client.Minecraft;
@@ -87,6 +88,18 @@ public class PhoneOverlay {
     private static AnimTween transTween = null; // null = 无转场
     /** true=push（新页从右盖住旧页）；false=pop（当前页向右缩回露出下层页） */
     private static boolean transIsPush = false;
+
+    /**
+     * APP 桌面启动动画（桌面点开 HuhuTalk 进入首页）。
+     * 在 APP 图标中心生成 APP 色块纯色矩形，由小放大、透明度 1→0 淡出；
+     * 同时底层首页 UI 原地透明度 0→1 淡入。仅色块缩放，真实 UI 完全不动，无需鼠标矫正。
+     */
+    private static boolean launchActive = false;
+    private static AnimTween launchTween = null;
+    private static float launchCx, launchCy; // APP 图标中心（屏幕坐标）
+    private static int launchIconW;          // APP 图标初始边长
+    /** 启动动画色块颜色 = HuhuTalk 图标底色 #de6f8d */
+    private static final int LAUNCH_BLOCK_RGB = 0x00DE6F8D;
 
     /** 统一状态栏高度（基准像素；运行时经 UiFont.sh 随字体倍率缩放） */
     private static final int STATUSBAR_H = 12;
@@ -203,6 +216,7 @@ public class PhoneOverlay {
         containerAnim = ContainerAnim.IDLE;
         containerTween = null;
         forceFinishTransition();
+        forceFinishLaunch();
         if (Minecraft.getInstance().screen instanceof PhoneInputScreen) {
             Minecraft.getInstance().setScreen(null);
         }
@@ -236,13 +250,32 @@ public class PhoneOverlay {
         return HuhuTalkClientSettings.isUiAnimationEnabled();
     }
 
-    /** 从桌面进入 HuhuTalk App 内容区（默认消息 tab，显示底部导航） */
+    /**
+     * 从桌面进入 HuhuTalk App 内容区（默认消息 tab，显示底部导航）。
+     * 桌面启动动画：在 HuhuTalk 图标中心生成 APP 色块由小放大、1→0 淡出，首页 0→1 原地淡入。
+     */
     public static void openChatApp() {
         if (!visible) return;
         inChatApp = true;
         activeTab = Tab.MESSAGE;
         pageStack.clear();
         pageStack.push(new MessageListPage());
+        if (uiAnimEnabled()) {
+            int[] c = MainPage.huhuTalkIconCenterScreen();
+            if (c != null) {
+                launchCx = c[0];
+                launchCy = c[1];
+                launchIconW = c[2];
+                launchActive = true;
+                launchTween = new AnimTween();
+            }
+        }
+    }
+
+    /** 强制打断启动动画（右键抢占）：立即收尾，恢复渲染首页 */
+    private static void forceFinishLaunch() {
+        launchActive = false;
+        launchTween = null;
     }
 
     public static boolean isVisible() { return visible; }
@@ -463,6 +496,8 @@ public class PhoneOverlay {
             transFrom = null;
             transTo = null;
             transIsPush = false;
+            launchActive = false;
+            launchTween = null;
         }
         int ry = phoneY + Math.round(animOffsetY);
         renderedPhoneY = ry;
@@ -487,7 +522,27 @@ public class PhoneOverlay {
         // 转场中同时绘制退场页(向右滑出+淡出)与进场页(自右滑入+淡入)，否则只绘制当前顶页。
         int contentBaseX = phoneX;
         int contentBaseY = ry + UiFont.sh(STATUSBAR_H);
-        if (uiAnimEnabled() && transTween != null && transFrom != null && transTo != null) {
+        if (uiAnimEnabled() && launchActive && launchTween != null) {
+            // APP 桌面启动：底层首页原地淡入 0→1，顶层 APP 色块由小放大、1→0 淡出
+            float raw = launchTween.raw();
+            float e = AnimEasing.easeOut(raw);
+            if (page != null) {
+                renderPageTranslated(graphics, page, contentBaseX, contentBaseY, e);
+            }
+            // 色块裁剪到内容区，避免放大溢出到手机壳/屏幕外
+            graphics.enableScissor(contentBaseX, contentBaseY, contentBaseX + phoneWidth, contentBaseY + phoneHeight);
+            int cover = Math.round((float) Math.hypot(phoneWidth, phoneHeight) * 2.5f);
+            int blockSize = Math.round(launchIconW + (cover - launchIconW) * e);
+            int alpha = Math.round((1f - e) * 255);
+            int blockColor = (alpha << 24) | LAUNCH_BLOCK_RGB;
+            UiShapes.fillRoundedRect(graphics, Math.round(launchCx - blockSize / 2f), Math.round(launchCy - blockSize / 2f),
+                    blockSize, blockSize, Math.max(2, blockSize / 4), blockColor);
+            graphics.disableScissor();
+            if (raw >= 1f) {
+                launchActive = false;
+                launchTween = null;
+            }
+        } else if (uiAnimEnabled() && transTween != null && transFrom != null && transTo != null) {
             float raw = transTween.raw();
             float ease = transIsPush ? AnimEasing.easeOut(raw) : AnimEasing.easeIn(raw);
             // 移动页在最上层：push=新页自右盖入(alpha 0.3→1)；pop=当前页向右缩回(alpha 1→0.3)
@@ -753,11 +808,12 @@ public class PhoneOverlay {
             return true;
         }
 
-        // 页面转场期间（聊天/联系人/设置等内部页跳转）：普通点击屏蔽；
-        // 右键为全局最高抢占，强制打断当前转场并出栈返回（可连续右键连续出栈）。
-        if (uiAnimEnabled() && transTween != null) {
+        // 页面转场/启动动画期间：普通点击屏蔽；
+        // 右键为全局最高抢占，强制打断当前动画并出栈返回（可连续右键连续出栈）。
+        if (uiAnimEnabled() && (transTween != null || launchActive)) {
             if (action == GLFW.GLFW_PRESS && button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
                 forceFinishTransition();
+                forceFinishLaunch();
                 popPage();
                 updateCursorMode();
             }
@@ -847,8 +903,8 @@ public class PhoneOverlay {
         if (uiAnimEnabled() && containerAnim != ContainerAnim.IDLE) {
             return true;
         }
-        // 页面转场期间吞掉滚轮
-        if (uiAnimEnabled() && transTween != null) {
+        // 页面转场/启动动画期间吞掉滚轮
+        if (uiAnimEnabled() && (transTween != null || launchActive)) {
             return true;
         }
         IPhonePage page = getCurrentPage();
@@ -872,6 +928,7 @@ public class PhoneOverlay {
         containerAnim = ContainerAnim.IDLE;
         containerTween = null;
         forceFinishTransition();
+        forceFinishLaunch();
         pageStack.clear();
         activeTab = Tab.MESSAGE;
         if (Minecraft.getInstance().screen instanceof PhoneInputScreen) {

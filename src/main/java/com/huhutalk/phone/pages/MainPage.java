@@ -294,6 +294,31 @@ public class MainPage implements IPhonePage {
         return null;
     }
 
+    /**
+     * HuhuTalk 图标中心（屏幕绝对坐标）+ 图标边长。
+     * 供桌面启动动画（openChatApp）作为 APP 色块的生成原点与初始尺寸。
+     * HuhuTalk 恒为 apps[0]（第 0 行、第 0 列）。
+     * 返回 {centerX, centerY, iconW}。
+     */
+    public static int[] huhuTalkIconCenterScreen() {
+        int w = PhoneOverlay.getPhoneWidth();
+        int h = PhoneOverlay.getPhoneHeight();
+        Font font = Minecraft.getInstance().font;
+        int margin = Math.max(4, (int) (w * 0.06));
+        int iconW = Math.max(10, (w - margin * (APP_COLS + 1)) / APP_COLS);
+        int iconH = iconW;
+        int labelH = Math.max(3, Math.round(font.lineHeight * UiFont.sc(0.8f)));
+        int rowGap = Math.max(3, (int) (h * 0.015));
+        int startY = gridStartY(h);
+        int x = margin;  // 第 0 列
+        int y = startY;  // 第 0 行
+        int cx = x + iconW / 2;
+        int cy = y + iconH / 2;
+        int sx = PhoneOverlay.getPhoneX() + cx;
+        int sy = PhoneOverlay.getPhoneY() + PhoneOverlay.getStatusBarHeight() + cy;
+        return new int[]{ sx, sy, iconW };
+    }
+
     /** 以任意倍率绘制文本（无阴影） */
     private static void drawScaledText(GuiGraphics g, Font font, String text, float x, float y,
                                        int color, float scale) {
