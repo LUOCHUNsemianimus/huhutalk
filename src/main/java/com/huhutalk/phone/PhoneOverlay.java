@@ -85,6 +85,8 @@ public class PhoneOverlay {
     private static IPhonePage transFrom = null;
     private static IPhonePage transTo = null;
     private static AnimTween transTween = null; // null = 无转场
+    /** true=push（新页从右盖住旧页）；false=pop（当前页向右缩回露出下层页） */
+    private static boolean transIsPush = false;
 
     /** 统一状态栏高度（基准像素；运行时经 UiFont.sh 随字体倍率缩放） */
     private static final int STATUSBAR_H = 12;
@@ -237,13 +239,10 @@ public class PhoneOverlay {
     /** 从桌面进入 HuhuTalk App 内容区（默认消息 tab，显示底部导航） */
     public static void openChatApp() {
         if (!visible) return;
-        IPhonePage from = pageStack.isEmpty() ? null : pageStack.peek();
         inChatApp = true;
         activeTab = Tab.MESSAGE;
         pageStack.clear();
-        IPhonePage to = new MessageListPage();
-        pageStack.push(to);
-        beginTransition(from, to);
+        pageStack.push(new MessageListPage());
     }
 
     public static boolean isVisible() { return visible; }
@@ -266,21 +265,21 @@ public class PhoneOverlay {
     /** 是否处于 HuhuTalk App 内容区 */
     public static boolean isInChatApp() { return inChatApp; }
 
-    /** 切换到某个底部 tab（仅 HuhuTalk App 内有效） */
+    /** 切换到某个底部 tab（仅 HuhuTalk App 内有效）。Dock 切 tab 不走盖层转场（瞬时切换） */
     public static void switchTab(Tab tab) {
         if (!inChatApp) return;
         if (activeTab == tab && pageStack.size() == 1) {
             return;
         }
-        IPhonePage from = pageStack.isEmpty() ? null : pageStack.peek();
         activeTab = tab;
         pageStack.clear();
-        IPhonePage to = createTopPage(tab);
-        pageStack.push(to);
-        beginTransition(from, to);
+        pageStack.push(createTopPage(tab));
     }
 
-    /** 进入内部页（聊天/详情/信息设置），叠在当前页之上 */
+    /**
+     * 进入内部页（聊天/详情/信息设置），叠在当前页之上。
+     * push 转场：新页从右侧伸出盖住当前页（当前页不动、被盖住）。
+     */
     public static void pushPage(IPhonePage page) {
         if (!visible) return;
         IPhonePage from = null;
@@ -290,27 +289,25 @@ public class PhoneOverlay {
         }
         pageStack.push(page);
         page.onOpen();
-        beginTransition(from, page);
+        beginTransition(from, page, true);
     }
 
     /** 返回上一页；HuhuTalk App 内顶层页右键返回桌面 */
     public static void popPage() {
         if (pageStack.isEmpty()) return;
         if (pageStack.size() > 1) {
+            // 内部页 pop 转场：当前页向右缩回，露出下层已渲染的上一级页
             IPhonePage closed = pageStack.pop();
             closed.onClose();
             IPhonePage below = pageStack.peek();
             below.onOpen();
-            beginTransition(closed, below);
+            beginTransition(closed, below, false);
         } else if (inChatApp) {
-            // App 顶层页：返回桌面
-            IPhonePage closed = pageStack.peek();
+            // App 顶层页：返回桌面（桌面为另一套动画，此处瞬时切换）
             inChatApp = false;
             activeTab = Tab.MESSAGE;
             pageStack.clear();
-            IPhonePage to = new MainPage();
-            pageStack.push(to);
-            beginTransition(closed, to);
+            pageStack.push(new MainPage());
         }
         // 桌面模式栈深 1：不弹出（返回交给右键关闭手机）
     }
@@ -318,13 +315,17 @@ public class PhoneOverlay {
     /**
      * 启动页面转场。切屏动画关闭时不转场（瞬时切换）；无可视进出页时跳过。
      * from/to 仅用于渲染期捕捉，栈的增删已在上层立即完成。
+     *
+     * @param isPush true=push（移动的是新页 transTo，盖住静止的 transFrom）；
+     *               false=pop（移动的是当前页 transFrom，缩回露出静止的 transTo）
      */
-    private static void beginTransition(IPhonePage from, IPhonePage to) {
+    private static void beginTransition(IPhonePage from, IPhonePage to, boolean isPush) {
         if (!uiAnimEnabled() || from == null || to == null || from == to) {
             return;
         }
         transFrom = from;
         transTo = to;
+        transIsPush = isPush;
         transTween = new AnimTween();
     }
 
@@ -333,6 +334,7 @@ public class PhoneOverlay {
         transTween = null;
         transFrom = null;
         transTo = null;
+        transIsPush = false;
     }
 
     public static void setAltDown(boolean down) {
@@ -460,6 +462,7 @@ public class PhoneOverlay {
             transTween = null;
             transFrom = null;
             transTo = null;
+            transIsPush = false;
         }
         int ry = phoneY + Math.round(animOffsetY);
         renderedPhoneY = ry;
@@ -486,24 +489,27 @@ public class PhoneOverlay {
         int contentBaseY = ry + UiFont.sh(STATUSBAR_H);
         if (uiAnimEnabled() && transTween != null && transFrom != null && transTo != null) {
             float raw = transTween.raw();
-            float inE = AnimEasing.easeOut(raw); // 进场 ease-out
-            float outE = AnimEasing.easeIn(raw);  // 退场 ease-in
-            int fromDx = Math.round(phoneWidth * outE);            // 0 → +width 右出
-            float fromAlpha = 1f - 0.7f * outE;                    // 1 → 0.3
-            int toDx = Math.round(phoneWidth * (1f - inE));        // +width → 0 右进
-            float toAlpha = 0.3f + 0.7f * inE;                     // 0.3 → 1
+            float ease = transIsPush ? AnimEasing.easeOut(raw) : AnimEasing.easeIn(raw);
+            // 移动页在最上层：push=新页自右盖入(alpha 0.3→1)；pop=当前页向右缩回(alpha 1→0.3)
+            int moveDx = transIsPush
+                    ? Math.round(phoneWidth * (1f - ease))   // +width → 0
+                    : Math.round(phoneWidth * ease);         // 0 → +width
+            float moveAlpha = transIsPush ? 0.3f + 0.7f * ease : 1f - 0.7f * ease;
+            // 静止垫底页在最下层（alpha 恒为 1）
+            IPhonePage under = transIsPush ? transFrom : transTo;
+            IPhonePage moving = transIsPush ? transTo : transFrom;
 
             // 裁剪到手机内容区，防止滑动的页面溢出到手机壳/屏幕外
             graphics.enableScissor(contentBaseX, contentBaseY, contentBaseX + phoneWidth, contentBaseY + phoneHeight);
-            // 退场页在下层，进场页在上层
-            renderPageTranslated(graphics, transFrom, contentBaseX + fromDx, contentBaseY, fromAlpha);
-            renderPageTranslated(graphics, transTo, contentBaseX + toDx, contentBaseY, toAlpha);
+            renderPageTranslated(graphics, under, contentBaseX, contentBaseY, 1f);
+            renderPageTranslated(graphics, moving, contentBaseX + moveDx, contentBaseY, moveAlpha);
             graphics.disableScissor();
 
             if (raw >= 1f) {
                 transTween = null;
                 transFrom = null;
                 transTo = null;
+                transIsPush = false;
             }
         } else if (page != null) {
             page.render(graphics, contentBaseX, contentBaseY, partialTick);
