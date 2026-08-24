@@ -55,7 +55,8 @@ public class MainPage implements IPhonePage {
 
     private static final Random RANDOM = new Random();
 
-    private final List<AppInfo> apps = new ArrayList<>();
+    /** APP 元数据（静态，类加载时由 {@link #buildApps()} 构建一次；供通用启动动画按名字查询） */
+    private static final List<AppInfo> apps = buildApps();
     /** 桌面中央表情贴图（每次进入桌面时选择一次） */
     private ResourceLocation stickerTex = null;
     private int stickerW = 24, stickerH = 24;
@@ -65,16 +66,23 @@ public class MainPage implements IPhonePage {
     private String sosMessage = "";
 
     public MainPage() {
+        // apps 由 buildApps() 静态构建一次，构造函数不再往里 add，避免反复 new 造成重复图标
+    }
+
+    /** 一次性构建全部 APP 元数据。 */
+    private static List<AppInfo> buildApps() {
+        List<AppInfo> list = new ArrayList<>();
         // HuhuTalk：狐狸 emoji 居中（2.25 倍），点击进入 App 内容区（消息页 + 底部导航）。底色用 #de6f8d
-        apps.add(new AppInfo("HuhuTalk", 0xFFDE6F8D, "🦊", true, 2.25f, 0xFFFFFFFF, true, false, null));
+        list.add(new AppInfo("HuhuTalk", 0xFFDE6F8D, "🦊", true, 2.25f, 0xFFFFFFFF, true, false, null));
         // 狐狐打人 / 狐狐打车：中心保留两字文案
-        apps.add(new AppInfo("狐狐打人", 0xFF8000, "打人", false, 1.0f, 0xFFFFFFFF, false, false, null));
-        apps.add(new AppInfo("狐狐打车", 0xFFFF00, "打车", false, 1.0f, 0xFFFFFFFF, false, false, null));
+        list.add(new AppInfo("狐狐打人", 0xFF8000, "打人", false, 1.0f, 0xFFFFFFFF, false, false, null));
+        list.add(new AppInfo("狐狐打车", 0xFFFF00, "打车", false, 1.0f, 0xFFFFFFFF, false, false, null));
         // 第二行：[SOS, 狐狐三十分(隐藏), 设置]。SOS 左置、隐藏的 30 分居中、设置靠右
-        apps.add(new AppInfo("SOS", 0xFF0000, "SOS", false, 1.0f, 0xFFFFFFFF, true, false, null));
-        apps.add(new AppInfo("狐狐三十分", 0x6495ED, "30分", false, 1.0f, 0xFFFFFFFF, false, true, null));
+        list.add(new AppInfo("SOS", 0xFF0000, "SOS", false, 1.0f, 0xFFFFFFFF, true, false, null));
+        list.add(new AppInfo("狐狐三十分", 0x6495ED, "30分", false, 1.0f, 0xFFFFFFFF, false, true, null));
         // 设置：齿轮 emoji，2 倍字号、灰色，打开手机内置手册
-        apps.add(new AppInfo("设置", 0xFFEEEEEE, "⚙", true, 2.0f, 0xFF757575, true, false, ManualPage::new));
+        list.add(new AppInfo("设置", 0xFFEEEEEE, "⚙", true, 2.0f, 0xFF757575, true, false, ManualPage::new));
+        return list;
     }
 
     /** 重新成为当前页（从子页返回桌面）时，下一帧重选中央表情 */
@@ -140,7 +148,7 @@ public class MainPage implements IPhonePage {
      * 纵向步进含图标下方名称留白，避免名称与下一行重叠。
      * out = {x, y, iconW, iconH}。
      */
-    private void appRect(int w, int h, int i, int[] out) {
+    private static void appRect(int w, int h, int i, int[] out) {
         Font font = Minecraft.getInstance().font;
         int margin = Math.max(4, (int) (w * 0.06));
         int iconW = Math.max(10, (w - margin * (APP_COLS + 1)) / APP_COLS);
@@ -295,28 +303,25 @@ public class MainPage implements IPhonePage {
     }
 
     /**
-     * HuhuTalk 图标中心（屏幕绝对坐标）+ 图标边长。
-     * 供桌面启动动画（openChatApp）作为 APP 色块的生成原点与初始尺寸。
-     * HuhuTalk 恒为 apps[0]（第 0 行、第 0 列）。
-     * 返回 {centerX, centerY, iconW}。
+     * 指定 App 图标中心（屏幕绝对坐标）+ 边长 + 底色。
+     * 供通用启动动画（{@code PhoneOverlay.launchApp}）作为色块生成原点、初始尺寸与颜色。
+     * 返回 {centerX, centerY, iconW, colorRGB}；未找到该 App 返回 null。
      */
-    public static int[] huhuTalkIconCenterScreen() {
+    public static int[] appIconCenterScreen(String appName) {
         int w = PhoneOverlay.getPhoneWidth();
         int h = PhoneOverlay.getPhoneHeight();
-        Font font = Minecraft.getInstance().font;
-        int margin = Math.max(4, (int) (w * 0.06));
-        int iconW = Math.max(10, (w - margin * (APP_COLS + 1)) / APP_COLS);
-        int iconH = iconW;
-        int labelH = Math.max(3, Math.round(font.lineHeight * UiFont.sc(0.8f)));
-        int rowGap = Math.max(3, (int) (h * 0.015));
-        int startY = gridStartY(h);
-        int x = margin;  // 第 0 列
-        int y = startY;  // 第 0 行
-        int cx = x + iconW / 2;
-        int cy = y + iconH / 2;
-        int sx = PhoneOverlay.getPhoneX() + cx;
-        int sy = PhoneOverlay.getPhoneY() + PhoneOverlay.getStatusBarHeight() + cy;
-        return new int[]{ sx, sy, iconW };
+        for (int i = 0; i < apps.size(); i++) {
+            AppInfo a = apps.get(i);
+            if (!a.name.equals(appName)) continue;
+            int[] rect = new int[4];
+            appRect(w, h, i, rect);
+            int cx = rect[0] + rect[2] / 2;
+            int cy = rect[1] + rect[3] / 2;
+            int sx = PhoneOverlay.getPhoneX() + cx;
+            int sy = PhoneOverlay.getPhoneY() + PhoneOverlay.getStatusBarHeight() + cy;
+            return new int[]{ sx, sy, rect[2], a.color & 0x00FFFFFF };
+        }
+        return null;
     }
 
     /** 以任意倍率绘制文本（无阴影） */

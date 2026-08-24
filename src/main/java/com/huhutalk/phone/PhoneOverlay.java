@@ -96,10 +96,9 @@ public class PhoneOverlay {
      */
     private static boolean launchActive = false;
     private static AnimTween launchTween = null;
-    private static float launchCx, launchCy; // APP 图标中心（屏幕坐标）
-    private static int launchIconW;          // APP 图标初始边长
-    /** 启动动画色块颜色 = HuhuTalk 图标底色 #de6f8d */
-    private static final int LAUNCH_BLOCK_RGB = 0x00DE6F8D;
+    private static float launchCx, launchCy; // 启动 App 图标中心（屏幕坐标）
+    private static int launchIconW;          // 启动 App 图标初始边长
+    private static int launchBlockColorRgb;  // 启动 App 图标底色（RGB，随 App 变化）
     /** 启动动画时长（秒）：全局 0.25s 对「放大铺满」太快，故作为例外用 0.5s */
     private static final float LAUNCH_DURATION = 0.5f;
 
@@ -254,27 +253,37 @@ public class PhoneOverlay {
 
     /**
      * 从桌面进入 HuhuTalk App 内容区（默认消息 tab，显示底部导航）。
-     * 桌面启动动画：在 HuhuTalk 图标中心生成 APP 色块由小放大、1→0 淡出，首页 0→1 原地淡入。
+     * 委托给通用 {@link #launchApp}，使用 HuhuTalk 图标底色做启动动画。
      */
     public static void openChatApp() {
+        launchApp(new MessageListPage(), "HuhuTalk");
+    }
+
+    /**
+     * 通用 App 启动动画：点开某 App 的首页 target 时，在对应图标中心生成其底色色块，
+     * 由小放大并淡出，底层 target 页原地淡入。任何 App 复用同一套动画。
+     * 播放期间普通点击屏蔽，右键可强制打断并出栈返回。
+     */
+    public static void launchApp(IPhonePage target, String appName) {
         if (!visible) return;
         inChatApp = true;
         activeTab = Tab.MESSAGE;
         pageStack.clear();
-        pageStack.push(new MessageListPage());
+        pageStack.push(target);
         if (uiAnimEnabled()) {
-            int[] c = MainPage.huhuTalkIconCenterScreen();
+            int[] c = MainPage.appIconCenterScreen(appName);
             if (c != null) {
                 launchCx = c[0];
                 launchCy = c[1];
                 launchIconW = c[2];
+                launchBlockColorRgb = c[3];
                 launchActive = true;
                 launchTween = new AnimTween(LAUNCH_DURATION);
             }
         }
     }
 
-    /** 强制打断启动动画（右键抢占）：立即收尾，恢复渲染首页 */
+    /** 强制打断启动动画（右键抢占）：立即收尾，恢复渲染目标首页 */
     private static void forceFinishLaunch() {
         launchActive = false;
         launchTween = null;
@@ -536,7 +545,7 @@ public class PhoneOverlay {
             int cover = Math.round((float) Math.hypot(phoneWidth, phoneHeight) * 2.5f);
             int blockSize = Math.round(launchIconW + (cover - launchIconW) * e);
             int alpha = Math.round((1f - e) * 255);
-            int blockColor = (alpha << 24) | LAUNCH_BLOCK_RGB;
+            int blockColor = (alpha << 24) | (launchBlockColorRgb & 0xFFFFFF);
             UiShapes.fillRoundedRect(graphics, Math.round(launchCx - blockSize / 2f), Math.round(launchCy - blockSize / 2f),
                     blockSize, blockSize, Math.max(2, blockSize / 4), blockColor);
             graphics.disableScissor();
