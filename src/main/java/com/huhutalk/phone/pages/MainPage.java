@@ -10,12 +10,16 @@ import com.huhutalk.phone.UiShapes;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.resources.ResourceLocation;
 import net.neoforged.neoforge.network.PacketDistributor;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Random;
 import java.util.function.Supplier;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * 手机主界面（桌面）。
@@ -36,8 +40,26 @@ public class MainPage implements IPhonePage {
     private static final int APP_COLS = 3;
     /** 图标下方名称的灰字颜色 */
     private static final int LABEL_COLOR = 0xFF7A7A7A;
+    /** 桌面中央表情绘制边长（像素） */
+    private static final int STICKER_SIZE = 64;
+    /** 女仆表情资源命名空间与目录（与聊天页一致） */
+    private static final String EMOJI_NAMESPACE = "touhou_little_maid";
+    private static final String EMOJI_DIR = "textures/chat_bubble/maid_emoji";
+    /** 随机池：全部女仆表情（emoji_01~20） */
+    private static final String[] ALL_EMOJI = {
+            "emoji_01.png", "emoji_02.png", "emoji_03.png", "emoji_04.png", "emoji_05.png",
+            "emoji_06.png", "emoji_07.png", "emoji_08.png", "emoji_09.png", "emoji_10.png",
+            "emoji_11.png", "emoji_12.png", "emoji_13.png", "emoji_14.png", "emoji_15.png",
+            "emoji_16.png", "emoji_17.png", "emoji_18.png", "emoji_19.png", "emoji_20-24x24.png"
+    };
+
+    private static final Random RANDOM = new Random();
 
     private final List<AppInfo> apps = new ArrayList<>();
+    /** 桌面中央表情贴图（每次进入桌面时选择一次） */
+    private ResourceLocation stickerTex = null;
+    private int stickerW = 24, stickerH = 24;
+    private boolean stickerChosen = false;
     /** SOS 点击后的短暂提示（毫秒时间戳） */
     private long sosFlashUntil = 0;
     private String sosMessage = "";
@@ -54,6 +76,48 @@ public class MainPage implements IPhonePage {
         apps.add(new AppInfo("SOS", 0xFF0000, "SOS", false, 1.0f, 0xFFFFFFFF, true, false, null));
         // 设置：齿轮 emoji，2 倍字号、灰色，打开手机内置手册
         apps.add(new AppInfo("设置", 0xFFEEEEEE, "⚙", true, 2.0f, 0xFF757575, true, false, ManualPage::new));
+    }
+
+    /** 重新成为当前页（从子页返回桌面）时，下一帧重选中央表情 */
+    @Override
+    public void onOpen() {
+        stickerChosen = false;
+    }
+
+    /** 选择桌面中央表情：优先按玩家状态，否则随机。仅进入桌面时调用一次。 */
+    private void chooseSticker() {
+        stickerChosen = true;
+        Minecraft mc = Minecraft.getInstance();
+        boolean lowHp = false, lowFood = false;
+        if (mc.player != null) {
+            lowHp = mc.player.getHealth() <= mc.player.getMaxHealth() * 0.4f; // 低血量：<=40% 最大血量
+            lowFood = mc.player.getFoodData().getFoodLevel() <= 6;             // 低饱食：foodLevel <= 6
+        }
+        String file;
+        if (lowHp && lowFood) {
+            file = "emoji_11.png";   // 害怕
+        } else if (lowHp) {
+            file = "emoji_15.png";   // 没血
+        } else if (lowFood) {
+            file = "emoji_18.png";   // 饿
+        } else {
+            file = ALL_EMOJI[RANDOM.nextInt(ALL_EMOJI.length)];
+        }
+        stickerTex = ResourceLocation.fromNamespaceAndPath(EMOJI_NAMESPACE, EMOJI_DIR + "/" + file);
+        int[] sz = parseEmojiSize(file);
+        stickerW = sz[0];
+        stickerH = sz[1];
+    }
+
+    /** 从文件名解析表情尺寸：`-24x24.png` → 24x24；无尺寸后缀默认 24x24。与 TLM 规则一致。 */
+    private static int[] parseEmojiSize(String file) {
+        Matcher m = Pattern.compile("^.*?-(\\d+)x(\\d+)\\.png$").matcher(file);
+        if (m.matches()) {
+            int w = Integer.parseInt(m.group(1));
+            int h = Integer.parseInt(m.group(2));
+            return new int[]{Math.max(8, Math.min(256, w)), Math.max(8, Math.min(256, h))};
+        }
+        return new int[]{24, 24};
     }
 
     /** 网格行数容量：随手机长宽比变化。20:9→5、9:16→4、4:3→3，未知回退 5。 */
@@ -115,6 +179,17 @@ public class MainPage implements IPhonePage {
 
         // 桌面背景（临时色 #f0e4ea，覆盖整个内容区；后续在此之上渲染更多内容）
         graphics.fill(baseX, baseY, baseX + w, baseY + h, DESKTOP_BG);
+
+        // 桌面中央表情（每次进入桌面时选择；本帧需要时选择后绘制）
+        if (!stickerChosen) {
+            chooseSticker();
+        }
+        if (stickerTex != null) {
+            int s = STICKER_SIZE;
+            int sx = baseX + (w - s) / 2;
+            int sy = baseY + (h - s) / 2;
+            graphics.blit(stickerTex, sx, sy, s, s, 0.0f, 0.0f, stickerW, stickerH, stickerW, stickerH);
+        }
 
         int[] rect = new int[4];
         for (int i = 0; i < apps.size(); i++) {
