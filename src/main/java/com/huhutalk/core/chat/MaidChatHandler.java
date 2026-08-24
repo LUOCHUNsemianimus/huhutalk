@@ -156,7 +156,7 @@ public class MaidChatHandler {
         final EntityMaid maidIn = maid;
         final ServerPlayer playerIn = player;
 
-        VisionService.describeFile(imgPath, "这是主人刚发给你的一张图片。请仔细观察画面，尽量具体地描述其中发生了什么、有哪些东西。")
+        VisionService.describeFile(imgPath, "这是主人刚发给你的一张我的世界图片。请仔细观察画面，尽量具体地描述其中发生了什么、有哪些东西。但是不要猜测其中人物的身份，仅描述外貌、特征")
                 .whenComplete((desc, throwable) -> {
                     // 用完即删临时图
                     try {
@@ -195,11 +195,11 @@ public class MaidChatHandler {
         // 图片描述作为本次调用的临时系统消息（不写历史、不显示在聊天）。
         // 措辞要强：明确告诉女仆她收到了图片、能看到、必须根据图片回应，避免她沿用旧的"看不到"判断。
         messages.add(LLMMessage.systemChat(maid,
-                "主人刚刚给你发来了一张图片，这张图片就是主人要你看的东西（不是文字、也不是让你猜手里有什么）。"
+                "主人刚刚给你发来了一张图片，这张图片就是主人要你看的东西（不是让你猜手里有什么）。"
                         + "你现在能清楚地看到这张图片，画面内容如下：\n"
                         + desc
                         + "\n请直接根据图片内容回应主人：先说你看到了什么，再对图中的场景、物品或动作给出自然、符合你性格的反应。"
-                        + "不要再说自己看不到图片、看不清、或手里空空之类的话。"));
+                        + "不要说自己看不到图片、看不清、或手里空空之类的话。"));
         if (userText != null && !userText.isBlank()) {
             messages.add(LLMMessage.userChat(maid, userText));
         } else {

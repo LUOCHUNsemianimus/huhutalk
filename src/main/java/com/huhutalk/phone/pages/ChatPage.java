@@ -1626,8 +1626,8 @@ public class ChatPage implements IPhonePage {
                 g.fill(bubbleLeft + pad, yTop + pad, bubbleLeft + pad + IMAGE_DRAW_SIZE,
                         yTop + pad + IMAGE_DRAW_SIZE, 0x4D808080);
                 float ts = UiFont.sc(0.5f);
-                drawScaledText(g, font, "压缩中…",
-                        bubbleLeft + pad + (IMAGE_DRAW_SIZE - font.width("压缩中…") * ts) / 2f,
+                drawScaledText(g, font, "图片压缩中…",
+                        bubbleLeft + pad + (IMAGE_DRAW_SIZE - font.width("图片压缩中…") * ts) / 2f,
                         yTop + pad + (IMAGE_DRAW_SIZE - font.lineHeight * ts) / 2f,
                         0xFFFFFFFF, ts);
             }
