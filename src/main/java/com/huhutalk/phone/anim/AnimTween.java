@@ -12,14 +12,22 @@ public final class AnimTween {
     public static final float DURATION = 0.25f;
 
     private final long startNanos;
+    private final float durationSeconds;
 
+    /** 默认全局时长 0.25s */
     public AnimTween() {
+        this(DURATION);
+    }
+
+    /** 指定时长（秒）；用于个别需要更长时长的例外动画（如 APP 桌面启动 0.5s） */
+    public AnimTween(float durationSeconds) {
+        this.durationSeconds = Math.max(0.001f, durationSeconds);
         this.startNanos = System.nanoTime();
     }
 
     /** 线性原始进度 0..1（未 clamp，供调用方做 easing） */
     public float raw() {
-        return (System.nanoTime() - startNanos) / (DURATION * 1_000_000_000f);
+        return (System.nanoTime() - startNanos) / (durationSeconds * 1_000_000_000f);
     }
 
     /** 是否已播完（raw ≥ 1） */

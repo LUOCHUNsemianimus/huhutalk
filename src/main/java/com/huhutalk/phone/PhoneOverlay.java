@@ -100,6 +100,8 @@ public class PhoneOverlay {
     private static int launchIconW;          // APP 图标初始边长
     /** 启动动画色块颜色 = HuhuTalk 图标底色 #de6f8d */
     private static final int LAUNCH_BLOCK_RGB = 0x00DE6F8D;
+    /** 启动动画时长（秒）：全局 0.25s 对「放大铺满」太快，故作为例外用 0.5s */
+    private static final float LAUNCH_DURATION = 0.5f;
 
     /** 统一状态栏高度（基准像素；运行时经 UiFont.sh 随字体倍率缩放） */
     private static final int STATUSBAR_H = 12;
@@ -267,7 +269,7 @@ public class PhoneOverlay {
                 launchCy = c[1];
                 launchIconW = c[2];
                 launchActive = true;
-                launchTween = new AnimTween();
+                launchTween = new AnimTween(LAUNCH_DURATION);
             }
         }
     }
