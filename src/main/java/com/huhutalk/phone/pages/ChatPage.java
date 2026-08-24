@@ -219,8 +219,13 @@ public class ChatPage implements IPhonePage {
     public void onInputFinished(String text, boolean send) {
         this.inputActive = false;
         this.currentInput = text;
-        if (send && !text.isBlank()) {
-            sendCurrentMessage();
+        // 有选中图时（无论回车还是点发送）都走图片+文字一起发送；否则按普通文字发送
+        if (send && (!text.isBlank() || selectedImageKey != null)) {
+            if (selectedImageKey != null) {
+                sendImageChat();
+            } else {
+                sendCurrentMessage();
+            }
         } else {
             ChatHistoryStorage.setDraft(stableId, text);
         }
@@ -1616,10 +1621,15 @@ public class ChatPage implements IPhonePage {
         if (rl != null) {
             g.blit(rl, bubbleLeft + pad, yTop + pad, IMAGE_DRAW_SIZE, IMAGE_DRAW_SIZE,
                     0.0f, 0.0f, d[0], d[1], d[0], d[1]);
-            // 等待识图：图片上盖一层 30% 灰色滤镜，示意"女仆还没看到"
+            // 等待识图：图片上盖一层 30% 灰色滤镜 + 白字"压缩中…"，示意"还没发过去、女仆暂时没看到"
             if (m.pending()) {
                 g.fill(bubbleLeft + pad, yTop + pad, bubbleLeft + pad + IMAGE_DRAW_SIZE,
                         yTop + pad + IMAGE_DRAW_SIZE, 0x4D808080);
+                float ts = UiFont.sc(0.5f);
+                drawScaledText(g, font, "压缩中…",
+                        bubbleLeft + pad + (IMAGE_DRAW_SIZE - font.width("压缩中…") * ts) / 2f,
+                        yTop + pad + (IMAGE_DRAW_SIZE - font.lineHeight * ts) / 2f,
+                        0xFFFFFFFF, ts);
             }
         } else {
             g.fill(bubbleLeft + pad, yTop + pad, bubbleLeft + pad + IMAGE_DRAW_SIZE,
