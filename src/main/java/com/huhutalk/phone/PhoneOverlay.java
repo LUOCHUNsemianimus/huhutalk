@@ -375,12 +375,18 @@ public class PhoneOverlay {
         // 底部水印栏（圆角底）
         renderWatermark(graphics, phoneX, phoneY + totalHeight - UiFont.sh(WATERMARK_H), phoneWidth, UiFont.sh(WATERMARK_H));
 
-        // 屏幕亮度滤镜：按设置叠一层黑色圆角蒙版（0~50% 不透明度），整体变暗；不拦截点击
+        // 屏幕亮度滤镜：按设置叠一层黑色圆角蒙版，把「手机屏 + 手机壳」一起变暗（0~70% 不透明度）。
+        // 亮度 1 = 满亮度不调；往低调，蒙版越不透明（最低叠 70%）。不拦截点击。
         float brightness = HuhuTalkClientSettings.getScreenBrightness();
-        if (brightness > 0.001f) {
-            int alpha = Math.round(brightness * 128); // 0~128 → 0~50%
-            fillRoundedRect(graphics, phoneX, phoneY, phoneWidth, totalHeight,
-                    UiFont.sh(STATUSBAR_H), UiFont.sh(WATERMARK_H), (alpha << 24) | 0x000000);
+        if (brightness < 0.999f) {
+            int alpha = Math.round((1f - brightness) * 0.70f * 255); // 0~178 → 0~70%
+            int dimColor = (alpha << 24) | 0x000000;
+            int caseX = phoneX - PhoneCaseRenderer.CASE_THICKNESS;
+            int caseY = phoneY - PhoneCaseRenderer.CASE_THICKNESS;
+            int caseW = phoneWidth + PhoneCaseRenderer.CASE_THICKNESS * 2;
+            int caseH = totalHeight + PhoneCaseRenderer.CASE_THICKNESS * 2;
+            fillRoundedRect(graphics, caseX, caseY, caseW, caseH,
+                    PhoneCaseRenderer.CORNER_RADIUS, PhoneCaseRenderer.CORNER_RADIUS, dimColor);
         }
     }
 

@@ -46,8 +46,8 @@ public final class HuhuTalkClientSettings {
     private static long maxTypingMs = 2400;
     /** 手机 UI 全局字体倍率（可选 0.5/0.75/1.0/1.5/2.0）。1.0 = 默认，不缩放 */
     private static float uiFontScale = 1.0f;
-    /** 屏幕亮度（0~1，0=不调，1=叠 50% 黑色滤镜，整体变暗） */
-    private static float screenBrightness = 0f;
+    /** 屏幕亮度（0~1，1=满亮度不调；往低调则变暗，最低叠 70% 黑色滤镜） */
+    private static float screenBrightness = 1f;
     /** 女仆手动分组：stableId -> 分组名 */
     private static final Map<String, String> maidGroups = new HashMap<>();
     /** 玩家自定义的分组名列表（持久化；联系人页会把其中的分组（含空组）也展示出来） */
@@ -222,7 +222,7 @@ public final class HuhuTalkClientSettings {
         save();
     }
 
-    /** 设置屏幕亮度（钳制 0~1）。1 表示叠满 50% 黑色滤镜。 */
+    /** 设置屏幕亮度（钳制 0~1）。0 表示最暗（叠 70% 黑色滤镜），1 表示满亮度不调。 */
     public static void setScreenBrightness(float b) {
         screenBrightness = Math.max(0f, Math.min(1f, b));
         save();
@@ -273,7 +273,8 @@ public final class HuhuTalkClientSettings {
             if (data.charTypingMs > 0) charTypingMs = data.charTypingMs;
             if (data.maxTypingMs > 0) maxTypingMs = data.maxTypingMs;
             if (data.uiFontScale > 0f) uiFontScale = Math.max(0.5f, Math.min(2.0f, data.uiFontScale));
-            screenBrightness = Math.max(0f, Math.min(1f, data.screenBrightness));
+            screenBrightness = data.screenBrightness == null
+                    ? 1f : Math.max(0f, Math.min(1f, data.screenBrightness));
             maidGroups.clear();
             if (data.maidGroups != null) {
                 maidGroups.putAll(data.maidGroups);
@@ -330,7 +331,7 @@ public final class HuhuTalkClientSettings {
         long charTypingMs;
         long maxTypingMs;
         float uiFontScale;
-        float screenBrightness;
+        Float screenBrightness; // 可空：缺失时默认满亮度 1.0
         Map<String, String> maidGroups;
         List<String> customGroupNames;
     }
