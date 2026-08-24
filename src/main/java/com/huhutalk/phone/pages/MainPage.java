@@ -19,17 +19,23 @@ import java.util.function.Supplier;
 
 /**
  * 手机主界面（桌面）。
- * - 桌面背景 {@link #DESKTOP_BG}（临时色，后续在屏幕中间渲染更多内容）
- * - APP 图标：圆角正方形，每行 {@link #APP_COLS} 个，纵向向下延伸；行数随手机长宽比变化
- *   （20:9 → 5 行、9:16 → 4 行、4:3 → 3 行）
- * - TALK 图标右上角未读红点
- * - SOS 紧急呼叫按钮（召来全部已佩戴手机的女仆并进入战斗保护）
+ * <ul>
+ *   <li>桌面背景 {@link #DESKTOP_BG}（临时色，后续在屏幕中间渲染更多内容）</li>
+ *   <li>APP 图标：圆角正方形，每行 {@link #APP_COLS} 个，纵向向下延伸；行数容量随手机长宽比变化
+ *       （20:9 → 5 行、9:16 → 4 行、4:3 → 3 行）</li>
+ *   <li>每个图标中心显示文字或 emoji，图标下方标注其灰字名称（0.5 倍、带阴影描边）</li>
+ *   <li>HuhuTalk 图标右上角未读红点</li>
+ *   <li>「设置」图标打开手机内置手册（{@link ManualPage}）</li>
+ *   <li>SOS 紧急呼叫按钮（召来全部已佩戴手机的女仆并进入战斗保护）</li>
+ * </ul>
  */
 public class MainPage implements IPhonePage {
     /** 桌面背景色（临时 #f0e4ea；后续替换为正式配色并在中间渲染更多内容） */
     private static final int DESKTOP_BG = 0xFFF0E4EA;
     /** 每行 app 图标个数 */
     private static final int APP_COLS = 3;
+    /** 图标下方名称的灰字颜色 */
+    private static final int LABEL_COLOR = 0xFF7A7A7A;
 
     private final List<AppInfo> apps = new ArrayList<>();
     /** SOS 点击后的短暂提示（毫秒时间戳） */
@@ -37,14 +43,20 @@ public class MainPage implements IPhonePage {
     private String sosMessage = "";
 
     public MainPage() {
-        apps.add(new AppInfo("TALK", 0xFFC0CB, true, () -> new MaidListPage()));
-        apps.add(new AppInfo("SOS", 0xFF0000, true, null));
-        apps.add(new AppInfo("30分", 0x6495ED, false, null));
-        apps.add(new AppInfo("打车", 0xFFFF00, false, null));
-        apps.add(new AppInfo("打人", 0xFF8000, false, null));
+        // HuhuTalk：狐狸 emoji 居中，点击进入 App 内容区（消息页 + 底部导航）。底色用 #de6f8d
+        apps.add(new AppInfo("HuhuTalk", 0xFFDE6F8D, "🦊", true, 1.2f, 0xFFFFFFFF, true, false, null));
+        // 狐狐打人 / 狐狐打车：中心保留两字文案
+        apps.add(new AppInfo("狐狐打人", 0xFF8000, "打人", false, 1.0f, 0xFFFFFFFF, false, false, null));
+        apps.add(new AppInfo("狐狐打车", 0xFFFF00, "打车", false, 1.0f, 0xFFFFFFFF, false, false, null));
+        // 狐狐三十分：暂隐藏（逻辑保留，待联动模组完成后开放）
+        apps.add(new AppInfo("狐狐三十分", 0x6495ED, "30分", false, 1.0f, 0xFFFFFFFF, false, true, null));
+        // SOS：紧急呼叫
+        apps.add(new AppInfo("SOS", 0xFF0000, "SOS", false, 1.0f, 0xFFFFFFFF, true, false, null));
+        // 设置：齿轮 emoji，2 倍字号、灰色，打开手机内置手册
+        apps.add(new AppInfo("设置", 0xFFEEEEEE, "⚙", true, 2.0f, 0xFF757575, true, false, ManualPage::new));
     }
 
-    /** 网格行数：随手机长宽比变化。20:9→5、9:16→4、4:3→3，未知回退 5。 */
+    /** 网格行数容量：随手机长宽比变化。20:9→5、9:16→4、4:3→3，未知回退 5。 */
     private static int gridRows() {
         return switch (HuhuTalkClientSettings.getPhoneAspect()) {
             case "4:3" -> 3;
@@ -62,27 +74,32 @@ public class MainPage implements IPhonePage {
     /**
      * 计算第 i 个 app 图标的矩形（内容区相对坐标，未含 baseX/baseY）。
      * 渲染（加 baseX/baseY）与点击命中（直接用 relX/relY）共用，保证一致。
+     * 纵向步进含图标下方名称留白，避免名称与下一行重叠。
      * out = {x, y, iconW, iconH}。
      */
-    private static void appRect(int w, int h, int i, int[] out) {
+    private void appRect(int w, int h, int i, int[] out) {
+        Font font = Minecraft.getInstance().font;
         int margin = Math.max(4, (int) (w * 0.06));
         int iconW = Math.max(10, (w - margin * (APP_COLS + 1)) / APP_COLS);
         int iconH = iconW; // 圆角正方形
+        int labelH = Math.max(3, Math.round(font.lineHeight * UiFont.sc(0.8f)));
+        int rowGap = Math.max(3, (int) (h * 0.015));
+        int cellStep = iconH + labelH + rowGap;
         int startY = gridStartY(h);
         int row = i / APP_COLS;
         int col = i % APP_COLS;
         out[0] = margin + col * (iconW + margin);
-        out[1] = startY + row * (iconH + margin);
+        out[1] = startY + row * cellStep;
         out[2] = iconW;
         out[3] = iconH;
     }
 
-    /** 计算 TALK 图标的红点位置，渲染与点击共用 */
+    /** 计算 HuhuTalk 图标的红点位置，渲染与点击共用 */
     private boolean getTalkIconPos(int[] out) {
         int w = PhoneOverlay.getPhoneWidth();
         int h = PhoneOverlay.getPhoneHeight();
         for (int i = 0; i < apps.size(); i++) {
-            if ("TALK".equals(apps.get(i).label)) {
+            if ("HuhuTalk".equals(apps.get(i).name)) {
                 appRect(w, h, i, out);
                 return true;
             }
@@ -99,26 +116,38 @@ public class MainPage implements IPhonePage {
         // 桌面背景（临时色 #f0e4ea，覆盖整个内容区；后续在此之上渲染更多内容）
         graphics.fill(baseX, baseY, baseX + w, baseY + h, DESKTOP_BG);
 
-        // ============ APP 图标网格（圆角正方形，每行 3 个，纵向延伸） ============
         int[] rect = new int[4];
         for (int i = 0; i < apps.size(); i++) {
+            AppInfo app = apps.get(i);
+            if (app.hidden) continue; // 狐狐三十分等暂隐藏
+
             appRect(w, h, i, rect);
             int x = baseX + rect[0];
             int y = baseY + rect[1];
             int iconW = rect[2];
             int iconH = rect[3];
 
-            AppInfo app = apps.get(i);
             // 圆角正方形图标
             int r = Math.max(4, iconW / 4);
             UiShapes.fillRoundedRect(graphics, x, y, iconW, iconH, r, app.color | 0xFF000000);
-            // 文字居中
-            int textX = x + iconW / 2 - (int) (font.width(app.label) * UiFont.sc(1.0f)) / 2;
-            int textY = y + iconH / 2 - (int) (font.lineHeight * UiFont.sc(1.0f)) / 2;
-            drawScaledText(graphics, font, app.label, textX, textY, 0xFFFFFFFF, UiFont.sc(1.0f));
 
-            // TALK 红点
-            if ("TALK".equals(app.label)) {
+            // 图标中心内容（文字或 emoji）
+            float cs = UiFont.sc(app.centerScale);
+            int cw = (int) (font.width(app.center) * cs);
+            int ch = (int) (font.lineHeight * cs);
+            int cx = x + (iconW - cw) / 2;
+            int cy = y + (iconH - ch) / 2;
+            drawScaledText(graphics, font, app.center, cx, cy, app.centerColor, cs);
+
+            // 图标下方名称（灰字，0.8 倍，带阴影描边）
+            float ls = UiFont.sc(0.8f);
+            int lw = (int) (font.width(app.name) * ls);
+            int lx = x + (iconW - lw) / 2;
+            int ly = y + iconH + 1;
+            drawScaledTextShaded(graphics, font, app.name, lx, ly, LABEL_COLOR, ls);
+
+            // HuhuTalk 未读红点
+            if ("HuhuTalk".equals(app.name)) {
                 int unread = NotificationManager.getTotalUnread();
                 if (unread > 0) {
                     int dotX = x + iconW - 12;
@@ -148,18 +177,20 @@ public class MainPage implements IPhonePage {
         int h = PhoneOverlay.getPhoneHeight();
         int[] rect = new int[4];
         for (int i = 0; i < apps.size(); i++) {
+            AppInfo app = apps.get(i);
+            if (app.hidden) continue;
+
             appRect(w, h, i, rect);
             int x = rect[0], y = rect[1], iconW = rect[2], iconH = rect[3];
 
             if (relX >= x && relX <= x + iconW && relY >= y && relY <= y + iconH) {
-                AppInfo app = apps.get(i);
                 // SOS：不发页，直接发紧急呼叫包并显示提示
-                if ("SOS".equals(app.label)) {
+                if ("SOS".equals(app.name)) {
                     sendSos();
                     return true;
                 }
-                // TALK：进入 HuhuTalk App 内容区（消息页 + 底部导航）
-                if ("TALK".equals(app.label)) {
+                // HuhuTalk：进入 HuhuTalk App 内容区（消息页 + 底部导航）
+                if ("HuhuTalk".equals(app.name)) {
                     PhoneOverlay.openChatApp();
                     return true;
                 }
@@ -199,17 +230,38 @@ public class MainPage implements IPhonePage {
         g.pose().popPose();
     }
 
+    /** 以任意倍率绘制文本（带阴影描边），用于桌面图标的灰字名称 */
+    private static void drawScaledTextShaded(GuiGraphics g, Font font, String text, float x, float y,
+                                             int color, float scale) {
+        float inv = 1.0f / scale;
+        g.pose().pushPose();
+        g.pose().scale(scale, scale, 1.0f);
+        g.drawString(font, text, x * inv, y * inv, color, true);
+        g.pose().popPose();
+    }
+
     public static class AppInfo {
-        final String label;
-        final int color;
-        final boolean implemented;
+        final String name;            // 图标下方全名
+        final int color;              // 图标底色
+        final String center;          // 图标中心内容（文字或 emoji）
+        final boolean emoji;          // 中心是否为 emoji（配合 centerScale 用大字号）
+        final float centerScale;      // 中心内容字号倍率
+        final int centerColor;        // 中心内容颜色
+        final boolean implemented;    // 是否已实现（否则点开 ComingSoon）
+        final boolean hidden;         // 暂隐藏（逻辑保留）
         final Supplier<IPhonePage> pageFactory;
 
-        public AppInfo(String label, int color, boolean implemented, Supplier<IPhonePage> factory) {
-            this.label = label;
+        AppInfo(String name, int color, String center, boolean emoji, float centerScale, int centerColor,
+                boolean implemented, boolean hidden, Supplier<IPhonePage> pageFactory) {
+            this.name = name;
             this.color = color;
+            this.center = center;
+            this.emoji = emoji;
+            this.centerScale = centerScale;
+            this.centerColor = centerColor;
             this.implemented = implemented;
-            this.pageFactory = factory;
+            this.hidden = hidden;
+            this.pageFactory = pageFactory;
         }
     }
 }

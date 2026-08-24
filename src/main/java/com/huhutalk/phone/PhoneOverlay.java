@@ -197,9 +197,13 @@ public class PhoneOverlay {
         return pageStack.isEmpty() ? null : pageStack.peek();
     }
 
-    /** 当前是否处于 HuhuTalk App 内的内部页（隐藏底部导航） */
+    /**
+     * 当前是否处于"子页"（页面栈里除底页外还压着页面）。
+     * 不限定 {@code inChatApp}：桌面推入的页（如手册/设置）也算子页，
+     * 右键应弹回桌面而非直接关手机。底部导航的显示仍需另行判断 {@code inChatApp}。
+     */
     public static boolean isInSubPage() {
-        return inChatApp && pageStack.size() > 1;
+        return pageStack.size() > 1;
     }
 
     public static Tab getActiveTab() { return activeTab; }
