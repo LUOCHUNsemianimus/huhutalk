@@ -1,6 +1,7 @@
 package com.huhutalk.client.theme;
 
 import com.huhutalk.client.settings.HuhuTalkClientSettings;
+import com.huhutalk.phone.UiShapes;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.renderer.block.BlockRenderDispatcher;
@@ -16,54 +17,53 @@ import net.minecraft.world.level.block.state.BlockState;
  * <p>
  * 在手机屏幕外围画一圈"手机壳"。若玩家在设置里指定了一个完整方块，
  * 则用该方块的粒子贴图（sprite）平铺到外壳边框；未指定时用默认深色壳。
- * 四角以切角近似圆角。读取自 {@link HuhuTalkClientSettings#getPhoneCaseBlock()}。
+ * 外框为真正的圆角（半径 {@link #CORNER_RADIUS}），内部镂空出屏幕区域。
+ * 读取自 {@link HuhuTalkClientSettings#getPhoneCaseBlock()}。
  */
 public final class PhoneCaseRenderer {
 
     /** 外壳边框厚度（像素） */
     public static final int CASE_THICKNESS = 5;
-    /** 四角切角尺寸（像素），近似圆角 */
-    public static final int CORNER_CUT = 6;
+    /** 外壳四角圆角半径（像素） */
+    public static final int CORNER_RADIUS = 10;
 
     private PhoneCaseRenderer() {
     }
 
     /**
      * 渲染手机壳外壳（在渲染内部屏幕内容之前调用，作为背景层）。
-     * 手机屏幕内容区坐标为 (screenX, screenY, w, h)，外壳向外扩展 {@link #CASE_THICKNESS}。
+     * 手机屏幕外框坐标为 (screenX, screenY, screenW, screenH)，外壳向外扩展 {@link #CASE_THICKNESS}，
+     * 以圆角外框形式包住屏幕。
+     * <p>
+     * 内部镂空为"手机内容区"：顶部去掉 {@code holeTop}、底部去掉 {@code holeBottom} 高度，
+     * 让壳把顶部状态栏与底部水印栏（它们用圆角绘制）的圆角托住，避免圆角三角区透出背后的风景。
      */
-    public static void renderCase(GuiGraphics g, int screenX, int screenY, int w, int h) {
+    public static void renderCase(GuiGraphics g, int screenX, int screenY, int screenW, int screenH,
+                                  int holeTop, int holeBottom) {
         String blockId = HuhuTalkClientSettings.getPhoneCaseBlock();
         BlockState state = resolveBlockState(blockId);
         int outerX = screenX - CASE_THICKNESS;
         int outerY = screenY - CASE_THICKNESS;
-        int outerW = w + CASE_THICKNESS * 2;
-        int outerH = h + CASE_THICKNESS * 2;
+        int outerW = screenW + CASE_THICKNESS * 2;
+        int outerH = screenH + CASE_THICKNESS * 2;
+
+        int holeX = screenX;
+        int holeY = screenY + holeTop;
+        int holeW = screenW;
+        int holeH = Math.max(1, screenH - holeTop - holeBottom);
 
         TextureAtlasSprite sprite = blockSprite(state);
         int borderColor = 0xFF2E2E2E; // 默认深色壳
         boolean useTexture = sprite != null;
 
-        // 用 scissor 把外壳绘制限制在"外框扣掉内部屏幕"的环形区域。
-        // 先画四边：上、下、左、右（不含圆角切角）。
         if (useTexture) {
-            // 平铺纹理到四边
-            drawTiledRect(g, sprite, outerX, outerY, outerW, CASE_THICKNESS);                        // 上
-            drawTiledRect(g, sprite, outerX, outerY + outerH - CASE_THICKNESS, outerW, CASE_THICKNESS); // 下
-            drawTiledRect(g, sprite, outerX, outerY + CASE_THICKNESS, CASE_THICKNESS, outerH - CASE_THICKNESS * 2); // 左
-            drawTiledRect(g, sprite, outerX + outerW - CASE_THICKNESS, outerY + CASE_THICKNESS, CASE_THICKNESS, outerH - CASE_THICKNESS * 2); // 右
-            // 四个切角（近似圆角的小方块）
-            int cut = CORNER_CUT;
-            g.fill(outerX, outerY, outerX + cut, outerY + cut, borderColor);                             // 左上
-            g.fill(outerX + outerW - cut, outerY, outerX + outerW, outerY + cut, borderColor);           // 右上
-            g.fill(outerX, outerY + outerH - cut, outerX + cut, outerY + outerH, borderColor);           // 左下
-            g.fill(outerX + outerW - cut, outerY + outerH - cut, outerX + outerW, outerY + outerH, borderColor); // 右下
+            // 自定义材质壳：按行平铺纹理到圆角外框（内部镂空内容区）
+            UiShapes.fillRoundedRectFrameTiled(g, sprite, outerX, outerY, outerW, outerH,
+                    holeX, holeY, holeW, holeH, CORNER_RADIUS);
         } else {
-            // 纯色外壳
-            g.fill(outerX, outerY, outerX + outerW, outerY + CASE_THICKNESS, borderColor);
-            g.fill(outerX, outerY + outerH - CASE_THICKNESS, outerX + outerW, outerY + outerH, borderColor);
-            g.fill(outerX, outerY, outerX + CASE_THICKNESS, outerY + outerH, borderColor);
-            g.fill(outerX + outerW - CASE_THICKNESS, outerY, outerX + outerW, outerY + outerH, borderColor);
+            // 默认纯色外壳：圆角外框 + 矩形镂空
+            UiShapes.fillRoundedRectFrame(g, outerX, outerY, outerW, outerH,
+                    holeX, holeY, holeW, holeH, CORNER_RADIUS, borderColor);
         }
     }
 
@@ -95,18 +95,6 @@ public final class PhoneCaseRenderer {
             return dispatcher.getBlockModel(state).getParticleIcon();
         } catch (Exception e) {
             return null;
-        }
-    }
-
-    /** 平铺绘制一个矩形区域的贴图（按 16px 一格循环） */
-    private static void drawTiledRect(GuiGraphics g, TextureAtlasSprite sprite,
-                                      int x, int y, int width, int height) {
-        for (int i = 0; i < width; i += 16) {
-            int w = Math.min(16, width - i);
-            for (int j = 0; j < height; j += 16) {
-                int h = Math.min(16, height - j);
-                g.blit(x + i, y + j, 0, w, h, sprite);
-            }
         }
     }
 

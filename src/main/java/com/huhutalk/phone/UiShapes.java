@@ -1,6 +1,7 @@
 package com.huhutalk.phone;
 
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.client.renderer.texture.TextureAtlasSprite;
 
 /**
  * 手机 UI 共享绘制工具（纯渲染，不影响逻辑）。
@@ -42,6 +43,92 @@ public final class UiShapes {
                 right = Math.max(right, cut);
             }
             g.fill(x + left, py, x + w - right, py + 1, color);
+        }
+    }
+
+    /**
+     * 填充"圆角矩形外框 + 内部矩形镂空"（纯色版）。镂空矩形 {@code (holeX,holeY,holeW,holeH)}
+     * 不会被填充，其余区域按圆角外框逐行填充。用于手机壳等"框住一块内容"的边框绘制。
+     */
+    public static void fillRoundedRectFrame(GuiGraphics g, int x, int y, int w, int h,
+                                            int holeX, int holeY, int holeW, int holeH,
+                                            int r, int color) {
+        if (w <= 0 || h <= 0) return;
+        r = Math.max(0, Math.min(r, Math.min(w, h) / 2));
+        float rf = r;
+        int holeRight = holeX + holeW;
+        int holeBottom = holeY + holeH;
+        for (int py = y; py < y + h; py++) {
+            int[] cut = cornerCut(r, rf, py, y, h);
+            int rowStart = x + cut[0];
+            int rowEnd = x + w - cut[1];
+            if (py < holeY || py >= holeBottom) {
+                // 整行（未与镂空重叠）
+                g.fill(rowStart, py, rowEnd, py + 1, color);
+            } else {
+                // 左右两段，跳过镂空
+                if (holeX > rowStart) g.fill(rowStart, py, Math.min(holeX, rowEnd), py + 1, color);
+                if (holeRight < rowEnd) g.fill(Math.max(holeRight, rowStart), py, rowEnd, py + 1, color);
+            }
+        }
+    }
+
+    /**
+     * 填充"圆角矩形外框 + 内部矩形镂空"（纹理版）。与 {@link #fillRoundedRectFrame} 同外形，
+     * 但用 {@code sprite} 按 16px 平铺填充外框，供自定义材质（方块壳）使用。
+     */
+    public static void fillRoundedRectFrameTiled(GuiGraphics g, TextureAtlasSprite sprite,
+                                                 int x, int y, int w, int h,
+                                                 int holeX, int holeY, int holeW, int holeH,
+                                                 int r) {
+        if (w <= 0 || h <= 0) return;
+        r = Math.max(0, Math.min(r, Math.min(w, h) / 2));
+        float rf = r;
+        int holeRight = holeX + holeW;
+        int holeBottom = holeY + holeH;
+        for (int py = y; py < y + h; py++) {
+            int[] cut = cornerCut(r, rf, py, y, h);
+            int rowStart = x + cut[0];
+            int rowEnd = x + w - cut[1];
+            if (py < holeY || py >= holeBottom) {
+                tileRow(g, sprite, rowStart, rowEnd, py);
+            } else {
+                if (holeX > rowStart) tileRow(g, sprite, rowStart, Math.min(holeX, rowEnd), py);
+                if (holeRight < rowEnd) tileRow(g, sprite, Math.max(holeRight, rowStart), rowEnd, py);
+            }
+        }
+    }
+
+    /** 计算某一行在圆角外框下的左/右内收量（切角），返回 {leftCut, rightCut}。 */
+    private static int[] cornerCut(int r, float rf, int py, int y, int h) {
+        int left = 0, right = 0;
+        if (r > 0) {
+            if (py < y + r) {
+                float dy = py - y;
+                float inset = rf - (float) Math.sqrt(Math.max(0f, rf * rf - (rf - dy) * (rf - dy)));
+                int cut = (int) Math.ceil(inset);
+                left = Math.max(left, cut);
+                right = Math.max(right, cut);
+            }
+            if (py >= y + h - r) {
+                float dy = y + h - py;
+                float inset = rf - (float) Math.sqrt(Math.max(0f, rf * rf - (rf - dy) * (rf - dy)));
+                int cut = (int) Math.ceil(inset);
+                left = Math.max(left, cut);
+                right = Math.max(right, cut);
+            }
+        }
+        return new int[]{left, right};
+    }
+
+    /** 在指定行从左到右按 16px 平铺贴图（1 像素高的横向条）。 */
+    private static void tileRow(GuiGraphics g, TextureAtlasSprite sprite, int x1, int x2, int y) {
+        if (x2 <= x1) return;
+        int px = x1;
+        while (px < x2) {
+            int w = Math.min(16, x2 - px);
+            g.blit(px, y, 0, w, 1, sprite);
+            px += w;
         }
     }
 }

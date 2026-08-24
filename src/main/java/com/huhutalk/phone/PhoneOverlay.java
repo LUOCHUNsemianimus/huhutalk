@@ -341,8 +341,9 @@ public class PhoneOverlay {
         phoneX = clampPhoneX(phoneX, screenW);
         phoneY = clampPhoneY(phoneY, screenH);
 
-        // 手机壳（纯视觉，包住整个手机）
-        PhoneCaseRenderer.renderCase(graphics, phoneX, phoneY, phoneWidth, totalHeight);
+        // 手机壳（纯视觉，包住整个手机）。镂空内收状态栏/水印栏高度，托住上下导航栏圆角
+        PhoneCaseRenderer.renderCase(graphics, phoneX, phoneY, phoneWidth, totalHeight,
+                UiFont.sh(STATUSBAR_H), UiFont.sh(WATERMARK_H));
 
         // 当前页面
         IPhonePage page = getCurrentPage();
