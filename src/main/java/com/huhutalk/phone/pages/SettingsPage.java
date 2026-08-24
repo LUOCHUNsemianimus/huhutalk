@@ -59,6 +59,8 @@ public class SettingsPage implements IPhonePage {
     private int scrollOffset = 0;
     /** 是否正在拖动屏幕大小滑块 */
     private boolean sizeDragging = false;
+    /** 是否正在拖动屏幕亮度滑块 */
+    private boolean brightnessDragging = false;
 
     // ==================== 缩放辅助 ====================
 
@@ -94,7 +96,7 @@ public class SettingsPage implements IPhonePage {
         int colorTitleY, colorRectY, colorRectH;
         int[] colorRow = new int[2];
         int dispTitleY, dispRectY, dispRectH;
-        int[] dispRow = new int[3];
+        int[] dispRow = new int[4]; // 屏幕比例 / 屏幕大小 / 字体倍率 / 屏幕亮度
         int contentH;
     }
 
@@ -145,16 +147,16 @@ public class SettingsPage implements IPhonePage {
         y = L.colorRow[1] + rowH() + rectPad();
         y += groupTitleTop();
 
-        // 显示 分组（3 行：屏幕比例 / 屏幕大小滑块 / 字体倍率）
+        // 显示 分组（4 行：屏幕比例 / 屏幕大小滑块 / 字体倍率 / 屏幕亮度）
         L.dispTitleY = y;
         y += titleH + cardGap();
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < 4; i++) {
             L.dispRow[i] = y;
             y += rowH();
         }
         L.dispRectY = L.dispRow[0] - rectPad();
-        L.dispRectH = (L.dispRow[2] + rowH()) - L.dispRectY + rectPad();
-        y = L.dispRow[2] + rowH() + rectPad();
+        L.dispRectH = (L.dispRow[3] + rowH()) - L.dispRectY + rectPad();
+        y = L.dispRow[3] + rowH() + rectPad();
         y += UiFont.sh(4);
 
         L.contentH = y - (L.navH + UiFont.sh(8)) + UiFont.sh(4);
@@ -280,6 +282,15 @@ public class SettingsPage implements IPhonePage {
         // 字体倍率（stepper）
         int y2 = ly(L, baseY, L.dispRow[2]);
         drawScaleStepperRow(g, font, rectX, rectW, y2);
+        drawDivider(g, rectX, rectW, y2 + rowH());
+        // 屏幕亮度（滑块，0~100% 叠黑色滤镜）
+        int y3 = ly(L, baseY, L.dispRow[3]);
+        drawBrightnessRow(g, font, rectX, rectW, y3);
+        if (brightnessDragging) {
+            Minecraft mc = Minecraft.getInstance();
+            double mx = mc.mouseHandler.xpos() * mc.getWindow().getGuiScaledWidth() / mc.getWindow().getScreenWidth();
+            updateBrightnessFromRelX(mx - baseX, rectW);
+        }
     }
 
     // ==================== 控件绘制 ====================
@@ -354,6 +365,20 @@ public class SettingsPage implements IPhonePage {
         UiShapes.fillRoundedRect(g, handleX - 5, trackY - 3, 10, 9, 4, 0xFFDE7E7E);
     }
 
+    /** 屏幕亮度滑块：0~100% 对应叠加 0~50% 黑色滤镜 */
+    private void drawBrightnessRow(GuiGraphics g, Font font, int rectX, int rectW, int y) {
+        float b = HuhuTalkClientSettings.getScreenBrightness();
+        drawScaledText(g, font, "屏幕亮度：" + Math.round(b * 100) + "%",
+                rectX + UiFont.sh(12), y + UiFont.sh(6), TEXT_COLOR, UiFont.sc(1.0f));
+        // 横向滑块轨道
+        int trackLeft = rectX + UiFont.sh(12);
+        int trackRight = rectX + rectW - UiFont.sh(12);
+        int trackY = y + rowH() - UiFont.sh(8);
+        UiShapes.fillRoundedRect(g, trackLeft, trackY, trackRight - trackLeft, 3, 1, 0xFFAAAAAA);
+        int handleX = trackLeft + (int) (b * (trackRight - trackLeft));
+        UiShapes.fillRoundedRect(g, handleX - 5, trackY - 3, 10, 9, 4, 0xFFDE7E7E);
+    }
+
     /** 按钮高度 = 0.9 倍缩放后默认字体大小 */
     private static int contH(Font font) {
         return Math.max(1, (int) (font.lineHeight * UiFont.sc(0.9f)));
@@ -416,6 +441,11 @@ public class SettingsPage implements IPhonePage {
         HuhuTalkClientSettings.setPhoneSizeRaw(f);
     }
 
+    private void updateBrightnessFromRelX(double relX, int w) {
+        float b = (float) ((relX - 12) / (double) (w - 24));
+        HuhuTalkClientSettings.setScreenBrightnessRaw(b);
+    }
+
     private static boolean hit(double x, double y, int rx, int ry, int rw, int rh) {
         return x >= rx && x <= rx + rw && y >= ry && y <= ry + rh;
     }
@@ -426,6 +456,10 @@ public class SettingsPage implements IPhonePage {
         if (action == GLFW.GLFW_RELEASE) {
             if (sizeDragging) {
                 sizeDragging = false;
+                HuhuTalkClientSettings.save();
+            }
+            if (brightnessDragging) {
+                brightnessDragging = false;
                 HuhuTalkClientSettings.save();
             }
             return true;
@@ -505,6 +539,12 @@ public class SettingsPage implements IPhonePage {
             int idx = indexOfScaleStep(HuhuTalkClientSettings.getUiFontScale());
             int next = (idx + (fontStep == 1 ? 1 : -1) + FONT_SCALE_STEPS.length) % FONT_SCALE_STEPS.length;
             HuhuTalkClientSettings.setUiFontScale(FONT_SCALE_STEPS[next]);
+            return true;
+        }
+        // 显示：屏幕亮度滑块（按下开始拖动）
+        if (hit(relX, ly, rectX, L.dispRow[3], rectW, rowH())) {
+            brightnessDragging = true;
+            updateBrightnessFromRelX(relX, rectW);
             return true;
         }
         return false;

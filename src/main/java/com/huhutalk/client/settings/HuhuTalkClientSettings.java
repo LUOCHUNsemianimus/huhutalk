@@ -46,6 +46,8 @@ public final class HuhuTalkClientSettings {
     private static long maxTypingMs = 2400;
     /** 手机 UI 全局字体倍率（可选 0.5/0.75/1.0/1.5/2.0）。1.0 = 默认，不缩放 */
     private static float uiFontScale = 1.0f;
+    /** 屏幕亮度（0~1，0=不调，1=叠 50% 黑色滤镜，整体变暗） */
+    private static float screenBrightness = 0f;
     /** 女仆手动分组：stableId -> 分组名 */
     private static final Map<String, String> maidGroups = new HashMap<>();
     /** 玩家自定义的分组名列表（持久化；联系人页会把其中的分组（含空组）也展示出来） */
@@ -67,6 +69,7 @@ public final class HuhuTalkClientSettings {
     public static long getCharTypingMs() { return charTypingMs; }
     public static long getMaxTypingMs() { return maxTypingMs; }
     public static float getUiFontScale() { return uiFontScale; }
+    public static float getScreenBrightness() { return screenBrightness; }
 
     /** 读取某女仆手动分组；未手动设置返回 null */
     public static String getMaidGroup(String stableId) {
@@ -219,6 +222,17 @@ public final class HuhuTalkClientSettings {
         save();
     }
 
+    /** 设置屏幕亮度（钳制 0~1）。1 表示叠满 50% 黑色滤镜。 */
+    public static void setScreenBrightness(float b) {
+        screenBrightness = Math.max(0f, Math.min(1f, b));
+        save();
+    }
+
+    /** 拖动亮度滑块过程中的高频更新：只改内存，不落盘（松开时由调用方 save） */
+    public static void setScreenBrightnessRaw(float b) {
+        screenBrightness = Math.max(0f, Math.min(1f, b));
+    }
+
     /** 设置某女仆手动分组；分组名为空则移除手动标记（回到默认按状态分组） */
     public static void setMaidGroup(String stableId, String group) {
         if (group == null || group.isBlank()) {
@@ -259,6 +273,7 @@ public final class HuhuTalkClientSettings {
             if (data.charTypingMs > 0) charTypingMs = data.charTypingMs;
             if (data.maxTypingMs > 0) maxTypingMs = data.maxTypingMs;
             if (data.uiFontScale > 0f) uiFontScale = Math.max(0.5f, Math.min(2.0f, data.uiFontScale));
+            screenBrightness = Math.max(0f, Math.min(1f, data.screenBrightness));
             maidGroups.clear();
             if (data.maidGroups != null) {
                 maidGroups.putAll(data.maidGroups);
@@ -291,6 +306,7 @@ public final class HuhuTalkClientSettings {
             data.charTypingMs = charTypingMs;
             data.maxTypingMs = maxTypingMs;
             data.uiFontScale = uiFontScale;
+            data.screenBrightness = screenBrightness;
             data.maidGroups = maidGroups;
             data.customGroupNames = customGroupNames;
             Path file = settingsFile();
@@ -314,6 +330,7 @@ public final class HuhuTalkClientSettings {
         long charTypingMs;
         long maxTypingMs;
         float uiFontScale;
+        float screenBrightness;
         Map<String, String> maidGroups;
         List<String> customGroupNames;
     }

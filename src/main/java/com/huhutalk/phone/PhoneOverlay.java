@@ -374,6 +374,14 @@ public class PhoneOverlay {
 
         // 底部水印栏（圆角底）
         renderWatermark(graphics, phoneX, phoneY + totalHeight - UiFont.sh(WATERMARK_H), phoneWidth, UiFont.sh(WATERMARK_H));
+
+        // 屏幕亮度滤镜：按设置叠一层黑色圆角蒙版（0~50% 不透明度），整体变暗；不拦截点击
+        float brightness = HuhuTalkClientSettings.getScreenBrightness();
+        if (brightness > 0.001f) {
+            int alpha = Math.round(brightness * 128); // 0~128 → 0~50%
+            fillRoundedRect(graphics, phoneX, phoneY, phoneWidth, totalHeight,
+                    UiFont.sh(STATUSBAR_H), UiFont.sh(WATERMARK_H), (alpha << 24) | 0x000000);
+        }
     }
 
     /** 统一状态栏：时间 / 信号 / 电源 / 关闭（圆角顶；内容 0.75 倍×全局倍率、离开圆角范围） */
@@ -384,9 +392,9 @@ public class PhoneOverlay {
         drawScaledText(graphics, font, Component.literal(gameTimeString()).getVisualOrderText(),
                 baseX + 14, baseY + 3, 0xFFFFFFFF, UiFont.sc(0.75f));
         int rightX = baseX + w;
-        // 关闭 X（离开右圆角）
+        // 关闭 X（透明隐藏：逻辑仍在，点击右上角仍可关闭；颜色 alpha=0）
         drawScaledText(graphics, font, Component.literal("X").getVisualOrderText(),
-                rightX - UiFont.sh(12), baseY + 3, 0xFFFF0000, UiFont.sc(0.75f));
+                rightX - UiFont.sh(12), baseY + 3, 0x00FF0000, UiFont.sc(0.75f));
         // 电池：垂直电池图标（🔋 旋转 90° 仿现实电池，尺寸为原 emoji 的 1.5 倍，位于 X 左侧）
         renderBattery(graphics, rightX - UiFont.sh(28), baseY + UiFont.sh(STATUSBAR_H) / 2);
         // 信号（0.75 倍，离开右圆角，位于电池左侧）
@@ -404,7 +412,7 @@ public class PhoneOverlay {
         g.pose().translate(centerX, centerY, 0);
         g.pose().mulPose(Axis.ZP.rotationDegrees(90)); // 顺时针 90°，使正极朝上
         g.pose().scale(scale, scale, 1f);
-        g.drawString(font, glyph, -gw / 2f, -gh / 2f, 0xFFFFFFFF, false);
+        g.drawString(font, glyph, -gw / 2f, -gh / 2f, 0xFF4CAF50, false); // 电池绿色
         g.pose().popPose();
     }
 
@@ -481,10 +489,13 @@ public class PhoneOverlay {
         int barW = 1;         // 变细
         int spacing = 3;      // 与宽度保持紧凑
         ResourceKey<Level> dim = signalDimension();
+        // 三条底部对齐，整组在状态栏高度内垂直居中（有信号栏的感觉）
+        int maxH = Math.max(Math.max(hs[0], hs[1]), hs[2]);
+        int baseline = baseY + (barAreaH - maxH) / 2;
         for (int i = 0; i < 3; i++) {
             int x = startX + i * spacing;
             int h = hs[i];
-            int y = baseY + barAreaH - h;
+            int y = baseline + (maxH - h);
             graphics.fill(x, y, x + barW, y + h, signalBarColor(dim, i));
         }
     }

@@ -1,5 +1,7 @@
 package com.huhutalk.client;
 
+import com.huhutalk.client.settings.HuhuTalkClientSettings;
+
 import java.util.HashMap;
 import java.util.Map;
 
@@ -7,6 +9,8 @@ import java.util.Map;
  * 未读消息管理器（按世界隔离）。
  * 键为女仆 stableId（死亡/复活不变）。
  * 切换世界时调用 onWorldChanged，数据互不干扰。
+ * <p>
+ * 开启「消息免打扰」后，新增未读会被抑制（桌面红点/通知不再出现）。
  */
 public class NotificationManager {
     private static String currentWorldKey = "default";
@@ -24,12 +28,14 @@ public class NotificationManager {
     }
 
     public static void addUnread(String stableId) {
+        if (HuhuTalkClientSettings.isDndEnabled()) return; // 消息免打扰：不再累计未读
         current().merge(stableId, 1, Integer::sum);
     }
 
     /** 按指定条数累加未读（用于按断句分段计数的女仆回复） */
     public static void addUnread(String stableId, int count) {
         if (count <= 0) return;
+        if (HuhuTalkClientSettings.isDndEnabled()) return; // 消息免打扰：不再累计未读
         current().merge(stableId, count, Integer::sum);
     }
 

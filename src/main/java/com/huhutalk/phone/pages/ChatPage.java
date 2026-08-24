@@ -5,6 +5,7 @@ import com.huhutalk.client.MaidAvatarManager;
 import com.huhutalk.client.MaidStatusCache;
 import com.huhutalk.client.NotificationManager;
 import com.huhutalk.client.PhotoLibrary;
+import com.huhutalk.client.settings.HuhuTalkClientSettings;
 import com.huhutalk.network.C2SMaidChatPacket;
 import com.huhutalk.network.C2SMaidImageChatPacket;
 import com.huhutalk.network.C2SRequestMaidStatusPacket;
@@ -106,10 +107,7 @@ public class ChatPage implements IPhonePage {
     private static final int IMAGE_DRAW_SIZE = 48;
 
     // ==================== 断句逐条显示（任务2） ====================
-    /** 每个字消耗的"打字"时间（毫秒），按字数线性计费 */
-    private static final long CHAR_TYPING_MS = 500;
-    /** 单个短句"打字"时间上限（毫秒），防止超长句拖太久 */
-    private static final long MAX_TYPING_MS = 2400;
+    // 打字耗时由设置里的「每字耗时 / 单句上限」控制（见 typingMillis），不再用硬编码常量。
     /** 待逐条显示的短句队列（整段回复按断句符拆分后填充） */
     private final List<String> splitQueue = new ArrayList<>();
     /** 下一条要显示的短句在 splitQueue 中的下标 */
@@ -370,10 +368,10 @@ public class ChatPage implements IPhonePage {
         }
     }
 
-    /** 按字数计费的单句打字耗时：字数 × {@link #CHAR_TYPING_MS}，封顶 {@link #MAX_TYPING_MS} */
+    /** 按字数计费的单句打字耗时：字数 × 设置里的「每字耗时」，封顶设置里的「单句上限」。 */
     private static long typingMillis(String segment) {
         int len = segment == null ? 0 : segment.length();
-        return Math.min(len * CHAR_TYPING_MS, MAX_TYPING_MS);
+        return Math.min(len * HuhuTalkClientSettings.getCharTypingMs(), HuhuTalkClientSettings.getMaxTypingMs());
     }
 
     private void sendCurrentMessage() {

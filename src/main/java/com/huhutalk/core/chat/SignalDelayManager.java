@@ -18,8 +18,8 @@ import java.util.List;
  * 决定延迟多久，从"女仆思考出结果"到"玩家手机收到"之间形成可感知的时延：
  * <ul>
  *   <li><b>主世界</b>：满格，无延迟（立即发送）。</li>
- *   <li><b>其他维度</b>（除主世界与地狱之外，如末地/其他 mod 维度）：中等，延迟 1 秒。</li>
- *   <li><b>地狱</b>：差，延迟 2 秒。</li>
+ *   <li><b>其他维度</b>（除主世界与地狱之外，如末地/其他 mod 维度）：中等，延迟 0.75 秒。</li>
+ *   <li><b>地狱</b>：差，延迟 1.5 秒。</li>
  * </ul>
  * 通过服务端 tick 队列实现延迟投递，与现有 {@link com.huhutalk.core.move.MaidMoveData#tickMoveQueue}
  * 同一套"队列 + 每 tick 对账"模式。
@@ -27,12 +27,10 @@ import java.util.List;
  * <b>注意</b>：仅作用于 AI 聊天回复（{@link HuhuTalkChatCallback}），系统通知（移动到达等）不走此延迟。
  */
 public final class SignalDelayManager {
-    /** 一秒 = 20 tick */
-    private static final int TICKS_PER_SECOND = 20;
-    /** 中等信号延迟：1 秒 */
-    private static final int MEDIUM_DELAY_TICKS = TICKS_PER_SECOND;
-    /** 差信号延迟：2 秒 */
-    private static final int POOR_DELAY_TICKS = 2 * TICKS_PER_SECOND;
+    /** 中等信号延迟：0.75 秒 */
+    private static final int MEDIUM_DELAY_TICKS = 15;
+    /** 差信号延迟：1.5 秒 */
+    private static final int POOR_DELAY_TICKS = 30;
 
     /** 待投递的延迟消息（玩家在线状态在投递时再校验） */
     private static final List<DelayedSend> QUEUE = new ArrayList<>();
@@ -44,8 +42,8 @@ public final class SignalDelayManager {
      * 根据玩家所在维度返回延迟 tick 数。
      * <ul>
      *   <li>主世界 → 0（满格，立即）。</li>
-     *   <li>地狱 → 2 秒（差信号）。</li>
-     *   <li>其余维度 → 1 秒（中等信号）。</li>
+     *   <li>地狱 → 1.5 秒（差信号）。</li>
+     *   <li>其余维度 → 0.75 秒（中等信号）。</li>
      * </ul>
      */
     public static int delayTicksFor(ServerPlayer player) {

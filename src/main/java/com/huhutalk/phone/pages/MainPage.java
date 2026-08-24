@@ -40,8 +40,8 @@ public class MainPage implements IPhonePage {
     private static final int APP_COLS = 3;
     /** 图标下方名称的灰字颜色 */
     private static final int LABEL_COLOR = 0xFF7A7A7A;
-    /** 桌面中央表情绘制边长（像素） */
-    private static final int STICKER_SIZE = 64;
+    /** 桌面中央表情边长 = 手机内容宽度 × 该比例 */
+    private static final float STICKER_WIDTH_RATIO = 2.0f / 3.0f;
     /** 女仆表情资源命名空间与目录（与聊天页一致） */
     private static final String EMOJI_NAMESPACE = "touhou_little_maid";
     private static final String EMOJI_DIR = "textures/chat_bubble/maid_emoji";
@@ -65,15 +65,14 @@ public class MainPage implements IPhonePage {
     private String sosMessage = "";
 
     public MainPage() {
-        // HuhuTalk：狐狸 emoji 居中，点击进入 App 内容区（消息页 + 底部导航）。底色用 #de6f8d
-        apps.add(new AppInfo("HuhuTalk", 0xFFDE6F8D, "🦊", true, 1.2f, 0xFFFFFFFF, true, false, null));
+        // HuhuTalk：狐狸 emoji 居中（2.25 倍），点击进入 App 内容区（消息页 + 底部导航）。底色用 #de6f8d
+        apps.add(new AppInfo("HuhuTalk", 0xFFDE6F8D, "🦊", true, 2.25f, 0xFFFFFFFF, true, false, null));
         // 狐狐打人 / 狐狐打车：中心保留两字文案
         apps.add(new AppInfo("狐狐打人", 0xFF8000, "打人", false, 1.0f, 0xFFFFFFFF, false, false, null));
         apps.add(new AppInfo("狐狐打车", 0xFFFF00, "打车", false, 1.0f, 0xFFFFFFFF, false, false, null));
-        // 狐狐三十分：暂隐藏（逻辑保留，待联动模组完成后开放）
-        apps.add(new AppInfo("狐狐三十分", 0x6495ED, "30分", false, 1.0f, 0xFFFFFFFF, false, true, null));
-        // SOS：紧急呼叫
+        // 第二行：[SOS, 狐狐三十分(隐藏), 设置]。SOS 左置、隐藏的 30 分居中、设置靠右
         apps.add(new AppInfo("SOS", 0xFF0000, "SOS", false, 1.0f, 0xFFFFFFFF, true, false, null));
+        apps.add(new AppInfo("狐狐三十分", 0x6495ED, "30分", false, 1.0f, 0xFFFFFFFF, false, true, null));
         // 设置：齿轮 emoji，2 倍字号、灰色，打开手机内置手册
         apps.add(new AppInfo("设置", 0xFFEEEEEE, "⚙", true, 2.0f, 0xFF757575, true, false, ManualPage::new));
     }
@@ -185,7 +184,7 @@ public class MainPage implements IPhonePage {
             chooseSticker();
         }
         if (stickerTex != null) {
-            int s = STICKER_SIZE;
+            int s = (int) (w * STICKER_WIDTH_RATIO);
             int sx = baseX + (w - s) / 2;
             int sy = baseY + (h - s) / 2;
             graphics.blit(stickerTex, sx, sy, s, s, 0.0f, 0.0f, stickerW, stickerH, stickerW, stickerH);
