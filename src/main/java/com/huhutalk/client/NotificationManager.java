@@ -1,6 +1,7 @@
 package com.huhutalk.client;
 
 import com.huhutalk.client.settings.HuhuTalkClientSettings;
+import com.huhutalk.init.HuhuTalkSounds;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -30,6 +31,8 @@ public class NotificationManager {
     public static void addUnread(String stableId) {
         if (HuhuTalkClientSettings.isDndEnabled()) return; // 消息免打扰：不再累计未读
         current().merge(stableId, 1, Integer::sum);
+        // 界面外通知音（受 DND 影响，带 1.5s 限频）：产生未读红点时播放
+        HuhuTalkSounds.playMsgReceiveOuter();
     }
 
     /** 按指定条数累加未读（用于按断句分段计数的女仆回复） */
@@ -37,6 +40,8 @@ public class NotificationManager {
         if (count <= 0) return;
         if (HuhuTalkClientSettings.isDndEnabled()) return; // 消息免打扰：不再累计未读
         current().merge(stableId, count, Integer::sum);
+        // 界面外通知音（受 DND 影响，带 1.5s 限频）：产生未读红点时播放
+        HuhuTalkSounds.playMsgReceiveOuter();
     }
 
     public static int getUnread(String stableId) {

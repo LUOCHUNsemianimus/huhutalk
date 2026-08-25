@@ -12,6 +12,7 @@ import com.huhutalk.core.move.MaidMoveData;
 import com.huhutalk.init.HuhuTalkBlocks;
 import com.huhutalk.init.HuhuTalkCreativeTabs;
 import com.huhutalk.init.HuhuTalkItems;
+import com.huhutalk.init.HuhuTalkSounds;
 import com.huhutalk.network.C2SMaidChatPacket;
 import com.huhutalk.network.C2SMaidImageChatPacket;
 import com.huhutalk.network.C2SDeleteContactPacket;
@@ -45,6 +46,7 @@ public class HuhuTalk {
         HuhuTalkItems.ITEMS.register(modEventBus);
         HuhuTalkBlocks.BLOCKS.register(modEventBus);
         HuhuTalkCreativeTabs.TABS.register(modEventBus);
+        HuhuTalkSounds.SOUND_EVENTS.register(modEventBus);
 
         // ========== 新增在这里 ==========
         // 注册游戏总线事件处理器（服务端、客户端通用）

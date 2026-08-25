@@ -1,0 +1,26 @@
+{
+  "voice_hold": {
+    "subtitle": "huhutalk.subtitle.voice_hold",
+    "sounds": [
+      "huhutalk:voice_hold"
+    ]
+  },
+  "send_fail": {
+    "subtitle": "huhutalk.subtitle.send_fail",
+    "sounds": [
+      "huhutalk:send_fail"
+    ]
+  },
+  "msg_receive_ui": {
+    "subtitle": "huhutalk.subtitle.msg_receive_ui",
+    "sounds": [
+      "huhutalk:msg_receive_ui"
+    ]
+  },
+  "msg_receive_outer": {
+    "subtitle": "huhutalk.subtitle.msg_receive_outer",
+    "sounds": [
+      "huhutalk:msg_receive_outer"
+    ]
+  }
+}

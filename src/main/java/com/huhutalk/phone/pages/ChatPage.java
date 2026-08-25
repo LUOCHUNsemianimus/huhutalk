@@ -6,6 +6,7 @@ import com.huhutalk.client.MaidStatusCache;
 import com.huhutalk.client.NotificationManager;
 import com.huhutalk.client.PhotoLibrary;
 import com.huhutalk.client.settings.HuhuTalkClientSettings;
+import com.huhutalk.init.HuhuTalkSounds;
 import com.huhutalk.network.C2SMaidChatPacket;
 import com.huhutalk.network.C2SMaidImageChatPacket;
 import com.huhutalk.network.C2SRequestMaidStatusPacket;
@@ -244,6 +245,8 @@ public class ChatPage implements IPhonePage {
     public void startVoice(VoiceSource source) {
         if (voiceActive) return;
         if (VoiceInput.isRecording()) return;
+        // 按键音：点击说话键 / 按住快捷语音输入键的即时反馈（不受 DND 影响）
+        HuhuTalkSounds.playVoiceHold();
         boolean ok = VoiceInput.start(this::sendText);
         if (ok) {
             voiceActive = true;
@@ -303,6 +306,8 @@ public class ChatPage implements IPhonePage {
         String pendingEmoteLocal = (emote == null || emote.isEmpty()) ? null : emote;
         // 错误/提示消息：整段显示，不拆句
         if (isError) {
+            // 发送失败音（受 DND 影响）：任何错误消息（发送失败、AI 错误、识图失败等）落屏时播放
+            HuhuTalkSounds.playSendFail();
             messages.add(new ChatMessage(text, false, true, false, currentGameTime(), null, null));
             this.pendingReplyEmote = null;
             this.waitingResponse = false;
@@ -316,6 +321,8 @@ public class ChatPage implements IPhonePage {
         List<String> segments = MessageSplitter.split(text);
         if (segments.size() <= 1 && pendingEmoteLocal == null) {
             // 无逗号可拆且无附件 → 整段显示
+            // 界面内接收音：未断句整段显示时响 1 次（受 DND 影响）
+            HuhuTalkSounds.playMsgReceiveUi();
             messages.add(new ChatMessage(text, false, false, false, groupTime, null, null));
             this.pendingReplyEmote = null;
             this.waitingResponse = false;
@@ -352,6 +359,8 @@ public class ChatPage implements IPhonePage {
                 break;
             }
             messages.add(new ChatMessage(splitQueue.get(splitIndex), false, false, false, splitGameTime, null, null));
+            // 界面内接收音：随断句逐条出现响一次（受 DND 影响）
+            HuhuTalkSounds.playMsgReceiveUi();
             splitIndex++;
             lastSplitTime = now;
         }
