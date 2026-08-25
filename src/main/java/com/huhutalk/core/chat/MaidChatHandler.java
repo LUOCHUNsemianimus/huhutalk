@@ -57,6 +57,8 @@ public class MaidChatHandler {
 
         Runnable chatAction = () -> {
             List<LLMMessage> messages = buildMessages(manager, message);
+            // 消息来源上下文：告知女仆这是手机消息 + 当前与主人的距离（SYSTEM，不写历史）
+            prependSourceContext(messages, player, maid);
             // 正常聊天允许消费待注入系统消息（如果有积压，一并带上）
             String stableIdIn = stableId;
             EntityMaid maidIn = maid;
@@ -175,7 +177,7 @@ public class MaidChatHandler {
                     LOGGER.info("[HuhuTalk] 识图成功 stableId={}, descLen={}", stableIdIn, desc == null ? 0 : desc.length());
                     // 回到服务端线程再做 LLM 调用（TLM 强制主线程）
                     playerIn.getServer().submit(() -> {
-                        List<LLMMessage> messages = buildImageMessages(manager, desc, userTextIn);
+                        List<LLMMessage> messages = buildImageMessages(manager, playerIn, desc, userTextIn);
                         HuhuTalkChatCallback callback = new HuhuTalkChatCallback(manager, messages, playerIn, stableIdIn);
                         site.client().chat(callback);
                     });
@@ -183,7 +185,7 @@ public class MaidChatHandler {
     }
 
     /** 构建带图片描述系统消息 + 用户文字的 LLM 消息列表。 */
-    private static List<LLMMessage> buildImageMessages(MaidAIChatManager manager, String desc, String userText) {
+    private static List<LLMMessage> buildImageMessages(MaidAIChatManager manager, ServerPlayer player, String desc, String userText) {
         EntityMaid maid = manager.getMaid();
         List<LLMMessage> messages = new ArrayList<>();
         manager.getSetting().ifPresent(setting -> {
@@ -192,6 +194,9 @@ public class MaidChatHandler {
         });
         manager.getHistorySummaryManager().appendSummaryMessage(messages);
         manager.getHistory().getDeque().descendingIterator().forEachRemaining(messages::add);
+        // 消息来源上下文：告知女仆这是手机消息 + 当前与主人的距离（SYSTEM，不写历史）。
+        // 放在图片描述之前，让图片描述紧贴用户文字，避免来源上下文遮挡图片信息。
+        addSourceContext(messages, player, maid);
         // 图片描述作为本次调用的临时系统消息（不写历史、不显示在聊天）。
         // 措辞要强：明确告诉女仆她收到了图片、能看到、必须根据图片回应，避免她沿用旧的"看不到"判断。
         messages.add(LLMMessage.systemChat(maid,
@@ -252,6 +257,32 @@ public class MaidChatHandler {
         manager.getHistory().getDeque().descendingIterator().forEachRemaining(messages::add);
         messages.add(LLMMessage.userChat(maid, userMessage));
         return messages;
+    }
+
+    /**
+     * 把消息来源上下文（手机 + 距离）作为 SYSTEM 消息插到消息列表最后一个元素之前
+     * （即用户消息之前），避免排到用户消息后面。上下文为空时跳过。
+     * <p>用于纯文本聊天（buildMessages 末尾即为用户消息）。
+     */
+    private static void prependSourceContext(List<LLMMessage> messages, ServerPlayer player, EntityMaid maid) {
+        String ctx = MessageSourceContext.describe(player, maid);
+        if (ctx == null || ctx.isBlank()) {
+            return;
+        }
+        messages.add(messages.size() - 1, LLMMessage.systemChat(maid, ctx));
+    }
+
+    /**
+     * 把消息来源上下文（手机 + 距离）作为 SYSTEM 消息追加到列表末尾。
+     * 上下文为空时跳过。
+     * <p>用于图片聊天（调用时图片描述与用户消息尚未追加，追加后紧随其后的便是图片描述）。
+     */
+    private static void addSourceContext(List<LLMMessage> messages, ServerPlayer player, EntityMaid maid) {
+        String ctx = MessageSourceContext.describe(player, maid);
+        if (ctx == null || ctx.isBlank()) {
+            return;
+        }
+        messages.add(LLMMessage.systemChat(maid, ctx));
     }
 
     private static EntityMaid findMaidByStableId(MinecraftServer server, String stableId) {
