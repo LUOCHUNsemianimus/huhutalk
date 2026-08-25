@@ -149,10 +149,8 @@ public class MaidChatHandler {
                     new S2CMaidChatErrorPacket(stableId, "图片数据缺失，请重试"));
             return;
         }
-        // 用户若带了文字，先记入历史（图片描述本身不写历史）
-        if (userText != null && !userText.isBlank()) {
-            manager.addUserHistory(userText);
-        }
+        // 用户文字不在此提前写历史：本次调用由 buildImageMessages 末尾的 userChat 承载一次，
+        // 识图成功后再写入历史，避免本条文字在消息列表里出现两次（历史+末尾各一条）。
         final String stableIdIn = stableId;
         final String userTextIn = userText == null ? "" : userText;
         final EntityMaid maidIn = maid;
@@ -177,9 +175,14 @@ public class MaidChatHandler {
                     LOGGER.info("[HuhuTalk] 识图成功 stableId={}, descLen={}", stableIdIn, desc == null ? 0 : desc.length());
                     // 回到服务端线程再做 LLM 调用（TLM 强制主线程）
                     playerIn.getServer().submit(() -> {
+                        // 先构建消息（此时历史尚未写入本条文字，末尾 userChat 即本条唯一一次），
+                        // 发起调用后再把用户文字写入历史，供后续对话记住本条；图片描述本身不写历史。
                         List<LLMMessage> messages = buildImageMessages(manager, playerIn, desc, userTextIn);
                         HuhuTalkChatCallback callback = new HuhuTalkChatCallback(manager, messages, playerIn, stableIdIn);
                         site.client().chat(callback);
+                        if (userTextIn != null && !userTextIn.isBlank()) {
+                            manager.addUserHistory(userTextIn);
+                        }
                     });
                 });
     }
@@ -198,13 +201,15 @@ public class MaidChatHandler {
         // 放在图片描述之前，让图片描述紧贴用户文字，避免来源上下文遮挡图片信息。
         addSourceContext(messages, player, maid);
         // 图片描述作为本次调用的临时系统消息（不写历史、不显示在聊天）。
-        // 措辞要强：明确告诉女仆她收到了图片、能看到、必须根据图片回应，避免她沿用旧的"看不到"判断。
+        // 措辞要强：明确告诉女仆这是「最新一张」图片、必须以此为准，忽略历史里看过/聊过的其他任何图片。
         messages.add(LLMMessage.systemChat(maid,
-                "主人刚刚给你发来了一张图片，这张图片就是主人要你看的东西（不是让你猜手里有什么）。"
-                        + "你现在能清楚地看到这张图片，画面内容如下：\n"
+                "这是主人最新发给你的一张新图片，也是当前唯一需要你关注的图片（不是让你猜手里有什么）。"
+                        + "请忽略你之前看过的、或对话里提到过的任何其他图片或角色——它们已经作废，一律以这张为准。"
+                        + "你现在能清楚地看到这张最新图片，画面内容如下：\n"
                         + desc
-                        + "\n请直接根据图片内容回应主人：先说你看到了什么，再对图中的场景、物品或动作给出自然、符合你性格的反应。"
-                        + "不要说自己看不到图片、看不清、或手里空空之类的话。"));
+                        + "\n请严格依据上面这张最新图片的内容回应主人：先准确说出你在图片里看到了什么，"
+                        + "再对图中的场景、物品或动作给出自然、符合你性格的反应。"
+                        + "不要联想或沿用之前讨论过的内容，也不要说自己看不到图片、看不清、或手里空空之类的话。"));
         if (userText != null && !userText.isBlank()) {
             messages.add(LLMMessage.userChat(maid, userText));
         } else {
