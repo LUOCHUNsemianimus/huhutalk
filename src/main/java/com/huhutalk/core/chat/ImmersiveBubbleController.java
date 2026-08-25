@@ -26,8 +26,8 @@ import java.util.UUID;
 public final class ImmersiveBubbleController {
     private static final Logger LOGGER = LoggerFactory.getLogger("huhutalk.immersive_bubble");
 
-    /** 气泡抑制持续时间（tick）：默认 15 秒。覆盖思考中 + 回复气泡存在周期，足够手机逐条回复播完 */
-    private static final int SUPPRESS_DURATION_TICKS = 15 * 20;
+    /** 气泡抑制持续时间（tick）：默认 25 秒。覆盖思考中 + 回复气泡完整生命周期，并容忍玩家连续多条对话 */
+    private static final int SUPPRESS_DURATION_TICKS = 25 * 20;
 
     /** 女仆 UUID -> 应恢复的 tick 与气泡原值 */
     private static final Map<UUID, RestoreEntry> PENDING = new HashMap<>();

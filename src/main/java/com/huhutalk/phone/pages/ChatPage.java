@@ -280,6 +280,8 @@ public class ChatPage implements IPhonePage {
     /** 把一段文字作为"玩家发送"的消息加入聊天并发送给当前女仆（语音转文字结果走这里） */
     private void sendText(String text) {
         if (text == null || text.isBlank()) return;
+        // 保险：若上一条回复还在逐条读条，先一口气列完，再发本条
+        flushPendingSplitting();
         messages.add(new ChatMessage(text, true, false, false, currentGameTime(), null, null));
         ChatHistoryStorage.appendMessage(stableId, text, true, false);
         ChatHistoryStorage.setDraft(stableId, "");
@@ -383,9 +385,36 @@ public class ChatPage implements IPhonePage {
         return Math.min(len * HuhuTalkClientSettings.getCharTypingMs(), HuhuTalkClientSettings.getMaxTypingMs());
     }
 
+    /**
+     * 立即结束当前"断句逐条显示"状态，把尚未排完的剩余短句与待显示表情一口气全部列出。
+     * 用于玩家在回复仍逐条播放时抢先发送下一条：先落定本条，再进入下一条的推理。
+     */
+    private void flushPendingSplitting() {
+        if (!splitting && pendingReplyEmote == null) {
+            return;
+        }
+        // 剩余未显示短句全部追加（共享同一分组时间）
+        while (splitIndex < splitQueue.size()) {
+            messages.add(new ChatMessage(splitQueue.get(splitIndex), false, false, false, splitGameTime, null, null));
+            splitIndex++;
+        }
+        // 待显示表情作为该组尾部一次性列出
+        if (pendingReplyEmote != null) {
+            messages.add(new ChatMessage("", false, false, false, splitGameTime, pendingReplyEmote, null));
+            pendingReplyEmote = null;
+        }
+        // 复位断句状态，解除"对方正在输入…"
+        splitting = false;
+        waitingResponse = false;
+        splitQueue.clear();
+        splitIndex = 0;
+    }
+
     private void sendCurrentMessage() {
         if (currentInput.isBlank()) return;
         String text = currentInput;
+        // 保险：若上一条回复还在逐条读条，先一口气列完，再发本条
+        flushPendingSplitting();
         messages.add(new ChatMessage(text, true, false, false, currentGameTime(), null, null));
         ChatHistoryStorage.appendMessage(stableId, text, true, false);
         ChatHistoryStorage.setDraft(stableId, "");
