@@ -471,6 +471,8 @@ public class ChatPage implements IPhonePage {
         if (extPanelIcon == 0) return (int)(phoneH() * 0.26);
         // 表情面板（左二 🦊）：更高，好放三列可滚动表情网格
         if (extPanelIcon == 1) return (int)(phoneH() * 0.45);
+        // 图片面板（🖼️）：高度 = 缩放后的图片边长 + 上下留白，保证图片完整可见
+        if (extPanelIcon == 2) return galleryItemSize() + UiFont.sh(12);
         return (int)(phoneH() * 0.18);
     }
     /** 面板顶：直接位于拓展功能栏上方；打开时把输入框往上顶，而不是从输入框上方伸出 */
@@ -1026,6 +1028,18 @@ public class ChatPage implements IPhonePage {
         cameraShot = null;
     }
 
+    /**
+     * 右键返回（全局右键回调）：相机模式下先退出拍照界面回到聊天页，不弹页。
+     * 返回 true 表示已消费，上层（PhoneOverlay）不应再 popPage。
+     */
+    public boolean onBackPressed() {
+        if (cameraActive) {
+            exitCameraMode();
+            return true;
+        }
+        return false;
+    }
+
     /** 相机取景框底（内容相对坐标，上方为取景区域，下方 44px 为控件条） */
     private int cameraViewBottom() {
         return phoneH() - UiFont.sh(44);
@@ -1177,9 +1191,14 @@ public class ChatPage implements IPhonePage {
         return out;
     }
 
+    /** 图片边长：随全局字体倍率缩放（GALLERY_ITEM 为基准；与面板高度联动，保证图片完整可见） */
+    private int galleryItemSize() {
+        return UiFont.sh(GALLERY_ITEM);
+    }
+
     /** 图片栏内容总宽（用于滚动钳制） */
     private int galleryContentWidth() {
-        return Math.max(0, galleryDisplayItems().size() * (GALLERY_ITEM + UiFont.sh(8)) - UiFont.sh(8) + UiFont.sh(24));
+        return Math.max(0, galleryDisplayItems().size() * (galleryItemSize() + UiFont.sh(8)) - UiFont.sh(8) + UiFont.sh(24));
     }
 
     /** 图片栏可滚动范围 */
@@ -1202,7 +1221,7 @@ public class ChatPage implements IPhonePage {
         int viewH = Math.max(0, pBottom - pTop);
         galleryScrollOffset = clampGalleryScroll(galleryScrollOffset);
         int itemY = pTop + UiFont.sh(6);
-        int itemSize = GALLERY_ITEM;
+        int itemSize = galleryItemSize();
         int gap = UiFont.sh(8);
         int startX = baseX + UiFont.sh(12) - galleryScrollOffset;
 
@@ -1214,6 +1233,7 @@ public class ChatPage implements IPhonePage {
             g.disableScissor();
             return;
         }
+        int indSize = Math.max(1, itemSize / 4); // 选中标边长 = 图片高度的 1/4
         for (int i = 0; i < items.size(); i++) {
             String key = items.get(i);
             int x = startX + i * (itemSize + gap);
@@ -1234,17 +1254,32 @@ public class ChatPage implements IPhonePage {
                 g.fill(x + UiFont.sh(2), itemY + UiFont.sh(2), x + itemSize - UiFont.sh(2),
                         itemY + itemSize - UiFont.sh(2), 0xFFB0BEC5);
             }
-            // 右上角选中圆标：灰(25%) / 粉 #de7e7e
-            int dotR = UiFont.sh(7);
-            int dotX = x + itemSize - dotR * 2 - UiFont.sh(2);
-            int dotY = itemY + UiFont.sh(2);
-            UiShapes.fillRoundedRect(g, dotX, dotY, dotR * 2, dotR * 2, dotR,
-                    selected ? 0xFFDE7E7E : 0x40000000);
+            // 右上角选中小方块：边长 = 图片高度的 1/4，未选灰(25%) / 选中粉 #de7e7e
+            int indX = x + itemSize - indSize - UiFont.sh(2);
+            int indY = itemY + UiFont.sh(2);
+            g.fill(indX, indY, indX + indSize, indY + indSize, selected ? 0xFFDE7E7E : 0x40000000);
+            // 左下角删除小红叉（仅已持久化的图库照片；临时 __camshot__ 不显示）：红底 + 白 X
+            if (!key.startsWith("__camshot__")) {
+                int delX = x + UiFont.sh(2);
+                int delY = itemY + itemSize - indSize - UiFont.sh(2);
+                g.fill(delX, delY, delX + indSize, delY + indSize, 0xFFE53935);
+                drawX(g, delX + Math.max(1, indSize / 5), delY + Math.max(1, indSize / 5),
+                        indSize - Math.max(2, indSize / 5) * 2, 0xFFFFFFFF);
+            }
         }
         g.disableScissor();
     }
 
-    /** 是否点击到图片栏某张图的选中圆标 */
+    /** 在一小方块区域（x,y,size）内画白色 X 线（用于删除叉） */
+    private static void drawX(GuiGraphics g, int x, int y, int size, int color) {
+        if (size <= 0) return;
+        for (int i = 0; i < size; i++) {
+            g.fill(x + i, y + i, x + i + 1, y + i + 1, color);
+            g.fill(x + size - i - 1, y + i, x + size - i, y + i + 1, color);
+        }
+    }
+
+    /** 是否点击到图片栏某张图的右上角选中小方块 */
     private boolean hitGalleryDot(double relX, double relY) {
         List<String> items = galleryDisplayItems();
         if (items.isEmpty()) {
@@ -1254,21 +1289,60 @@ public class ChatPage implements IPhonePage {
         if (relY < pTop || relY >= pBottom) {
             return false;
         }
-        int itemSize = GALLERY_ITEM;
+        int itemSize = galleryItemSize();
         int gap = UiFont.sh(8);
         int startX = UiFont.sh(12) - galleryScrollOffset;
-        int dotR = UiFont.sh(7);
+        int indSize = Math.max(1, itemSize / 4);
         for (int i = 0; i < items.size(); i++) {
             String key = items.get(i);
             int x = startX + i * (itemSize + gap);
-            int dotX = x + itemSize - dotR * 2 - UiFont.sh(2);
-            int dotY = pTop + UiFont.sh(6) + UiFont.sh(2);
-            if (relX >= dotX && relX <= dotX + dotR * 2 && relY >= dotY && relY <= dotY + dotR * 2) {
+            int indX = x + itemSize - indSize - UiFont.sh(2);
+            int indY = pTop + UiFont.sh(6) + UiFont.sh(2);
+            if (relX >= indX && relX <= indX + indSize && relY >= indY && relY <= indY + indSize) {
                 toggleGallerySelect(key);
                 return true;
             }
         }
         return false;
+    }
+
+    /** 是否点击到某张图库照片的左下角删除叉；命中则删除持久化图片 */
+    private boolean hitGalleryDelete(double relX, double relY) {
+        List<String> items = galleryDisplayItems();
+        if (items.isEmpty()) {
+            return false;
+        }
+        int pTop = panelTop(0), pBottom = extBarTop(0);
+        if (relY < pTop || relY >= pBottom) {
+            return false;
+        }
+        int itemSize = galleryItemSize();
+        int gap = UiFont.sh(8);
+        int startX = UiFont.sh(12) - galleryScrollOffset;
+        int delSize = Math.max(1, itemSize / 4);
+        for (int i = 0; i < items.size(); i++) {
+            String key = items.get(i);
+            if (key.startsWith("__camshot__")) {
+                continue; // 临时照无删除
+            }
+            int x = startX + i * (itemSize + gap);
+            int delX = x + UiFont.sh(2);
+            int delY = pTop + UiFont.sh(6) + itemSize - delSize - UiFont.sh(2);
+            if (relX >= delX && relX <= delX + delSize && relY >= delY && relY <= delY + delSize) {
+                deleteGalleryImage(key);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 删除一张已持久化的图库照片；若删的是当前选中图则一并清空选中 */
+    private void deleteGalleryImage(String key) {
+        PhotoLibrary.deleteGallery(key);
+        if (selectedImageKey != null && selectedImageKey.equals(key)) {
+            selectedImageKey = null;
+            selectedImageBytes = null;
+        }
     }
 
     /** 命中图片主体的 key（点图片本身也算选中，便于新手）；未命中返回 null */
@@ -1278,7 +1352,7 @@ public class ChatPage implements IPhonePage {
             return null;
         }
         int pTop = panelTop(0);
-        int itemSize = GALLERY_ITEM;
+        int itemSize = galleryItemSize();
         int gap = UiFont.sh(8);
         int startX = UiFont.sh(12) - galleryScrollOffset;
         int itemY = pTop + UiFont.sh(6);
@@ -1704,10 +1778,13 @@ public class ChatPage implements IPhonePage {
             }
         }
 
-        // 图片面板（🖼️）：仅在面板区域内处理选中/拖动；面板外的点击（如底栏）放行，避免吞掉其它按钮
+        // 图片面板（🖼️）：仅在面板区域内处理删除/选中/拖动；面板外的点击（如底栏）放行，避免吞掉其它按钮
         if (bottomPanelOpen && extPanelIcon == 2) {
             int gTop = panelTop(0), gBottom = extBarTop(0);
             if (relY >= gTop && relY < gBottom) {
+                if (hitGalleryDelete(relX, relY)) {
+                    return true;
+                }
                 if (hitGalleryDot(relX, relY)) {
                     return true;
                 }

@@ -883,11 +883,15 @@ public class PhoneOverlay {
                 }
             }
 
-            // 右键：录音中优先取消（丢弃本次语音）；否则按 App 内部页/顶层页/桌面处理返回
+            // 右键：录音中优先取消（丢弃本次语音）；相机模式下先退出拍照界面回聊天；
+            // 否则按 App 内部页/顶层页/桌面处理返回
             if (button == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
                 IPhonePage curPage = getCurrentPage();
                 if (curPage instanceof ChatPage cp && cp.isVoiceRecording()) {
                     cp.cancelVoice();
+                    return true;
+                }
+                if (curPage instanceof ChatPage cp && cp.onBackPressed()) {
                     return true;
                 }
                 if (isInSubPage()) {
