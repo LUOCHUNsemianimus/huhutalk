@@ -26,24 +26,32 @@ public record S2CMaidListPacket(List<MaidDisplayInfo> maids) implements CustomPa
         return TYPE;
     }
 
-    /** 显示用条目，全部使用 stableId 作为唯一键；modelId 为 TLM 女仆模型 id（离线/未知时为空串） */
+    /** 显示用条目，全部使用 stableId 作为唯一键；modelId 为 TLM 女仆模型 id（离线/未知时为空串）；
+     *  favorabilityLevel 为好感度等级（0~3，离线/未知为 0） */
     public record MaidDisplayInfo(String stableId, String name, MaidStatus status,
-                                  int deathCount, String dimension, String modelId) {
+                                  int deathCount, String dimension, String modelId, int favorabilityLevel) {
         public static final StreamCodec<RegistryFriendlyByteBuf, MaidDisplayInfo> STREAM_CODEC =
-                StreamCodec.composite(
-                        ByteBufCodecs.STRING_UTF8,
-                        MaidDisplayInfo::stableId,
-                        ByteBufCodecs.STRING_UTF8,
-                        MaidDisplayInfo::name,
-                        ByteBufCodecs.STRING_UTF8.map(MaidStatus::valueOf, MaidStatus::name),
-                        MaidDisplayInfo::status,
-                        ByteBufCodecs.INT,
-                        MaidDisplayInfo::deathCount,
-                        ByteBufCodecs.STRING_UTF8,
-                        MaidDisplayInfo::dimension,
-                        ByteBufCodecs.STRING_UTF8,
-                        MaidDisplayInfo::modelId,
-                        MaidDisplayInfo::new
-                );
+                StreamCodec.of(MaidDisplayInfo::write, MaidDisplayInfo::read);
+
+        private static void write(RegistryFriendlyByteBuf buf, MaidDisplayInfo m) {
+            buf.writeUtf(m.stableId);
+            buf.writeUtf(m.name);
+            buf.writeUtf(m.status.name());
+            buf.writeInt(m.deathCount);
+            buf.writeUtf(m.dimension);
+            buf.writeUtf(m.modelId);
+            buf.writeInt(m.favorabilityLevel);
+        }
+
+        private static MaidDisplayInfo read(RegistryFriendlyByteBuf buf) {
+            String stableId = buf.readUtf();
+            String name = buf.readUtf();
+            MaidStatus status = MaidStatus.valueOf(buf.readUtf());
+            int deathCount = buf.readInt();
+            String dimension = buf.readUtf();
+            String modelId = buf.readUtf();
+            int favorabilityLevel = buf.readInt();
+            return new MaidDisplayInfo(stableId, name, status, deathCount, dimension, modelId, favorabilityLevel);
+        }
     }
 }

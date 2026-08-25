@@ -62,6 +62,11 @@ public class ContactListPage implements IPhonePage {
     private static final float NAME_SCALE = 1.2f;
     /** 条目状态字号 */
     private static final float STATUS_SCALE = 0.7f;
+    /** 好感度等级：心形背景尺寸与数字字号（0.75 倍默认字体，随字体倍率缩放） */
+    private static final float FAV_SCALE = 0.75f;
+    /** 好感度心形贴图（32x32 ARGB） */
+    private static final ResourceLocation HEART_TEX =
+            ResourceLocation.fromNamespaceAndPath("huhutalk", "textures/heart.png");
 
     /** 头像边长 = 名称(1.2x) + 状态(0.7x) 文字高度之和（随倍率缩放） */
     private static int avatarSize() {
@@ -224,13 +229,28 @@ public class ContactListPage implements IPhonePage {
         int centerY = y + itemH() / 2;
         int nameY = centerY - (nameH + statusH) / 2;
         int statusY = nameY + nameH + 1;
+
+        // 右侧好感度等级（右对齐，与头像一左一右；heart.png 作背景，内填 0.75 倍字体数字）
+        int favSize = (int) (lineH * UiFont.sc(FAV_SCALE));
+        int favX = baseX + w - UiFont.sh(10) - favSize;
+        int favY = centerY - favSize / 2;
+        g.blit(HEART_TEX, favX, favY, favSize, favSize, 0.0f, 0.0f, 32, 32, 32, 32);
+        String favText = String.valueOf(info.favorabilityLevel());
+        float favScale = UiFont.sc(FAV_SCALE);
+        float favTextW = font.width(favText) * favScale;
+        drawScaledText(g, font, favText,
+                favX + (favSize - favTextW) / 2f, favY + (favSize - lineH * favScale) / 2f + 1,
+                0xFFFFFFFF, favScale);
+        // 名称/状态截断宽度需预留右侧心形空间
+        int rightReserve = favSize + UiFont.sh(10) + UiFont.sh(6);
+
         drawScaledText(g, font, info.name(), nameX, nameY, TEXT_COLOR, UiFont.sc(NAME_SCALE));
 
         // 下行：在线状态 + 工作状态（STATUS_SCALE），过长截断
         String statusText = statusText(info.status());
         String work = MaidStatusCache.get(info.stableId());
         String line2 = work.isEmpty() ? statusText : statusText + " · " + work;
-        int line2MaxW = Math.max(1, w - (nameX - baseX) - UiFont.sh(14));
+        int line2MaxW = Math.max(1, w - (nameX - baseX) - rightReserve);
         line2 = truncateScaled(font, line2, line2MaxW, UiFont.sc(STATUS_SCALE));
         drawScaledText(g, font, line2, nameX, statusY, TEXT_SUB, UiFont.sc(STATUS_SCALE));
 
