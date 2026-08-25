@@ -7,6 +7,7 @@ import com.huhutalk.client.MaidStatusCache;
 import com.huhutalk.client.NotificationManager;
 import com.huhutalk.client.SosBindCache;
 import com.huhutalk.client.SosTaskCache;
+import com.huhutalk.init.HuhuTalkSounds;
 import com.huhutalk.network.S2CMaidChatErrorPacket;
 import com.huhutalk.network.S2CMaidChatInfoPacket;
 import com.huhutalk.network.S2CMaidChatResponsePacket;
@@ -53,6 +54,11 @@ public class ClientPayloadSetup {
             IPhonePage current = PhoneOverlay.getCurrentPage();
             if (current instanceof ChatPage chatPage && chatPage.getStableId().equals(packet.stableId())) {
                 chatPage.onReceiveMessage(text, false, hasEmote ? emote : null);
+                // 特殊：玩家在该女仆聊天页但已收起手机 → 手机不可见、不产生红点，
+                // 此时补响一声界面外通知音（较响 + 限频），提示"有消息来了"。
+                if (!PhoneOverlay.isVisible()) {
+                    HuhuTalkSounds.playMsgReceiveOuter();
+                }
             } else {
                 // 未读按断句分段数累加，与聊天页逐条气泡显示保持一致；有附件表情再 +1
                 NotificationManager.addUnread(packet.stableId(),
