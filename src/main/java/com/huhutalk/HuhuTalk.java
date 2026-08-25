@@ -6,6 +6,7 @@ import com.huhutalk.core.status.MaidStatusTicker;
 import com.huhutalk.client.keybind.ModKeyBinds;
 import com.huhutalk.command.ModCommands;
 import com.huhutalk.core.event.FilmTransformHandler;
+import com.huhutalk.core.chat.ImmersiveBubbleController;
 import com.huhutalk.core.chat.SignalDelayManager;
 import com.huhutalk.core.load.TicketManager;
 import com.huhutalk.core.move.MaidMoveData;
@@ -30,6 +31,7 @@ import net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
+import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import net.neoforged.neoforge.event.server.ServerStoppingEvent;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
@@ -57,9 +59,13 @@ public class HuhuTalk {
         NeoForge.EVENT_BUS.register(new TicketManager());
         NeoForge.EVENT_BUS.addListener(RegisterCommandsEvent.class, ModCommands::register);
         NeoForge.EVENT_BUS.addListener(ServerStoppingEvent.class, e -> MaidMoveData.restoreOnServerStop());
+        NeoForge.EVENT_BUS.addListener(ServerStoppingEvent.class, e -> ImmersiveBubbleController.restoreAll());
+        NeoForge.EVENT_BUS.addListener(PlayerEvent.PlayerLoggedOutEvent.class, e -> ImmersiveBubbleController.restoreAll());
         NeoForge.EVENT_BUS.addListener(ServerTickEvent.Post.class, e -> MaidMoveData.tickMoveQueue());
         // 信号延迟队列：每 tick 对账，到点投递延迟的 AI 聊天回复
         NeoForge.EVENT_BUS.addListener(ServerTickEvent.Post.class, e -> SignalDelayManager.tick(e.getServer()));
+        // 女仆悄悄话气泡抑制：每 tick 对账，到点恢复被抑制女仆的气泡
+        NeoForge.EVENT_BUS.addListener(ServerTickEvent.Post.class, e -> ImmersiveBubbleController.tick(e.getServer()));
 
         modEventBus.addListener(RegisterKeyMappingsEvent.class, ModKeyBinds::registerKeybinds);
         modEventBus.addListener(this::clientSetup);

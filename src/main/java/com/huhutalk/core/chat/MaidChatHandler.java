@@ -56,6 +56,10 @@ public class MaidChatHandler {
         manager.addUserHistory(message);
 
         Runnable chatAction = () -> {
+            // 女仆悄悄话：沉浸手机聊天时抑制该女仆头顶气泡（全局生效，覆盖整个回复周期）
+            if (immersive) {
+                ImmersiveBubbleController.suppress(maid);
+            }
             List<LLMMessage> messages = buildMessages(manager, message);
             // 消息来源上下文：告知女仆这是手机消息 + 当前与主人的距离（SYSTEM，不写历史）
             prependSourceContext(messages, player, maid);
@@ -175,6 +179,10 @@ public class MaidChatHandler {
                     LOGGER.info("[HuhuTalk] 识图成功 stableId={}, descLen={}", stableIdIn, desc == null ? 0 : desc.length());
                     // 回到服务端线程再做 LLM 调用（TLM 强制主线程）
                     playerIn.getServer().submit(() -> {
+                        // 女仆悄悄话：沉浸手机聊天时抑制该女仆头顶气泡（全局生效，覆盖整个回复周期）
+                        if (immersive) {
+                            ImmersiveBubbleController.suppress(maidIn);
+                        }
                         // 先构建消息（此时历史尚未写入本条文字，末尾 userChat 即本条唯一一次），
                         // 发起调用后再把用户文字写入历史，供后续对话记住本条；图片描述本身不写历史。
                         List<LLMMessage> messages = buildImageMessages(manager, playerIn, desc, userTextIn);

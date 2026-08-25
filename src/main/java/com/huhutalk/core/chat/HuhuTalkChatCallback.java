@@ -42,23 +42,9 @@ public class HuhuTalkChatCallback extends LLMCallback {
 
     @Override
     public void onSuccess(ResponseChat responseChat) {
-        // 「女仆悄悄话」：在主线程先把该女仆气泡临时关闭（entityData），再触发 super.onSuccess。
-        // super.onSuccess 内部通过 server.submit 异步执行 addLLMChatText（发聊天栏文字 + 加气泡），
-        // 该队列条目排在"关闭"之后；随后 finally 再 submit 恢复原值。因此在 addLLMChatText 执行时
-        // isChatBubbleShow()==false → mixin 跳过聊天栏文字、渲染器不画气泡，之后恢复。
-        // 不用 try/finally 包住整个 super，因为 super 内部本身就异步入队，只需保证关闭/恢复的入队顺序。
-        if (immersive && getMaid().level() instanceof ServerLevel serverLevel) {
-            MinecraftServer server = serverLevel.getServer();
-            boolean original = getMaid().getConfigManager().isChatBubbleShow();
-            server.submit(() -> getMaid().getConfigManager().setChatBubbleShow(false));
-            try {
-                super.onSuccess(responseChat);
-            } finally {
-                server.submit(() -> getMaid().getConfigManager().setChatBubbleShow(original));
-            }
-        } else {
-            super.onSuccess(responseChat);
-        }
+        // 气泡抑制已由 ImmersiveBubbleController 在聊天发起时处理（覆盖整个回复周期 + 全局生效），
+        // 这里无需再临时关气泡。
+        super.onSuccess(responseChat);
 
         String replyText = responseChat.getChatText();
         if (sender != null && sender.isAlive() && !replyText.isBlank()) {
