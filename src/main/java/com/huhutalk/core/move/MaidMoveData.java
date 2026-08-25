@@ -455,6 +455,10 @@ public final class MaidMoveData {
             case BACK, MEET -> {
                 // 跟随主人
                 maid.setHomeModeEnable(false);
+                // 关键修复：恢复"非守家"范围，否则残留/清零的守家范围会让 MaidFollowOwnerTask
+                // 用 getRestrictRadius()-2 作为触发距离——残留大半径→已到跟前也不跟随；
+                // 归零→minTeleportDistance=2 导致近距离频繁随机传送而闪烁。恢复默认值则正常。
+                restoreFollowRestriction(maid);
                 restoreTask(maid, prevTaskUid);
             }
             case HOME -> {
@@ -469,13 +473,27 @@ public final class MaidMoveData {
             }
             case WAIT_IDLE -> {
                 maid.setHomeModeEnable(false);
+                restoreFollowRestriction(maid);
                 maid.setTask(TaskManager.getIdleTask());
             }
             default -> {
                 // NONE：关闭 home，保持当前任务
                 maid.setHomeModeEnable(false);
+                restoreFollowRestriction(maid);
             }
         }
+    }
+
+    /**
+     * 恢复"非守家（跟随）"的守家范围。
+     * <p>把中心设为零点、半径设为 {@link MaidConfig#MAID_NON_HOME_RANGE}（默认 8），
+     * 与 TLM 原版关闭守家时的做法一致（见 {@code SwitchFollowStateTool} / {@code MaidConfigPackage}）。
+     * <p>这保证 {@code MaidFollowOwnerTask} 的触发距离 {@code getRestrictRadius()-2 = 6}、
+     * {@code minTeleportDistance = 10}：女仆只在真正拉远（&gt;10 格）时随机传送，
+     * 近距离正常走过去，不会因半径过小（如 0）而在 2 格边界频繁随机传送而闪烁。
+     */
+    private static void restoreFollowRestriction(EntityMaid maid) {
+        maid.restrictTo(BlockPos.ZERO, MaidConfig.MAID_NON_HOME_RANGE.get());
     }
 
     /** 按任务 uid 切换工作模式（找不到则回空闲） */
