@@ -3,7 +3,6 @@ package com.huhutalk;
 import com.huhutalk.core.status.MaidDeathHandler;
 import com.huhutalk.core.status.MaidScanTicker;
 import com.huhutalk.core.status.MaidStatusTicker;
-import com.huhutalk.client.keybind.ModKeyBinds;
 import com.huhutalk.command.ModCommands;
 import com.huhutalk.core.event.FilmTransformHandler;
 import com.huhutalk.core.chat.ImmersiveBubbleController;
@@ -26,9 +25,6 @@ import com.huhutalk.network.C2SSyncWaypointsPacket;
 import com.huhutalk.network.C2SToggleSosBindPacket;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.common.Mod;
-import net.neoforged.fml.event.lifecycle.FMLClientSetupEvent;
-import net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent;
-import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
@@ -67,16 +63,7 @@ public class HuhuTalk {
         // 女仆悄悄话气泡抑制：每 tick 对账，到点恢复被抑制女仆的气泡
         NeoForge.EVENT_BUS.addListener(ServerTickEvent.Post.class, e -> ImmersiveBubbleController.tick(e.getServer()));
 
-        modEventBus.addListener(RegisterKeyMappingsEvent.class, ModKeyBinds::registerKeybinds);
-        modEventBus.addListener(this::clientSetup);
         modEventBus.addListener(RegisterPayloadHandlersEvent.class, this::setupPackets);
-    }
-
-    private void clientSetup(FMLClientSetupEvent event) {
-        event.enqueueWork(() -> {
-            IEventBus gameBus = NeoForge.EVENT_BUS;
-            gameBus.addListener(ClientTickEvent.Post.class, e -> ModKeyBinds.handleKeyInput());
-        });
     }
 
     private void setupPackets(RegisterPayloadHandlersEvent event) {

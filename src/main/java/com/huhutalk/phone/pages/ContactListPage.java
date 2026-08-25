@@ -62,11 +62,13 @@ public class ContactListPage implements IPhonePage {
     private static final float NAME_SCALE = 1.2f;
     /** 条目状态字号 */
     private static final float STATUS_SCALE = 0.7f;
-    /** 好感度等级：心形背景尺寸与数字字号（0.75 倍默认字体，随字体倍率缩放） */
+    /** 好感度等级：心形背景尺寸（略大于数字，能包住）+ 数字字号（0.75 倍默认字体） */
     private static final float FAV_SCALE = 0.75f;
-    /** 好感度心形贴图（32x32 ARGB） */
+    /** 好感度心形贴图（64x64 ARGB，像素画，为清晰放大 2 倍） */
     private static final ResourceLocation HEART_TEX =
             ResourceLocation.fromNamespaceAndPath("huhutalk", "textures/heart.png");
+    /** 心形贴图原始尺寸 */
+    private static final int HEART_TEX_SIZE = 64;
 
     /** 头像边长 = 名称(1.2x) + 状态(0.7x) 文字高度之和（随倍率缩放） */
     private static int avatarSize() {
@@ -231,10 +233,12 @@ public class ContactListPage implements IPhonePage {
         int statusY = nameY + nameH + 1;
 
         // 右侧好感度等级（右对齐，与头像一左一右；heart.png 作背景，内填 0.75 倍字体数字）
-        int favSize = (int) (lineH * UiFont.sc(FAV_SCALE));
+        // 心形背景用 1.0 倍字体大小，确保包住 0.75 倍的数字
+        int favSize = (int) (lineH * UiFont.sc(1.0f));
         int favX = baseX + w - UiFont.sh(10) - favSize;
         int favY = centerY - favSize / 2;
-        g.blit(HEART_TEX, favX, favY, favSize, favSize, 0.0f, 0.0f, 32, 32, 32, 32);
+        g.blit(HEART_TEX, favX, favY, favSize, favSize,
+                0.0f, 0.0f, HEART_TEX_SIZE, HEART_TEX_SIZE, HEART_TEX_SIZE, HEART_TEX_SIZE);
         String favText = String.valueOf(info.favorabilityLevel());
         float favScale = UiFont.sc(FAV_SCALE);
         float favTextW = font.width(favText) * favScale;

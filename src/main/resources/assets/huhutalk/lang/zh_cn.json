@@ -4,5 +4,9 @@
   "item.huhutalk.phone_smart": "智能手机（Pro）",
   "block.huhutalk.wifi_block": "WiFi 方块",
   "item.huhutalk.phone.tooltip.watch": "青春版：仅当女仆位于 WiFi 方块覆盖范围内时才能联系。",
-  "item.huhutalk.phone.tooltip.smart": "Pro 版：女仆可放置在任何位置，始终可达。"
+  "item.huhutalk.phone.tooltip.smart": "Pro 版：女仆可放置在任何位置，始终可达。",
+  "key.category.huhutalk": "狐狐Talk（HuhuTalk）",
+  "key.huhutalk.toggle_phone": "打开/关闭手机",
+  "key.huhutalk.release_cursor": "按住释放鼠标（操控手机）",
+  "key.huhutalk.quick_voice": "按住说话（语音输入）"
 }

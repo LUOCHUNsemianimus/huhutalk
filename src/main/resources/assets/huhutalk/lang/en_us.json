@@ -4,5 +4,9 @@
   "item.huhutalk.phone_smart": "Smartphone (Pro)",
   "block.huhutalk.wifi_block": "WiFi Block",
   "item.huhutalk.phone.tooltip.watch": "Youth phone: can only be reached within a WiFi Block's coverage.",
-  "item.huhutalk.phone.tooltip.smart": "Pro phone: always reachable wherever the maid is placed."
+  "item.huhutalk.phone.tooltip.smart": "Pro phone: always reachable wherever the maid is placed.",
+  "key.category.huhutalk": "HuhuTalk",
+  "key.huhutalk.toggle_phone": "Open/Close Phone",
+  "key.huhutalk.release_cursor": "Hold to release mouse (control phone)",
+  "key.huhutalk.quick_voice": "Hold to talk (voice input)"
 }

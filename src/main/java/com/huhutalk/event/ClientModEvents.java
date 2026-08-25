@@ -3,7 +3,6 @@ package com.huhutalk.event;
 import com.huhutalk.phone.PhoneOverlay;
 import com.huhutalk.phone.IPhonePage;
 import com.huhutalk.phone.pages.ChatPage;
-import com.mojang.blaze3d.platform.InputConstants;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.resources.ResourceLocation;
@@ -18,16 +17,20 @@ import org.lwjgl.glfw.GLFW;
 @EventBusSubscriber(value = Dist.CLIENT)
 public class ClientModEvents {
     public static final KeyMapping TOGGLE_PHONE = new KeyMapping(
-            "key.phone.toggle", GLFW.GLFW_KEY_O, "key.category.phone");
+            "key.huhutalk.toggle_phone", GLFW.GLFW_KEY_O, "key.category.huhutalk");
+    /** 按住释放鼠标（进入狐狐手机鼠标操控模式）。默认为 Alt，可在按键设置中更改 */
+    public static final KeyMapping RELEASE_CURSOR = new KeyMapping(
+            "key.huhutalk.release_cursor", GLFW.GLFW_KEY_LEFT_ALT, "key.category.huhutalk");
     public static final KeyMapping QUICK_VOICE = new KeyMapping(
-            "key.phone.voice", GLFW.GLFW_KEY_F, "key.category.phone");
+            "key.huhutalk.quick_voice", GLFW.GLFW_KEY_H, "key.category.huhutalk");
 
-    /** 正在按住 F 说话的聊天页（用于松手时停止录音） */
+    /** 正在按住 H 说话的聊天页（用于松手时停止录音） */
     private static ChatPage quickVoicePage = null;
 
     @SubscribeEvent
     public static void registerKeys(RegisterKeyMappingsEvent event) {
         event.register(TOGGLE_PHONE);
+        event.register(RELEASE_CURSOR);
         event.register(QUICK_VOICE);
     }
 
@@ -41,18 +44,16 @@ public class ClientModEvents {
         }
         handleQuickVoice(mc);
 
-        long window = mc.getWindow().getWindow();
-        boolean altDown = InputConstants.isKeyDown(window, GLFW.GLFW_KEY_LEFT_ALT) ||
-                InputConstants.isKeyDown(window, GLFW.GLFW_KEY_RIGHT_ALT);
-        PhoneOverlay.setAltDown(altDown);
+        // 按住释放鼠标：通过可改键 RELEASE_CURSOR 检测按住状态（默认 Alt，可在按键设置更改）
+        PhoneOverlay.setAltDown(RELEASE_CURSOR.isDown());
     }
 
     /**
-     * F 键"按住说话"：仅当手机可见且当前页为聊天页时生效。
-     * 按住 F → 开始录音；松开 F → 停止并发送。是否打开扩展面板均可用。
+     * 按住说话键（默认 H）"按住说话"：仅当手机可见且当前页为聊天页时生效。
+     * 按住 → 开始录音；松开 → 停止并发送。是否打开扩展面板均可用。
      */
     private static void handleQuickVoice(Minecraft mc) {
-        boolean down = InputConstants.isKeyDown(mc.getWindow().getWindow(), QUICK_VOICE.getKey().getValue());
+        boolean down = QUICK_VOICE.isDown();
         if (down && quickVoicePage == null) {
             if (PhoneOverlay.isVisible()) {
                 IPhonePage cur = PhoneOverlay.getCurrentPage();
