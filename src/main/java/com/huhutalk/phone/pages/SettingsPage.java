@@ -90,7 +90,7 @@ public class SettingsPage implements IPhonePage {
         int navH;
         int sosY, sosH;
         int msgTitleY, msgRectY, msgRectH;
-        int[] msgRow = new int[1];
+        int[] msgRow = new int[2]; // 消息免打扰 / 女仆悄悄话
         int animTitleY, animRectY, animRectH;
         int[] animRow = new int[4]; // 消息动画 / 每字耗时 / 单句上限 / 切屏动画(全局总开关)
         int colorTitleY, colorRectY, colorRectH;
@@ -113,14 +113,16 @@ public class SettingsPage implements IPhonePage {
         L.sosH = sosH();
         y += L.sosH + groupTitleTop();
 
-        // 消息 分组（1 行）：标题在上，卡片在标题下方留出间距
+        // 消息 分组（2 行）：标题在上，卡片在标题下方留出间距
         L.msgTitleY = y;
         y += titleH + cardGap();
-        L.msgRow[0] = y;
-        y += rowH();
+        for (int i = 0; i < 2; i++) {
+            L.msgRow[i] = y;
+            y += rowH();
+        }
         L.msgRectY = L.msgRow[0] - rectPad();
-        L.msgRectH = (L.msgRow[0] + rowH()) - L.msgRectY + rectPad();
-        y = L.msgRow[0] + rowH() + rectPad();
+        L.msgRectH = (L.msgRow[1] + rowH()) - L.msgRectY + rectPad();
+        y = L.msgRow[1] + rowH() + rectPad();
         y += groupTitleTop();
 
         // 动画 分组（4 行）
@@ -219,6 +221,10 @@ public class SettingsPage implements IPhonePage {
         // 消息免打扰
         int rowY = ly(L, baseY, L.msgRow[0]);
         drawToggleRow(g, font, rectX, rectW, rowY, "消息免打扰", HuhuTalkClientSettings.isDndEnabled());
+        drawDivider(g, rectX, rectW, rowY + rowH());
+        // 女仆悄悄话：手机聊天时女仆回复不出现在聊天栏/头顶气泡
+        int rowY1 = ly(L, baseY, L.msgRow[1]);
+        drawToggleRow(g, font, rectX, rectW, rowY1, "女仆悄悄话", HuhuTalkClientSettings.isMaidWhisperEnabled());
     }
 
     private void renderAnimGroup(GuiGraphics g, Font font, Layout L, int baseX, int baseY) {
@@ -484,6 +490,11 @@ public class SettingsPage implements IPhonePage {
         // 消息：免打扰
         if (hit(relX, ly, rectX, L.msgRow[0], rectW, rowH())) {
             HuhuTalkClientSettings.setDndEnabled(!HuhuTalkClientSettings.isDndEnabled());
+            return true;
+        }
+        // 消息：女仆悄悄话
+        if (hit(relX, ly, rectX, L.msgRow[1], rectW, rowH())) {
+            HuhuTalkClientSettings.setMaidWhisperEnabled(!HuhuTalkClientSettings.isMaidWhisperEnabled());
             return true;
         }
 

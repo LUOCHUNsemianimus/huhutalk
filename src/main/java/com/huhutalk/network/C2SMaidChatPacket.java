@@ -9,7 +9,7 @@ import net.minecraft.resources.ResourceLocation;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 import org.jetbrains.annotations.NotNull;
 
-public record C2SMaidChatPacket(String stableId, String message) implements CustomPacketPayload {
+public record C2SMaidChatPacket(String stableId, String message, boolean immersive) implements CustomPacketPayload {
     public static final CustomPacketPayload.Type<C2SMaidChatPacket> TYPE =
             new Type<>(ResourceLocation.fromNamespaceAndPath("huhutalk", "maid_chat"));
 
@@ -19,6 +19,8 @@ public record C2SMaidChatPacket(String stableId, String message) implements Cust
                     C2SMaidChatPacket::stableId,
                     ByteBufCodecs.STRING_UTF8,
                     C2SMaidChatPacket::message,
+                    ByteBufCodecs.BOOL,
+                    C2SMaidChatPacket::immersive,
                     C2SMaidChatPacket::new
             );
 
@@ -28,7 +30,7 @@ public record C2SMaidChatPacket(String stableId, String message) implements Cust
     public static void handle(C2SMaidChatPacket packet, IPayloadContext context) {
         context.enqueueWork(() -> {
             if (context.player() instanceof net.minecraft.server.level.ServerPlayer serverPlayer) {
-                MaidChatHandler.handleChat(serverPlayer, packet.stableId(), packet.message());
+                MaidChatHandler.handleChat(serverPlayer, packet.stableId(), packet.message(), packet.immersive());
             }
         });
     }

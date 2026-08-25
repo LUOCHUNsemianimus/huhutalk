@@ -27,7 +27,7 @@ import java.util.List;
 public class MaidChatHandler {
     private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger("huhutalk.maid_chat");
 
-    public static void handleChat(ServerPlayer player, String stableId, String message) {
+    public static void handleChat(ServerPlayer player, String stableId, String message, boolean immersive) {
         EntityMaid maid = findMaidByStableId(player.getServer(), stableId);
         if (maid == null) {
             handleOfflineMessage(player, stableId, message);
@@ -68,7 +68,7 @@ public class MaidChatHandler {
                     messages.add(0, LLMMessage.systemChat(maidIn, String.join("\n", pending)));
                 }
             }
-            HuhuTalkChatCallback callback = new HuhuTalkChatCallback(manager, messages, player, stableIdIn);
+            HuhuTalkChatCallback callback = new HuhuTalkChatCallback(manager, messages, player, stableIdIn, immersive);
             site.client().chat(callback);
         };
 
@@ -113,7 +113,7 @@ public class MaidChatHandler {
      * 流程：读图 → {@link VisionService} 识图得到描述 → 把描述作为<b>本次调用的临时系统消息</b>
      * （不写历史、不显示），连同用户文字一起发给聊天 LLM，让女仆对图片做出反应。
      */
-    public static void handleImageChat(ServerPlayer player, String stableId, String userText, String imageToken) {
+    public static void handleImageChat(ServerPlayer player, String stableId, String userText, String imageToken, boolean immersive) {
         EntityMaid maid = findMaidByStableId(player.getServer(), stableId);
         if (maid == null) {
             LOGGER.error("[HuhuTalk] 图片聊天失败：找不到女仆 stableId={}", stableId);
@@ -178,7 +178,7 @@ public class MaidChatHandler {
                         // 先构建消息（此时历史尚未写入本条文字，末尾 userChat 即本条唯一一次），
                         // 发起调用后再把用户文字写入历史，供后续对话记住本条；图片描述本身不写历史。
                         List<LLMMessage> messages = buildImageMessages(manager, playerIn, desc, userTextIn);
-                        HuhuTalkChatCallback callback = new HuhuTalkChatCallback(manager, messages, playerIn, stableIdIn);
+                        HuhuTalkChatCallback callback = new HuhuTalkChatCallback(manager, messages, playerIn, stableIdIn, immersive);
                         site.client().chat(callback);
                         if (userTextIn != null && !userTextIn.isBlank()) {
                             manager.addUserHistory(userTextIn);

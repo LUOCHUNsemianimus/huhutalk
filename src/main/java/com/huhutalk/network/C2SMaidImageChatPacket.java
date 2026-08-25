@@ -16,7 +16,7 @@ import org.jetbrains.annotations.NotNull;
  * {@code gameDir/huhutalk/vision_tmp/<imageToken>.png}，这里只传一个短 token；
  * 服务端据此读图 → 识图 → 把描述注入聊天，再连同文字让女仆回复。
  */
-public record C2SMaidImageChatPacket(String stableId, String userText, String imageToken) implements CustomPacketPayload {
+public record C2SMaidImageChatPacket(String stableId, String userText, String imageToken, boolean immersive) implements CustomPacketPayload {
     public static final CustomPacketPayload.Type<C2SMaidImageChatPacket> TYPE =
             new CustomPacketPayload.Type<>(ResourceLocation.fromNamespaceAndPath("huhutalk", "maid_image_chat"));
 
@@ -28,6 +28,8 @@ public record C2SMaidImageChatPacket(String stableId, String userText, String im
                     C2SMaidImageChatPacket::userText,
                     ByteBufCodecs.STRING_UTF8,
                     C2SMaidImageChatPacket::imageToken,
+                    ByteBufCodecs.BOOL,
+                    C2SMaidImageChatPacket::immersive,
                     C2SMaidImageChatPacket::new
             );
 
@@ -37,7 +39,7 @@ public record C2SMaidImageChatPacket(String stableId, String userText, String im
     public static void handle(C2SMaidImageChatPacket packet, IPayloadContext context) {
         context.enqueueWork(() -> {
             if (context.player() instanceof net.minecraft.server.level.ServerPlayer serverPlayer) {
-                MaidChatHandler.handleImageChat(serverPlayer, packet.stableId(), packet.userText(), packet.imageToken());
+                MaidChatHandler.handleImageChat(serverPlayer, packet.stableId(), packet.userText(), packet.imageToken(), packet.immersive());
             }
         });
     }
