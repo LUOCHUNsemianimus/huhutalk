@@ -18,9 +18,6 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.neoforged.neoforge.network.PacketDistributor;
 
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -131,11 +128,11 @@ public class MaidChatHandler {
     /**
      * 处理带一张图片的聊天（C2SMaidImageChatPacket）。
      * <p>
-     * 图片由客户端写入共享的 {@code vision_tmp} 目录，这里只凭 {@code imageToken} 读取。
-     * 流程：读图 → {@link VisionService} 识图得到描述 → 把描述作为<b>本次调用的临时系统消息</b>
+     * 图片字节已由客户端降采样后<b>内联进包</b>传输（不再依赖共享 {@code vision_tmp} 目录）。
+     * 流程：{@link VisionService#describe} 识图得到描述 → 把描述作为<b>本次调用的临时系统消息</b>
      * （不写历史、不显示），连同用户文字一起发给聊天 LLM，让女仆对图片做出反应。
      */
-    public static void handleImageChat(ServerPlayer player, String stableId, String userText, String imageToken,
+    public static void handleImageChat(ServerPlayer player, String stableId, String userText, byte[] imageData,
                                        boolean bubbleMute, boolean chatBannerMute) {
         EntityMaid maid = findMaidByStableId(player.getServer(), stableId);
         if (maid == null) {
@@ -163,15 +160,19 @@ public class MaidChatHandler {
             return;
         }
 
-        String safeToken = sanitizeToken(imageToken);
-        Path imgPath = VisionService.visionTmpDir().resolve(safeToken);
-        boolean exists = Files.exists(imgPath);
-        LOGGER.info("[HuhuTalk] 收到图片聊天: stableId={}, token={}, imgPath={}, exists={}", stableId, safeToken, imgPath, exists);
-        if (!exists) {
+        // 图片字节已在客户端降采样并内联进包：这里只做空值/长度防御，不再依赖共享临时目录
+        if (imageData == null || imageData.length == 0) {
             PacketDistributor.sendToPlayer(player,
-                    new S2CMaidChatErrorPacket(stableId, "图片数据缺失，请重试"));
+                    new S2CMaidChatErrorPacket(stableId, "图片数据为空，请重试"));
             return;
         }
+        if (imageData.length > C2SMaidImageChatPacket.MAX_IMAGE_BYTES) {
+            PacketDistributor.sendToPlayer(player,
+                    new S2CMaidChatErrorPacket(stableId, "图片过大，请换小一点的图"));
+            return;
+        }
+        LOGGER.info("[HuhuTalk] 收到图片聊天: stableId={}, imgBytes={}", stableId, imageData.length);
+
         // 用户文字不在此提前写历史：本次调用由 buildImageMessages 末尾的 userChat 承载一次，
         // 识图成功后再写入历史，避免本条文字在消息列表里出现两次（历史+末尾各一条）。
         final String stableIdIn = stableId;
@@ -179,13 +180,8 @@ public class MaidChatHandler {
         final EntityMaid maidIn = maid;
         final ServerPlayer playerIn = player;
 
-        VisionService.describeFile(imgPath, "这是主人刚发给你的一张我的世界图片。请仔细观察画面，尽量具体地描述其中发生了什么、有哪些东西。但是不要猜测其中人物的身份，仅描述外貌、特征")
+        VisionService.describe(imageData, "这是主人刚发给你的一张我的世界图片。请仔细观察画面，尽量具体地描述其中发生了什么、有哪些东西。但是不要猜测其中人物的身份，仅描述外貌、特征")
                 .whenComplete((desc, throwable) -> {
-                    // 用完即删临时图
-                    try {
-                        Files.deleteIfExists(imgPath);
-                    } catch (IOException ignored) {
-                    }
                     if (throwable != null) {
                         LOGGER.error("[HuhuTalk] 识图失败 stableId={}", stableIdIn, throwable);
                         PacketDistributor.sendToPlayer(playerIn,
@@ -247,18 +243,6 @@ public class MaidChatHandler {
             messages.add(LLMMessage.userChat(maid, "我发了一张图片给你，你看一下并回应我。"));
         }
         return messages;
-    }
-
-    /** 把 token 规整为安全的文件名（防止路径穿越）。 */
-    private static String sanitizeToken(String token) {
-        if (token == null) {
-            return "";
-        }
-        String clean = token.replaceAll("[^a-zA-Z0-9_.\\-]", "_");
-        while (clean.startsWith(".")) {
-            clean = clean.substring(1);
-        }
-        return clean;
     }
 
     private static void handleOfflineMessage(ServerPlayer player, String stableId, String message) {

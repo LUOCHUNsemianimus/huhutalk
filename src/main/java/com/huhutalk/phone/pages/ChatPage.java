@@ -1458,10 +1458,11 @@ public class ChatPage implements IPhonePage {
         // 图片写历史（含 image 引用），重进页面可恢复图片气泡
         ChatHistoryStorage.appendMessage(stableId, "", null, chatKey, true, false);
 
-        // 用原图写 vision_tmp 识图（暂不做压缩，保证识图正确性）
-        String token = PhotoLibrary.writeVisionTmp(img);
-        if (token == null) {
-            LOGGER.error("[HuhuTalk] 发送图片失败：vision_tmp 写入失败，退化为纯文字");
+        // 降采样后把图片字节内联进包传输（不再依赖共享 vision_tmp 目录，专用服务器也能用）；
+        // 超过包帧长上限则退化为纯文字
+        byte[] toSend = PhotoLibrary.downscalePng(img, 512);
+        if (toSend == null || toSend.length == 0 || toSend.length > C2SMaidImageChatPacket.MAX_IMAGE_BYTES) {
+            LOGGER.error("[HuhuTalk] 发送图片失败：图片过大或处理失败，退化为纯文字");
             PacketDistributor.sendToServer(new C2SMaidChatPacket(stableId, text == null ? "" : text,
                     HuhuTalkClientSettings.isMaidWhisperEnabled(), HuhuTalkClientSettings.isImmersiveChatEnabled()));
             this.waitingResponse = true;
@@ -1469,10 +1470,10 @@ public class ChatPage implements IPhonePage {
             ChatHistoryStorage.setDraft(stableId, "");
             return;
         }
-        LOGGER.info("[HuhuTalk] 发送图片聊天: stableId={}, token={}, text='{}', imgBytes={}",
-                stableId, token, text, img.length);
+        LOGGER.info("[HuhuTalk] 发送图片聊天: stableId={}, text='{}', imgBytes={}",
+                stableId, text, toSend.length);
         PacketDistributor.sendToServer(new C2SMaidImageChatPacket(stableId,
-                text == null ? "" : text, token,
+                text == null ? "" : text, toSend,
                 HuhuTalkClientSettings.isMaidWhisperEnabled(), HuhuTalkClientSettings.isImmersiveChatEnabled()));
         this.waitingResponse = true;
         // 清空输入框与草稿（否则重进页面草稿里还存着已发出去的这份文字）
