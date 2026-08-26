@@ -132,14 +132,15 @@ public class MaidContactEntry {
 
     public CompoundTag toNbt() {
         CompoundTag tag = new CompoundTag();
-        tag.putString("stableId", stableId);
-        tag.putString("name", name);
-        tag.putString("status", status.name());   // 用枚举名称，避免序号变动导致错位
+        // 字符串字段统一 null 安全，防止第三方以 null 入簿后在存档保存时 putString(null) 崩服
+        tag.putString("stableId", str(stableId));
+        tag.putString("name", str(name));
+        tag.putString("status", status == null ? MaidStatus.OFFLINE.name() : status.name());   // 用枚举名称，避免序号变动导致错位
         tag.putInt("deathCount", deathCount);
         tag.putInt("lastSeenDeathCount", lastSeenDeathCount);
-        tag.putString("dimension", dimension);
+        tag.putString("dimension", str(dimension));
         tag.putLong("lastSeenTime", lastSeenTime);
-        tag.putString("ownerUuid", ownerUuid);
+        tag.putString("ownerUuid", str(ownerUuid));
         if (lastChunkPos != null) {
             tag.putInt("lastChunkX", lastChunkPos.x);
             tag.putInt("lastChunkZ", lastChunkPos.z);
@@ -148,6 +149,11 @@ public class MaidContactEntry {
             tag.putString("lastPhoneTier", lastPhoneTier.name());
         }
         return tag;
+    }
+
+    /** null → 空串，防御 NBT 写入 */
+    private static String str(String s) {
+        return s == null ? "" : s;
     }
 
     public static MaidContactEntry fromNbt(CompoundTag tag) {

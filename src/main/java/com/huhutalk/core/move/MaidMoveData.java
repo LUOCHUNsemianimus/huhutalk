@@ -19,6 +19,7 @@ import org.jetbrains.annotations.Nullable;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * 女仆移动指令的统一入口（契约层）。
@@ -134,7 +135,8 @@ public final class MaidMoveData {
 
     // ============ 延迟队列（供 LLM 工具使用，脱离聊天回调上下文） ============
 
-    private static final List<PendingMove> MOVE_QUEUE = new ArrayList<>();
+    // CopyOnWriteArrayList：LLM 工具回调（可能非服务端线程）写入 + 服务端 tick 读取并发安全
+    private static final List<PendingMove> MOVE_QUEUE = new CopyOnWriteArrayList<>();
 
     private record PendingMove(EntityMaid maid, BlockPos pos, ResourceKey<Level> dim,
                                MoveArrival arrival, String taskUid) {
@@ -199,7 +201,11 @@ public final class MaidMoveData {
             maid.setTask(TaskMoveTo.INSTANCE);
         } else if (arrival != MoveArrival.BACK) {
             // 远距离非"过来"：先传送到目标点，再用移动任务（统一到点处理 arrival/目标任务）
-            teleportMaid(maid, targetPos, targetDim);
+            if (!teleportMaid(maid, targetPos, targetDim)) {
+                // 传送失败（目标维度不存在 / 无安全落点）：不写 home、不写目标 NBT、不切任务，
+                // 避免把女仆的"家"持久化到错误/不可达坐标造成永久状态错乱
+                return;
+            }
             relocateHomeToTarget(maid, targetPos);
             setCoordinateTarget(maid, targetPos, arrival, inheritedPrevTask);
             maid.setTask(TaskMoveTo.INSTANCE);
@@ -382,7 +388,10 @@ public final class MaidMoveData {
 
     private static void teleportAndArrive(EntityMaid maid, BlockPos targetPos, ResourceKey<Level> targetDim, MoveArrival arrival) {
         IMaidTask prevTask = maid.getTask();
-        teleportMaid(maid, targetPos, targetDim);
+        // 传送失败（维度不存在/无安全落点）：不做任何收尾状态改动，避免任务被错误切换
+        if (!teleportMaid(maid, targetPos, targetDim)) {
+            return;
+        }
         String arrivalName = arrival == null ? MoveArrival.BACK.name() : arrival.name();
         finishArrival(maid, arrivalName, prevTask == null ? "" : prevTask.getUid().toString(), "");
     }
@@ -432,7 +441,9 @@ public final class MaidMoveData {
     private static BlockPos findSafeLanding(ServerLevel level, BlockPos pos) {
         int x = pos.getX();
         int z = pos.getZ();
-        int top = Math.min(level.getMaxBuildHeight() - 1, pos.getY() + 8);
+        // 用 long 计算并钳制到世界高度范围，防止极端 Y（如 LLM 提供的极大值）在 +8 时 int 溢出为负
+        long clamped = Math.min(level.getMaxBuildHeight() - 1L, (long) pos.getY() + 8);
+        int top = (int) Math.max(clamped, level.getMinBuildHeight());
         for (int scan = top; scan > level.getMinBuildHeight(); scan--) {
             // 脚下是实心方块 → 站立在 (scan) 处
             if (!level.isEmptyBlock(new BlockPos(x, scan - 1, z))) {

@@ -32,7 +32,8 @@ public class ClientCacheEvents {
         SosBindCache.clear();
         SosTaskCache.clear();
         PhoneOverlay.resetForNewWorld();
-        // 同步 JourneyMap 路径点给服务端（可选软依赖，未装时自动跳过）
+        // 重置路径点同步签名 + 同步 JourneyMap 路径点给服务端（可选软依赖，未装时自动跳过）
+        WaypointSync.reset();
         WaypointSync.sendWaypoints();
         // 进世界提示：告诉玩家如何释放鼠标操控狐狐手机
         event.getPlayer().displayClientMessage(

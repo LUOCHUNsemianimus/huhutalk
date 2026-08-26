@@ -99,7 +99,13 @@ public class WifiBlockRegistry extends SavedData {
         if (tag.contains("wifi", Tag.TAG_COMPOUND)) {
             CompoundTag root = tag.getCompound("wifi");
             for (String dim : root.getAllKeys()) {
-                ResourceKey<Level> key = ResourceKey.create(Registries.DIMENSION, ResourceLocation.parse(dim));
+                ResourceKey<Level> key;
+                try {
+                    key = ResourceKey.create(Registries.DIMENSION, ResourceLocation.parse(dim));
+                } catch (Exception e) {
+                    // 损坏/异常维度标识：跳过该条，避免整个注册表加载崩溃
+                    continue;
+                }
                 ListTag list = root.getList(dim, Tag.TAG_COMPOUND);
                 Set<ChunkPos> set = new HashSet<>();
                 for (int i = 0; i < list.size(); i++) {

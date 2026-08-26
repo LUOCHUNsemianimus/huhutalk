@@ -20,6 +20,9 @@ public class MessageManager {
 
     /** 添加一条消息并自动存储 */
     public static void addMessage(UUID maidUuid, ChatMessage message) {
+        if (maidUuid == null || message == null) {
+            return;
+        }
         List<ChatMessage> list = getMessages(maidUuid);
         list.add(message);
         MessageStorage.saveMessages(maidUuid, list);

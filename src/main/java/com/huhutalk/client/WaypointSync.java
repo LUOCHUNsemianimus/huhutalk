@@ -36,6 +36,11 @@ public final class WaypointSync {
     private WaypointSync() {
     }
 
+    /** 进入新世界时重置同步签名，确保切档后必然重新同步（避免复用上一世界的去重签名导致漏发） */
+    public static void reset() {
+        lastSignature = "";
+    }
+
     /** 客户端 tick：周期性重同步（仅当路径点集合变化时发包） */
     public static void tickSync() {
         if (Minecraft.getInstance().player == null) {

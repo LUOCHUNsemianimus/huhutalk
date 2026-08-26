@@ -21,7 +21,7 @@ public class MaidDeathHandler {
                 maid.getName().getString(),
                 serverLevel.dimension().location().toString(),
                 serverLevel.getGameTime(),
-                maid.getOwnerUUID().toString()
+                maid.getOwnerUUID() == null ? "" : maid.getOwnerUUID().toString()
         );
     }
 }

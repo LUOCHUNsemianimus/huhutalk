@@ -146,9 +146,20 @@ public final class VisionService {
         }
     }
 
-    /** 由 PNG 文件发起识图（读取失败则以异常带出）。 */
+    /** 识图最大图片字节数（超过则拒绝，防止读取超大文件 OOM / 主线程长时间阻塞） */
+    private static final long MAX_IMAGE_BYTES = 5L * 1024 * 1024;
+
+    /** 由 PNG 文件发起识图（读取失败/过大/非普通文件则以异常带出）。 */
     public static CompletableFuture<String> describeFile(Path pngPath, String prompt) {
         try {
+            if (!Files.isRegularFile(pngPath, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+                return CompletableFuture.failedFuture(new IllegalStateException("图片文件不存在或不是普通文件"));
+            }
+            long size = Files.size(pngPath);
+            if (size <= 0 || size > MAX_IMAGE_BYTES) {
+                LOGGER.warn("[HuhuTalk] 识图图片过大，拒绝: {} bytes (max {})", size, MAX_IMAGE_BYTES);
+                return CompletableFuture.failedFuture(new IllegalStateException("图片过大"));
+            }
             byte[] bytes = Files.readAllBytes(pngPath);
             return describe(bytes, prompt);
         } catch (IOException e) {
@@ -156,9 +167,21 @@ public final class VisionService {
         }
     }
 
-    /** 识图临时目录：{gameDir}/huhutalk/vision_tmp。
-     * 单机（客户端与集成服务端同 JVM）下客户端写入、服务端读取共享，故统一用 {@code Minecraft.getInstance().gameDirectory}。 */
+    /**
+     * 识图临时目录：{gameDir}/huhutalk/vision_tmp。
+     * 单机（客户端与集成服务端同 JVM）下客户端写入、服务端读取共享。
+     * <p><b>专用服务器兼容</b>：不能引用 {@code net.minecraft.client.*}（dedicated server 无客户端类），
+     * 否则在专用服务器上执行即 {@code NoClassDefFoundError} 崩溃。这里对 dedicated server 用
+     * {@code FMLPaths.GAMEDIR}，其余场景沿用客户端游戏目录。
+     */
     public static Path visionTmpDir() {
+        var server = net.neoforged.neoforge.server.ServerLifecycleHooks.getCurrentServer();
+        if (server instanceof net.minecraft.server.dedicated.DedicatedServer) {
+            // 专用服务器：无客户端类，用游戏目录（识图功能在跨进程单机联机下受限，但不崩溃）
+            return net.neoforged.fml.loading.FMLPaths.GAMEDIR.get()
+                    .resolve("huhutalk").resolve("vision_tmp");
+        }
+        // 单机集成服务端或纯客户端：客户端类存在，沿用客户端游戏目录（与 PhotoLibrary 写入路径一致）
         return net.minecraft.client.Minecraft.getInstance().gameDirectory.toPath()
                 .resolve("huhutalk").resolve("vision_tmp");
     }

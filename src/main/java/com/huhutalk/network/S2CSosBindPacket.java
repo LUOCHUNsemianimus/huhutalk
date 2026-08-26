@@ -20,7 +20,7 @@ public record S2CSosBindPacket(List<SosModeEntry> bindings) implements CustomPac
 
     public static final StreamCodec<RegistryFriendlyByteBuf, S2CSosBindPacket> STREAM_CODEC =
             StreamCodec.composite(
-                    SosModeEntry.STREAM_CODEC.apply(ByteBufCodecs.list()),
+                    SosModeEntry.STREAM_CODEC.apply(ByteBufCodecs.list(512)),
                     S2CSosBindPacket::bindings,
                     S2CSosBindPacket::new
             );

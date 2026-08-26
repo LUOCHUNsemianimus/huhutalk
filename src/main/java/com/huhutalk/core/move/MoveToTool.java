@@ -120,14 +120,18 @@ public class MoveToTool implements ITool<MoveToTool.Result> {
                 return callback.addToolResult("The maid is coming to you.", toolCallId);
             }
             case "coordinate" -> {
-                BlockPos pos = new BlockPos(result.x(), result.y(), result.z());
+                // 钳制 Y 到世界高度范围，防止 LLM 输出的极端 Y（int 溢出/虚空/坠亡）写进女仆移动目标
+                int minY = maid.level().getMinBuildHeight();
+                int maxY = maid.level().getMaxBuildHeight() - 1;
+                int y = Math.max(minY, Math.min(maxY, result.y()));
+                BlockPos pos = new BlockPos(result.x(), y, result.z());
                 if (hasTask(result)) {
                     MaidMoveData.queueMoveTask(maid, pos, maid.level().dimension(), result.task());
                 } else {
                     MaidMoveData.queueMove(maid, pos, maid.level().dimension(), arrival);
                 }
                 return callback.addToolResult(
-                        "The maid is going to %d, %d, %d.".formatted(result.x(), result.y(), result.z()), toolCallId);
+                        "The maid is going to %d, %d, %d.".formatted(result.x(), y, result.z()), toolCallId);
             }
             case "waypoint" -> {
                 return handleWaypoint(maid, result, callback, toolCallId, arrival);
@@ -158,15 +162,25 @@ public class MoveToTool implements ITool<MoveToTool.Result> {
                                     : WaypointCache.getWaypoints(serverPlayer.getUUID()).stream().map(WaypointEntry::name).toList()),
                     toolCallId);
         }
-        ResourceKey<Level> dim = ResourceKey.create(Registries.DIMENSION, ResourceLocation.parse(wp.dimension()));
-        BlockPos wpPos = new BlockPos(wp.x(), wp.y(), wp.z());
+        ResourceKey<Level> dim;
+        try {
+            dim = ResourceKey.create(Registries.DIMENSION, ResourceLocation.parse(wp.dimension()));
+        } catch (Exception e) {
+            return callback.addToolResult("Waypoint '%s' has an invalid dimension: %s"
+                    .formatted(result.waypointName(), wp.dimension()), toolCallId);
+        }
+        // 钳制 Y 到世界高度范围，防止客户端路径点的极端 Y（int 溢出/虚空）写进移动目标
+        int minY = maid.level().getMinBuildHeight();
+        int maxY = maid.level().getMaxBuildHeight() - 1;
+        int y = Math.max(minY, Math.min(maxY, wp.y()));
+        BlockPos wpPos = new BlockPos(wp.x(), y, wp.z());
         if (hasTask(result)) {
             MaidMoveData.queueMoveTask(maid, wpPos, dim, result.task());
         } else {
             MaidMoveData.queueMove(maid, wpPos, dim, arrival);
         }
         return callback.addToolResult(
-                "The maid is going to waypoint '%s' at %d, %d, %d.".formatted(wp.name(), wp.x(), wp.y(), wp.z()),
+                "The maid is going to waypoint '%s' at %d, %d, %d.".formatted(wp.name(), wp.x(), y, wp.z()),
                 toolCallId);
     }
 

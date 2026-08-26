@@ -58,6 +58,10 @@ public class HuhuTalk {
         NeoForge.EVENT_BUS.addListener(ServerStoppingEvent.class, e -> MaidMoveData.restoreOnServerStop());
         NeoForge.EVENT_BUS.addListener(ServerStoppingEvent.class, e -> ImmersiveBubbleController.restoreAll());
         NeoForge.EVENT_BUS.addListener(ServerStoppingEvent.class, e -> ChatBannerMuteController.restoreAll());
+        // 玩家进入世界时清空其路径点缓存，客户端随后会重新同步当前世界的路径点，
+        // 避免上一存档的路径点残留、被 move_to 工具误用（跨存档污染）
+        NeoForge.EVENT_BUS.addListener(PlayerEvent.PlayerLoggedInEvent.class,
+                e -> com.huhutalk.core.waypoint.WaypointCache.clearPlayer(e.getEntity().getUUID()));
         NeoForge.EVENT_BUS.addListener(PlayerEvent.PlayerLoggedOutEvent.class, e -> ImmersiveBubbleController.restoreAll());
         NeoForge.EVENT_BUS.addListener(PlayerEvent.PlayerLoggedOutEvent.class, e -> ChatBannerMuteController.restoreAll());
         NeoForge.EVENT_BUS.addListener(ServerTickEvent.Post.class, e -> MaidMoveData.tickMoveQueue());

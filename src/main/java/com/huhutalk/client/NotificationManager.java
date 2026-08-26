@@ -30,7 +30,7 @@ public class NotificationManager {
 
     public static void addUnread(String stableId) {
         if (HuhuTalkClientSettings.isDndEnabled()) return; // 消息免打扰：不再累计未读
-        current().merge(stableId, 1, Integer::sum);
+        current().merge(stableId, 1, NotificationManager::saturatingAdd);
         // 界面外通知音（受 DND 影响，带 1.5s 限频）：产生未读红点时播放
         HuhuTalkSounds.playMsgReceiveOuter();
     }
@@ -39,9 +39,15 @@ public class NotificationManager {
     public static void addUnread(String stableId, int count) {
         if (count <= 0) return;
         if (HuhuTalkClientSettings.isDndEnabled()) return; // 消息免打扰：不再累计未读
-        current().merge(stableId, count, Integer::sum);
+        current().merge(stableId, count, NotificationManager::saturatingAdd);
         // 界面外通知音（受 DND 影响，带 1.5s 限频）：产生未读红点时播放
         HuhuTalkSounds.playMsgReceiveOuter();
+    }
+
+    /** 防溢出的饱和加法（未读计数不越 int 上限，避免翻转为负数） */
+    private static int saturatingAdd(int a, int b) {
+        long s = (long) a + b;
+        return s > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) s;
     }
 
     public static int getUnread(String stableId) {

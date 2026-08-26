@@ -38,14 +38,19 @@ public record C2SSetSosModePacket(String stableId, String taskUid) implements Cu
             if (!(context.player() instanceof ServerPlayer serverPlayer)) {
                 return;
             }
+            // 校验 taskUid 为合法资源路径且不超长，防止任意垃圾串写入存档
+            String uid = packet.taskUid();
+            if (uid == null || uid.length() > 128 || net.minecraft.resources.ResourceLocation.tryParse(uid) == null) {
+                return;
+            }
             String playerUuid = serverPlayer.getUUID().toString();
             SosBindData data = SosBindData.get(serverPlayer.getServer());
-            boolean ok = data.setTaskUid(playerUuid, packet.stableId(), packet.taskUid());
+            boolean ok = data.setTaskUid(playerUuid, packet.stableId(), uid);
             // 回推最新绑定列表（含工作模式），客户端据此刷新 UI
             context.reply(new S2CSosBindPacket(data.toEntries(playerUuid)));
             if (ok) {
                 serverPlayer.sendSystemMessage(Component.literal(
-                        "[HuhuTalk] 🎯 已把该女仆 SOS 工作模式设为：" + packet.taskUid()));
+                        "[HuhuTalk] 🎯 已把该女仆 SOS 工作模式设为：" + uid));
             }
         });
     }

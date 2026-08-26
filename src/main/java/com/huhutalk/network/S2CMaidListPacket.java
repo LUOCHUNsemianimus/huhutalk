@@ -16,7 +16,7 @@ public record S2CMaidListPacket(List<MaidDisplayInfo> maids) implements CustomPa
 
     public static final StreamCodec<RegistryFriendlyByteBuf, S2CMaidListPacket> STREAM_CODEC =
             StreamCodec.composite(
-                    MaidDisplayInfo.STREAM_CODEC.apply(ByteBufCodecs.list()),
+                    MaidDisplayInfo.STREAM_CODEC.apply(ByteBufCodecs.list(512)),
                     S2CMaidListPacket::maids,
                     S2CMaidListPacket::new
             );
@@ -46,7 +46,13 @@ public record S2CMaidListPacket(List<MaidDisplayInfo> maids) implements CustomPa
         private static MaidDisplayInfo read(RegistryFriendlyByteBuf buf) {
             String stableId = buf.readUtf();
             String name = buf.readUtf();
-            MaidStatus status = MaidStatus.valueOf(buf.readUtf());
+            // 客户端/服务端 mod 版本不一致时枚举名可能对不上：非法值兜底 OFFLINE，避免解码崩溃/踢出
+            MaidStatus status;
+            try {
+                status = MaidStatus.valueOf(buf.readUtf());
+            } catch (IllegalArgumentException e) {
+                status = MaidStatus.OFFLINE;
+            }
             int deathCount = buf.readInt();
             String dimension = buf.readUtf();
             String modelId = buf.readUtf();

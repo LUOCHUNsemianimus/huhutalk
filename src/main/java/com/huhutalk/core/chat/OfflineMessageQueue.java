@@ -23,6 +23,9 @@ import java.util.Map;
 public class OfflineMessageQueue extends SavedData {
     private static final String DATA_NAME = "huhutalk_offline_messages";
 
+    /** 单只女仆积压的离线消息上限，防止无限增长把存档（level.dat）撑爆 */
+    private static final int MAX_PER_MAID = 100;
+
     private final Map<String, List<QueuedMessage>> messages = new HashMap<>();
 
     @NotNull
@@ -33,11 +36,14 @@ public class OfflineMessageQueue extends SavedData {
         );
     }
 
-    /** 入队一条离线消息，按时间顺序追加 */
+    /** 入队一条离线消息，按时间顺序追加。超过单只女仆上限时丢弃最旧消息。 */
     public void enqueue(String stableId, String playerName, String playerUuid,
                         String message, long gameTime) {
-        messages.computeIfAbsent(stableId, k -> new ArrayList<>())
-                .add(new QueuedMessage(playerName, playerUuid, message, gameTime));
+        List<QueuedMessage> list = messages.computeIfAbsent(stableId, k -> new ArrayList<>());
+        list.add(new QueuedMessage(playerName, playerUuid, message, gameTime));
+        while (list.size() > MAX_PER_MAID) {
+            list.remove(0); // 丢弃最旧，防止无界增长
+        }
         setDirty();
     }
 

@@ -145,7 +145,9 @@ public class TicketManager {
         MaidContactBook book = MaidContactBook.get(server);
         ServerLevel level = (ServerLevel) maid.level();
         MaidContactEntry entry = book.getOrCreateEntry(stableId,
-                maid.getName().getString(), maid.getOwnerUUID().toString());
+                maid.getName().getString(),
+                // 无主女仆（/summon、刷怪蛋）getOwnerUUID() 为 null，null 安全处理
+                maid.getOwnerUUID() == null ? "" : maid.getOwnerUUID().toString());
         entry.setDimension(level.dimension().location().toString());
         entry.setLastChunkPos(chunkOf(maid));
         entry.setLastPhoneTier(PhoneHelper.getPhoneTier(maid));

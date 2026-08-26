@@ -55,7 +55,7 @@ public final class PhotoLibrary {
         }
         try {
             Files.createDirectories(chatImageDir());
-            String name = "img_" + System.currentTimeMillis() + ".png";
+            String name = "img_" + System.currentTimeMillis() + "_" + uniqueSuffix() + ".png";
             Files.write(chatImageDir().resolve(name), pngBytes);
             return name;
         } catch (IOException e) {
@@ -80,15 +80,20 @@ public final class PhotoLibrary {
      */
     public static byte[] captureMainTargetPng() {
         NativeImage img = Screenshot.takeScreenshot(Minecraft.getInstance().getMainRenderTarget());
+        Path tmp = null;
         try {
-            Path tmp = Files.createTempFile("huhutalk_cam", ".png");
+            tmp = Files.createTempFile("huhutalk_cam", ".png");
             img.writeToFile(tmp);
-            byte[] bytes = Files.readAllBytes(tmp);
-            Files.deleteIfExists(tmp);
-            return bytes;
+            return Files.readAllBytes(tmp);
         } catch (IOException e) {
             return null;
         } finally {
+            if (tmp != null) {
+                try {
+                    Files.deleteIfExists(tmp);
+                } catch (IOException ignored) {
+                }
+            }
             img.close();
         }
     }
@@ -100,7 +105,7 @@ public final class PhotoLibrary {
         if (pngBytes == null || pngBytes.length == 0) return null;
         try {
             Files.createDirectories(photoDir());
-            String name = "photo_" + System.currentTimeMillis() + ".png";
+            String name = "photo_" + System.currentTimeMillis() + "_" + uniqueSuffix() + ".png";
             Files.write(photoDir().resolve(name), pngBytes);
             return name;
         } catch (IOException e) {
@@ -137,6 +142,7 @@ public final class PhotoLibrary {
 
     /** 注册一张临时（未保存）照片：存字节 + 注册纹理，返回其 id */
     public static String registerCaptured(byte[] pngBytes) {
+        if (pngBytes == null || pngBytes.length == 0) return null;
         String id = UUID.randomUUID().toString();
         CAPTURED.put(id, pngBytes);
         registerTexture(id, pngBytes);
@@ -263,5 +269,10 @@ public final class PhotoLibrary {
 
     private static String sanitize(String s) {
         return s == null ? "" : s.replaceAll("[^a-zA-Z0-9_.\\-]", "_");
+    }
+
+    /** 生成短随机后缀，避免同毫秒写多个文件时互相覆盖 */
+    private static String uniqueSuffix() {
+        return UUID.randomUUID().toString().substring(0, 8);
     }
 }

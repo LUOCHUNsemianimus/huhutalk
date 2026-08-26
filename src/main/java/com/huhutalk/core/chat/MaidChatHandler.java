@@ -27,6 +27,9 @@ import java.util.List;
 public class MaidChatHandler {
     private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger("huhutalk.maid_chat");
 
+    /** 单条聊天消息的最大字符数（业务层，防烧 LLM 额度 / 撑大离线存档） */
+    private static final int MAX_MESSAGE_LEN = 2000;
+
     public static void handleChat(ServerPlayer player, String stableId, String message,
                                   boolean bubbleMute, boolean chatBannerMute) {
         EntityMaid maid = findMaidByStableId(player.getServer(), stableId);
@@ -43,6 +46,16 @@ public class MaidChatHandler {
         if (!PhoneHelper.hasPhone(maid)) {
             PacketDistributor.sendToPlayer(player,
                     new S2CMaidChatInfoPacket(stableId, "该女仆没有佩戴手机，暂时无法联系。", false));
+            return;
+        }
+
+        // 业务层长度上限：codec 上限是 32767 字符，避免异常长消息烧 LLM 额度/撑大离线存档
+        if (message == null || message.isBlank()) {
+            return;
+        }
+        if (message.length() > MAX_MESSAGE_LEN) {
+            PacketDistributor.sendToPlayer(player,
+                    new S2CMaidChatErrorPacket(stableId, "消息过长（上限 " + MAX_MESSAGE_LEN + " 字符）"));
             return;
         }
 

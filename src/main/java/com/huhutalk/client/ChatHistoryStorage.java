@@ -2,6 +2,7 @@ package com.huhutalk.client;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonParseException;
 import com.mojang.logging.LogUtils;
 import net.minecraft.client.Minecraft;
 import org.slf4j.Logger;
@@ -9,6 +10,7 @@ import org.slf4j.Logger;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.*;
 
 /**
@@ -202,9 +204,25 @@ public class ChatHistoryStorage {
         return Minecraft.getInstance().gameDirectory.toPath().resolve("huhutalk").resolve("chat");
     }
 
-    /** 世界 key 转安全文件名（去掉 / : 等非法字符） */
+    /**
+     * 世界 key 转安全文件名。
+     * 对非法字符做<b>可逆编码</b>（`_` + 4 位 hex 码点），保证两个不同 key 永远不映射到同一文件，
+     * 避免仅非法字符不同的世界（如含 `:`/中文的世界名）互相覆盖、跨世界历史丢失。
+     */
     private static String sanitizeKey(String key) {
-        return key.replaceAll("[^a-zA-Z0-9_\\-\\.]", "_");
+        StringBuilder sb = new StringBuilder(key.length() + 8);
+        for (int i = 0; i < key.length(); i++) {
+            char c = key.charAt(i);
+            boolean keep = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')
+                    || (c >= '0' && c <= '9') || c == '.' || c == '-';
+            if (keep) {
+                sb.append(c);
+            } else {
+                // `_` 从不作为字面量出现，因此编码无歧义、可逆
+                sb.append('_').append(String.format("%04x", (int) c));
+            }
+        }
+        return sb.length() == 0 ? "empty" : sb.toString();
     }
 
     private static Path worldFile(String key) {
@@ -239,7 +257,15 @@ public class ChatHistoryStorage {
             }
             Path file = worldFile(key);
             Files.createDirectories(file.getParent());
-            Files.writeString(file, GSON.toJson(data));
+            // 原子写入：先写临时文件再重命名，避免写一半崩溃/断电导致 JSON 损坏（损坏 JSON 下次读取会崩）
+            Path tmp = file.resolveSibling(file.getFileName() + ".tmp");
+            Files.writeString(tmp, GSON.toJson(data));
+            try {
+                Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            } catch (IOException atomicEx) {
+                // 文件系统不支持原子移动时退化为普通覆盖
+                Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING);
+            }
         } catch (IOException e) {
             LOGGER.error("[HuhuTalk] 保存聊天历史失败: {}", key, e);
         }
@@ -266,6 +292,11 @@ public class ChatHistoryStorage {
 
             WORLD_HISTORY.put(key, hist);
             WORLD_DRAFTS.put(key, drafts);
+        } catch (JsonParseException e) {
+            // 损坏/不合法 JSON：不崩溃，回退到空历史（保留旧文件，方便用户排查），避免进档即崩
+            LOGGER.error("[HuhuTalk] 聊天历史 JSON 损坏，已回退到空数据: {}", file, e);
+            WORLD_HISTORY.put(key, new HashMap<>());
+            WORLD_DRAFTS.put(key, new HashMap<>());
         } catch (IOException e) {
             LOGGER.error("[HuhuTalk] 读取聊天历史失败: {}", key, e);
         }

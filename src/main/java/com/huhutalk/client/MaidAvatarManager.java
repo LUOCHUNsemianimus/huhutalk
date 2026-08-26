@@ -256,7 +256,17 @@ public final class MaidAvatarManager {
                 }
             }
             img.close();
-            crop.writeToFile(avatarFile(stableId));
+            // 原子写入：先写临时文件再重命名，避免写一半崩溃/断电导致头像 PNG 损坏后永久加载不出
+            Files.createDirectories(avatarDir());
+            Path file = avatarFile(stableId);
+            Path tmp = file.resolveSibling(file.getFileName() + ".tmp");
+            crop.writeToFile(tmp);
+            try {
+                Files.move(tmp, file, java.nio.file.StandardCopyOption.REPLACE_EXISTING,
+                        java.nio.file.StandardCopyOption.ATOMIC_MOVE);
+            } catch (IOException atomicEx) {
+                Files.move(tmp, file, java.nio.file.StandardCopyOption.REPLACE_EXISTING);
+            }
             crop.close();
             CACHE.remove(stableId);
             ok = true;

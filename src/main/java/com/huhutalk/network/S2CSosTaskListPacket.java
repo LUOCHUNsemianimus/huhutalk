@@ -20,7 +20,7 @@ public record S2CSosTaskListPacket(List<String> taskUids) implements CustomPacke
 
     public static final StreamCodec<RegistryFriendlyByteBuf, S2CSosTaskListPacket> STREAM_CODEC =
             StreamCodec.composite(
-                    ByteBufCodecs.STRING_UTF8.apply(ByteBufCodecs.list()),
+                    ByteBufCodecs.STRING_UTF8.apply(ByteBufCodecs.list(256)),
                     S2CSosTaskListPacket::taskUids,
                     S2CSosTaskListPacket::new
             );

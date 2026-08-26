@@ -41,7 +41,8 @@ public class MaidScanTicker {
 
                     String name = maid.getName().getString();
                     String dimension = level.dimension().location().toString();
-                    String ownerUuid = maid.getOwnerUUID().toString();
+                    // 无主女仆（/summon、刷怪蛋、无契约）getOwnerUUID() 为 null，null 安全处理
+                    String ownerUuid = maid.getOwnerUUID() == null ? "" : maid.getOwnerUUID().toString();
 
                     // 有手机 → ONLINE（可达）；无手机 → SHUTDOWN（已关机）
                     if (PhoneHelper.hasPhone(maid)) {

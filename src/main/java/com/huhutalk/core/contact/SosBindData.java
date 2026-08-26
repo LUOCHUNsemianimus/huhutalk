@@ -29,6 +29,9 @@ public class SosBindData extends SavedData {
     /** 单个玩家可绑定的 SOS 女仆上限 */
     public static final int MAX_BOUND = 4;
 
+    /** stableId / taskUid 的最大合法长度（真实 UUID 为 36，防止客户端写超长垃圾键进存档） */
+    private static final int MAX_KEY_LEN = 128;
+
     /** 默认工作模式：近战（TLM attack 任务） */
     public static final String DEFAULT_TASK_UID = "touhou_little_maid:attack";
 
@@ -81,7 +84,10 @@ public class SosBindData extends SavedData {
         if (inner == null || !inner.containsKey(stableId)) {
             return false;
         }
-        inner.put(stableId, taskUid == null || taskUid.isEmpty() ? DEFAULT_TASK_UID : taskUid);
+        if (taskUid == null || taskUid.isBlank() || taskUid.length() > MAX_KEY_LEN) {
+            return false;
+        }
+        inner.put(stableId, taskUid);
         setDirty();
         return true;
     }
@@ -93,6 +99,9 @@ public class SosBindData extends SavedData {
      * @return 切换后的状态（true=已绑定）
      */
     public boolean toggle(String playerUuid, String stableId) {
+        if (stableId == null || stableId.isBlank() || stableId.length() > MAX_KEY_LEN) {
+            return false; // 拒绝非法/超长键，防止垃圾字符串写入存档
+        }
         Map<String, String> inner = bindings.computeIfAbsent(playerUuid, k -> new LinkedHashMap<>());
         if (inner.containsKey(stableId)) {
             inner.remove(stableId);

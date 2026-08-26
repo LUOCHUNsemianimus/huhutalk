@@ -24,7 +24,7 @@ public record C2SSyncWaypointsPacket(List<WaypointEntry> waypoints) implements C
 
     public static final StreamCodec<RegistryFriendlyByteBuf, C2SSyncWaypointsPacket> STREAM_CODEC =
             StreamCodec.composite(
-                    WaypointEntry.STREAM_CODEC.apply(ByteBufCodecs.list()),
+                    WaypointEntry.STREAM_CODEC.apply(ByteBufCodecs.list(1000)),
                     C2SSyncWaypointsPacket::waypoints,
                     C2SSyncWaypointsPacket::new
             );
@@ -37,7 +37,12 @@ public record C2SSyncWaypointsPacket(List<WaypointEntry> waypoints) implements C
     public static void handle(C2SSyncWaypointsPacket packet, IPayloadContext context) {
         context.enqueueWork(() -> {
             if (context.player() instanceof ServerPlayer serverPlayer) {
-                WaypointCache.setWaypoints(serverPlayer.getUUID(), packet.waypoints());
+                List<WaypointEntry> list = packet.waypoints();
+                // 防御性上限：恶意/损坏客户端可发超大列表，截断到合理数量后再缓存（内存缓存）
+                if (list != null && list.size() > 1000) {
+                    list = list.subList(0, 1000);
+                }
+                WaypointCache.setWaypoints(serverPlayer.getUUID(), list);
             }
         });
     }

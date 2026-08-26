@@ -15,7 +15,9 @@ import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.network.handling.IPayloadContext;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
@@ -27,6 +29,12 @@ import java.util.UUID;
 public record C2SSOSPacket() implements CustomPacketPayload {
     public static final Type<C2SSOSPacket> TYPE =
             new Type<>(ResourceLocation.fromNamespaceAndPath("huhutalk", "sos"));
+
+    /** 每次 SOS 之间的最短间隔（毫秒），防止客户端高频刷包（网络抖动/连点滥用） */
+    private static final long SOS_COOLDOWN_MS = 3000L;
+
+    /** 玩家 UUID -> 上次 SOS 时间戳 */
+    private static final Map<UUID, Long> LAST_CALL = new HashMap<>();
 
     /** 围绕玩家的落点（前后左右各一），按绑定顺序依次分配 */
     private static final BlockPos[] SURROUND_OFFSETS = {
@@ -48,6 +56,13 @@ public record C2SSOSPacket() implements CustomPacketPayload {
                 return;
             }
             UUID ownerId = serverPlayer.getUUID();
+            long now = System.currentTimeMillis();
+            Long last = LAST_CALL.get(ownerId);
+            if (last != null && now - last < SOS_COOLDOWN_MS) {
+                serverPlayer.sendSystemMessage(Component.literal("[HuhuTalk] SOS 呼叫太频繁，请稍候再试"));
+                return;
+            }
+            LAST_CALL.put(ownerId, now);
             List<String> bound = SosBindData.get(serverPlayer.getServer()).getBound(ownerId.toString());
             BlockPos base = serverPlayer.blockPosition();
 

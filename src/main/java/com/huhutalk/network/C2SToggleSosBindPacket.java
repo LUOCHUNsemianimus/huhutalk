@@ -37,9 +37,20 @@ public record C2SToggleSosBindPacket(String stableId) implements CustomPacketPay
             if (!(context.player() instanceof ServerPlayer serverPlayer)) {
                 return;
             }
+            String stableId = packet.stableId();
+            if (stableId == null || stableId.isEmpty()) {
+                return;
+            }
+            // 只允许绑定真实存在、属于该玩家、且在线的女仆，防止任意字符串写入存档
+            var maid = com.huhutalk.common.MaidStableIdHelper.findMaid(
+                    serverPlayer.getServer(), stableId);
+            if (maid == null || !maid.isAlive() || !maid.isOwnedBy(serverPlayer)) {
+                serverPlayer.sendSystemMessage(Component.literal("[HuhuTalk] 找不到可绑定的女仆"));
+                return;
+            }
             String playerUuid = serverPlayer.getUUID().toString();
             SosBindData data = SosBindData.get(serverPlayer.getServer());
-            boolean bound = data.toggle(playerUuid, packet.stableId());
+            boolean bound = data.toggle(playerUuid, stableId);
             // 回推最新绑定列表（含工作模式），客户端据此刷新 UI
             context.reply(new S2CSosBindPacket(data.toEntries(playerUuid)));
             if (bound) {

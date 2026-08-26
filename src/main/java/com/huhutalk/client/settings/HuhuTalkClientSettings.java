@@ -2,6 +2,7 @@ package com.huhutalk.client.settings;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
+import com.google.gson.JsonParseException;
 import com.mojang.logging.LogUtils;
 import net.minecraft.client.Minecraft;
 import org.slf4j.Logger;
@@ -9,6 +10,7 @@ import org.slf4j.Logger;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -272,6 +274,9 @@ public final class HuhuTalkClientSettings {
 
     /** 设置某女仆手动分组；分组名为空则移除手动标记（回到默认按状态分组） */
     public static void setMaidGroup(String stableId, String group) {
+        if (stableId == null) {
+            return;
+        }
         if (group == null || group.isBlank()) {
             maidGroups.remove(stableId);
         } else {
@@ -328,6 +333,14 @@ public final class HuhuTalkClientSettings {
                     }
                 }
             }
+        } catch (JsonParseException e) {
+            // 损坏/不合法 JSON：不崩溃，回退默认设置；原文件改名备份，避免下次继续崩
+            LOGGER.error("[HuhuTalk] 设置文件损坏，已回退默认设置: {}", file, e);
+            try {
+                Files.move(file, file.resolveSibling(file.getFileName() + ".corrupt"),
+                        StandardCopyOption.REPLACE_EXISTING);
+            } catch (IOException ignored) {
+            }
         } catch (IOException e) {
             LOGGER.error("[HuhuTalk] 加载全局设置失败", e);
         }
@@ -357,7 +370,14 @@ public final class HuhuTalkClientSettings {
             data.customGroupNames = customGroupNames;
             Path file = settingsFile();
             Files.createDirectories(file.getParent());
-            Files.writeString(file, GSON.toJson(data));
+            // 原子写入：先写临时文件再重命名，避免写一半崩溃/断电导致 JSON 损坏
+            Path tmp = file.resolveSibling(file.getFileName() + ".tmp");
+            Files.writeString(tmp, GSON.toJson(data));
+            try {
+                Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+            } catch (IOException atomicEx) {
+                Files.move(tmp, file, StandardCopyOption.REPLACE_EXISTING);
+            }
         } catch (IOException e) {
             LOGGER.error("[HuhuTalk] 保存全局设置失败", e);
         }
