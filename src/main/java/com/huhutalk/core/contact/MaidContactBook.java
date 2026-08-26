@@ -140,7 +140,11 @@ public class MaidContactBook extends SavedData {
     public CompoundTag save(CompoundTag tag, net.minecraft.core.HolderLookup.Provider registries) {
         CompoundTag root = new CompoundTag();
         for (MaidContactEntry entry : entries.values()) {
-            root.put(entry.getStableId(), entry.toNbt());
+            String sid = entry.getStableId();
+            if (sid == null || sid.isEmpty()) {
+                continue; // 防御 null 键，防止保存时 CompoundTag.put(null) NPE
+            }
+            root.put(sid, entry.toNbt());
         }
         tag.put("contacts", root);
         return tag;

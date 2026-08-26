@@ -22,6 +22,9 @@ public final class PhoneHelper {
     @Nullable
     public static MaidPhoneTier getPhoneTier(EntityMaid maid) {
         BaubleItemHandler baubles = maid.getMaidBauble();
+        if (baubles == null) {
+            return null; // 防御：配饰栏缺失时视为无手机，避免 NPE
+        }
         boolean hasSmart = baubles.containsItem(HuhuTalkItems.PHONE_SMART.get());
         if (hasSmart) {
             return MaidPhoneTier.SMART;
