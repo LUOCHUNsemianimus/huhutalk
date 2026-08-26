@@ -64,11 +64,6 @@ public final class PhotoLibrary {
         }
     }
 
-    /** 识图临时目录（客户端写入，单机集成服务端从同一路径读取） */
-    public static Path visionTmpDir() {
-        return Minecraft.getInstance().gameDirectory.toPath().resolve("huhutalk").resolve("vision_tmp");
-    }
-
     /** 手机内置手册（设置 APP）的图片目录：放入 PNG，条目按文件名引用 */
     public static Path manualDir() {
         return Minecraft.getInstance().gameDirectory.toPath().resolve("huhutalk").resolve("manual");
@@ -250,20 +245,6 @@ public final class PhotoLibrary {
         } catch (IOException e) {
             LOGGER.warn("[HuhuTalk] 图片压缩失败，使用原图", e);
             return png;
-        }
-    }
-
-    /** 把要发送的 PNG 写入共享 vision_tmp 目录，返回 token（文件名）；失败返回 null */
-    public static String writeVisionTmp(byte[] pngBytes) {
-        if (pngBytes == null || pngBytes.length == 0) return null;
-        try {
-            Files.createDirectories(visionTmpDir());
-            String token = UUID.randomUUID().toString() + ".png";
-            Files.write(visionTmpDir().resolve(token), pngBytes);
-            return token;
-        } catch (IOException e) {
-            LOGGER.error("[HuhuTalk] 写 vision_tmp 失败 dir={}", visionTmpDir(), e);
-            return null;
         }
     }
 
