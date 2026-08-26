@@ -14,7 +14,7 @@ import java.util.UUID;
  * <p>
  * 与「女仆悄悄话」（气泡抑制）独立。当玩家开启「沉浸式聊天」并通过手机发起聊天时，
  * 把对应女仆标记为"本次回复不进公屏聊天栏"，持续一段窗口覆盖整个回复周期；
- * {@link ChatBubbleManagerMixin} 据此在 {@code addLLMChatText} 里跳过
+ * {@code ChatBubbleManagerMixin} 据此在 {@code addLLMChatText} 里跳过
  * {@code sendSystemMessage}（左下角公屏那条），而头顶气泡不受影响。
  * <p>
  * 用 {@code Set} 式窗口管理（到期清除标记），不修改女仆任何状态，退出保护同 {@link ImmersiveBubbleController}。

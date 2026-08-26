@@ -15,8 +15,6 @@ import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
 import java.util.List;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * 手机内置手册 / 设置页：两级目录导航。
@@ -25,8 +23,8 @@ import java.util.regex.Pattern;
  * 再点开小栏目进入正文（可滚动文本 + 可选图片）。
  * 右键逐级返回：正文 → 小栏目列表 → 大栏目列表 → 桌面。
  * <p>
- * 背景色 {@link #PAGE_BG}（#f5ebf2）、黑色字体。图片 PNG 放 {@code gameDir/huhutalk/manual/}，
- * 条目通过 {@code imageKey} 引用，由 {@link PhotoLibrary} 加载渲染。
+ * 背景色 {@link #PAGE_BG}（#f5ebf2）、黑色字体。二级列表与正文滚动区用 scissor 限定在内容区，
+ * 不越出顶栏/手机边界。图片 PNG 放 {@code gameDir/huhutalk/manual/}，条目通过 {@code imageKey} 引用。
  */
 public class ManualPage implements IPhonePage {
 
@@ -58,148 +56,89 @@ public class ManualPage implements IPhonePage {
 
     public ManualPage() {
         sections = new ArrayList<>();
-        sections.add(new ManualSection("关于 huhutalk（狐狐talk）",
-                split("（1）狐狐talk是一款车万女仆（Touhou Little Maid）的附属模组。其主要目的是为了补充不能远程和女仆聊天的空缺，"
+        sections.add(sec("huhutalk",
+                entry("huhutalk", "狐狐talk是一款车万女仆（Touhou Little Maid）的附属模组。其主要目的是为了补充不能远程和女仆聊天的空缺，"
                         + "并且为女仆定制了专属于手机UI的聊天方式/新的接收路径/隐私模式的开关，欢迎并且感谢大家体验！\n"
-                        + "（2）模组采用了一些下发加载票据的方法，因此会有额外的性能开销。所以，请节制的使用Pro版手机。\n"
-                        + "（3）在此基础上，添加了一些额外的指令（以后可能还加），可以使用自然语言，去往某坐标/呆在某坐标/来我身边"
-                        + "指挥女仆AI，支持去某地做某事，呆在某地做某事等格式（具体见指南8）。\n"
-                        + "——本模组由AI协助开发（我不是科班出身）。")));
-        sections.add(new ManualSection("关于手机（这是啥？）",
-                split("（1）手机使用overlay绘制。\n"
+                        + "——本模组由AI协助开发（我不是科班出身）。"),
+                entry("关于加载", "模组采用了一些下发加载票据的方法，因此会有额外的性能开销。所以，请节制的使用Pro版手机。"),
+                entry("额外指令", "在此基础上，添加了一些额外的指令（以后可能还加），可以使用自然语言，去往某坐标/呆在某坐标/来我身边"
+                        + "指挥女仆AI，支持去某地做某事，呆在某地做某事等格式（具体见指南8）。")));
+        sections.add(sec("关于手机",
+                entry("绘制与字体", "手机使用overlay绘制。\n"
                         + "手机里的字体大小会跟随玩家设置的GUI界面尺寸而改变，所以请随心的调整你喜欢的字体比例。\n"
                         + "如果你使用了大GUI却想要小字体/使用了小GUI却想要大字体 ，在huhutalk内部的设置页面可再次缩放字体，"
-                        + "但可能会有一些字体渲染问题出现。\n"
-                        + "（2）手机需要按住辅助键（默认alt）来释放鼠标进行操作。\n"
-                        + "默认左键确认、右键返回上一级（当然也可以点击左上角的返回按钮）。\n"
-                        + "（3）手机的上部导航栏。\n"
-                        + "（标注有时间、电量以及信号）是手机的位置拖动功能区，请将它移动到任何你喜欢的位置！\n"
-                        + "（4）顶部导航栏的右角。\n"
-                        + "有一个紧急关闭按钮（叉叉），用来应对某种特殊情况。")));
-        sections.add(new ManualSection("关于设置（挑重要的说）",
-                split("（1）设置界面为什么不在桌面上？\n"
-                        + "设置界面位于huhutalk内部，请进入huhutalk，用底部导航栏切换到最右侧选项。\n"
-                        + "ps：因为这个模组叫huhutalk，只是觉得只有一个孤零零的APP太奇怪了，所以我打算后期多做点APP。\n"
-                        + "（2）屏幕大小滑块\n"
-                        + "最高等于屏幕实际高度，最低等于屏幕的1/2（暂时没考虑有人用特别大的屏幕），如果你把屏幕缩小到字体都放不下，"
-                        + "那么，滑块就没有办法固定——其实算是个小bug，但是可以防止卡位置，所以它是好bug。\n"
-                        + "（3）屏幕比例\n"
-                        + "支持20：9、16：9、4：3，内部UI会自适应内容。\n"
-                        + "（4）消息免打扰\n"
-                        + "打开会关闭红点提醒，同时关闭消息提示音，默认为关闭状态。\n"
-                        + "（5）女仆悄悄话\n"
-                        + "打开会关闭女仆的AI气泡显示——给您更私密的聊天体验\n"
-                        + "（6）沉浸式聊天\n"
-                        + "开启后所有有手机唤起的聊天，将不会在左下角公屏产生女仆回复。\n"
-                        + "由于手机内的消息渲染特意加了输入延迟，所以事实上左下角公屏的内容会率先抵达，此选项是为提升沉浸感。\n"
-                        + "（7）亮度滑块\n"
-                        + "“手机壳也可以调暗。”\n"
-                        + "（8）手机壳选项\n"
-                        + "可以选择你背包内的任何完整方块，但是，有点不好看。\n"
-                        + "（9）SOS\n"
-                        + "在女仆界面，可以绑定女仆作为你的SOS召唤人，紧急情况，按这个按钮把他们召唤过来。\n"
-                        + "（10）打字耗时选项\n"
-                        + "此选项是为了增强真实感，给女仆的每条消息做了断句处理，并且根据字符的多少加了回复前摇"
-                        + "（抢在他发完之前再发一句话，会让他一次渲染完）\n"
-                        + "（11）动画\n"
-                        + "“谁不想要一个漂亮的UI动画？”")));
-        sections.add(new ManualSection("女仆聊天页细则",
-                split("（1）输入框\n"
-                        + "点击即可开始输入按esc退出输入，回车发送。\n"
-                        + "（2）底部扩展栏\n"
-                        + "从左至右分别为语音输入、发送表情包、图库、拍照、附加栏。\n"
-                        + "（3）语音输入\n"
-                        + "默认按h键开始输入，但值得注意的是，此种输入方式不会触发私密聊天！\n"
-                        + "（4）表情包\n"
-                        + "你发一个表情包，女仆一定会回一个表情包，但实际上不是llm回的（要不然token要烧完了）。"
-                        + "当然，您可以要求女仆和你发送表情包。\n"
-                        + "（5）图库\n"
-                        + "在拍照界面点击保存的照片才会储存在这里，一次仅能发送一张图片，支持图片和文字一起发送，"
+                        + "但可能会有一些字体渲染问题出现。"),
+                entry("辅助键（默认alt）", "手机需要按住辅助键（默认alt）来释放鼠标进行操作。\n"
+                        + "默认左键确认、右键返回上一级（当然也可以点击左上角的返回按钮）。"),
+                entry("顶部导航栏", "手机的上部导航栏（标注有时间、电量以及信号）是手机的位置拖动功能区，请将它移动到任何你喜欢的位置！"),
+                entry("紧急关闭", "顶部导航栏的右角有一个紧急关闭按钮（叉叉），用来应对某种特殊情况。")));
+        sections.add(sec("关于设置",
+                entry("设置入口", "设置界面位于huhutalk内部，请进入huhutalk，用底部导航栏切换到最右侧选项。\n"
+                        + "ps：因为这个模组叫huhutalk，只是觉得只有一个孤零零的APP太奇怪了，所以我打算后期多做点APP。"),
+                entry("屏幕大小", "最高等于屏幕实际高度，最低等于屏幕的1/2（暂时没考虑有人用特别大的屏幕），如果你把屏幕缩小到字体都放不下，"
+                        + "那么，滑块就没有办法固定——其实算是个小bug，但是可以防止卡位置，所以它是好bug。"),
+                entry("屏幕比例", "支持20：9、16：9、4：3，内部UI会自适应内容。"),
+                entry("消息免打扰", "打开会关闭红点提醒，同时关闭消息提示音，默认为关闭状态。"),
+                entry("女仆悄悄话", "打开会关闭女仆的AI气泡显示——给您更私密的聊天体验"),
+                entry("沉浸式聊天", "开启后所有有手机唤起的聊天，将不会在左下角公屏产生女仆回复。\n"
+                        + "由于手机内的消息渲染特意加了输入延迟，所以事实上左下角公屏的内容会率先抵达，此选项是为提升沉浸感。"),
+                entry("亮度滑块", "“手机壳也可以调暗。”"),
+                entry("手机壳", "可以选择你背包内的任何完整方块，但是，有点不好看。"),
+                entry("SOS", "在女仆界面，可以绑定女仆作为你的SOS召唤人，紧急情况，按这个按钮把他们召唤过来。"),
+                entry("打字耗时", "此选项是为了增强真实感，给女仆的每条消息做了断句处理，并且根据字符的多少加了回复前摇"
+                        + "（抢在他发完之前再发一句话，会让他一次渲染完）"),
+                entry("动画", "“谁不想要一个漂亮的UI动画？”")));
+        sections.add(sec("聊天页",
+                entry("输入框", "点击即可开始输入按esc退出输入，回车发送。"),
+                entry("底部扩展栏", "从左至右分别为语音输入、发送表情包、图库、拍照、附加栏。"),
+                entry("语音输入", "默认按h键开始输入，但值得注意的是，此种输入方式不会触发私密聊天！"),
+                entry("表情包", "你发一个表情包，女仆一定会回一个表情包，但实际上不是llm回的（要不然token要烧完了）。"
+                        + "当然，您可以要求女仆和你发送表情包。"),
+                entry("图库", "在拍照界面点击保存的照片才会储存在这里，一次仅能发送一张图片，支持图片和文字一起发送，"
                         + "但需要等待图片完成识别后，女仆才会回复。\n"
                         + "注：借用了车万女仆的原生链路，目前仅开通了deepseek最新模型的识图功能，"
                         + "如果已经在原模组填入了ds API key，那么便可直接使用图片相关功能。\n"
-                        + "注：识图延迟挺高，请耐心等待orz。\n"
-                        + "（6）拍照\n"
-                        + "如果不点击保存，那么点击确认的图片仅会在此次发送中生效，不会存储到本地。")));
-        sections.add(new ManualSection("联系人设置栏",
-                split("（1）设置头像\n"
-                        + "默认会给女仆拍一张大头贴，后续考虑增加以表情包当头像/或者更多姿势。\n"
-                        + "（2）删除聊天\n"
-                        + "仅删除huhutalk附属模组的聊天存储，实际上下文仍然会存储在车万女仆模组之内。\n"
-                        + "（3）删除联系人\n"
-                        + "如果女仆不小心死了（大哭），总得有个把它删掉的办法（嗷嗷哭）。\n"
-                        + "（4）绑定SOS\n"
-                        + "可以自行定义召唤哪个女仆，并且以什么模式将其召唤过来（针对不同的“兵种”），"
+                        + "注：识图延迟挺高，请耐心等待orz。"),
+                entry("拍照", "如果不点击保存，那么点击确认的图片仅会在此次发送中生效，不会存储到本地。")));
+        sections.add(sec("联系人设置",
+                entry("设置头像", "默认会给女仆拍一张大头贴，后续考虑增加以表情包当头像/或者更多姿势。"),
+                entry("删除聊天", "仅删除huhutalk附属模组的聊天存储，实际上下文仍然会存储在车万女仆模组之内。"),
+                entry("删除联系人", "如果女仆不小心死了（大哭），总得有个把它删掉的办法（嗷嗷哭）。"),
+                entry("绑定SOS", "可以自行定义召唤哪个女仆，并且以什么模式将其召唤过来（针对不同的“兵种”），"
                         + "最多可添加四位女仆成为您的魔王护。")));
-        sections.add(new ManualSection("联系人页",
-                split("（1）在线\n"
-                        + "表示女仆正被加载且可通话\n"
-                        + "（2）离线\n"
-                        + "表示女仆处于被卸载区块内，已经无法通话，需要通过红狐狸卷轴寻找。\n"
-                        + "（3）已关机\n"
-                        + "女仆现在饰品栏里没有手机。")));
-        sections.add(new ManualSection("桌面",
-                split("（1）信号栏\n"
-                        + "不好的维度会产生信号延迟，末地为0.5s，地狱为1s。\n"
-                        + "（2）电池\n"
-                        + "“是核能的。”")));
-        sections.add(new ManualSection("关于指令",
-                split("（1）Move to/去…等我\n"
-                        + "女仆将去你指示的地点等待，当你靠近她身边，她会开始跟随你，此操作可以附带工作模式。\n"
-                        + "（2）Come/到我这儿来\n"
-                        + "女仆会到你身边来，如果离得近，她会走过来，离得远，则会传送。\n"
-                        + "（3）Stay/去…呆着\n"
-                        + "女仆会去往你指示的地点。开启home模式，在你经过后不会跟随你。")));
-        sections.add(new ManualSection("其他模组兼容",
-                split("（1）兼容旅行地图（Journey map）\n"
+        sections.add(sec("联系人",
+                entry("在线", "表示女仆正被加载且可通话"),
+                entry("离线", "表示女仆处于被卸载区块内，已经无法通话，需要通过红狐狸卷轴寻找。"),
+                entry("已关机", "女仆现在饰品栏里没有手机。")));
+        sections.add(sec("桌面",
+                entry("信号栏", "不好的维度会产生信号延迟，末地为0.5s，地狱为1s。"),
+                entry("电池", "“是核能的。”")));
+        sections.add(sec("指令",
+                entry("Move to/去…等我", "女仆将去你指示的地点等待，当你靠近她身边，她会开始跟随你，此操作可以附带工作模式。"),
+                entry("Come/到我这儿来", "女仆会到你身边来，如果离得近，她会走过来，离得远，则会传送。"),
+                entry("Stay/去…呆着", "女仆会去往你指示的地点。开启home模式，在你经过后不会跟随你。")));
+        sections.add(sec("模组兼容",
+                entry("旅行地图", "兼容旅行地图（Journey map）。\n"
                         + "可使用自然语言指挥女仆到达路径点工作，例：“去快乐老家把菜一收。”“去史莱姆牧场等着我”")));
-        sections.add(new ManualSection("模组物品与方块",
-                split("（1）电话手表\n"
-                        + "它是造价较低廉的手机，但是它没有流量卡，所以需要搭配WIFI方块使用。\n"
-                        + "处在WIFI方块直径三个区块内的持有电话手表的女仆，可以保持常驻加载，会为其下发加载票据。\n"
-                        + "（2）WIFI方块\n"
-                        + "是本模组的节能设计，避免过多的女仆聚集在一起，每个都下发强制加载票据的性能问题，"
+        sections.add(sec("物品与方块",
+                entry("电话手表", "它是造价较低廉的手机，但是它没有流量卡，所以需要搭配WIFI方块使用。\n"
+                        + "处在WIFI方块直径三个区块内的持有电话手表的女仆，可以保持常驻加载，会为其下发加载票据。"),
+                entry("WIFI方块", "是本模组的节能设计，避免过多的女仆聚集在一起，每个都下发强制加载票据的性能问题，"
                         + "在其周围没有持有电话手表的女仆时，不会对周围的区块下发加载票据，所以不会产生性能开销。\n"
-                        + "当且仅当周围区块有手表女仆时，才会对女仆所在的区块下发强制加载票据。\n"
-                        + "（3）Pro版手机\n"
-                        + "会持续为玩家的女仆下发强制加载的票据，但为保证性能，仅下发一区块的加载票据，"
+                        + "当且仅当周围区块有手表女仆时，才会对女仆所在的区块下发强制加载票据。"),
+                entry("Pro版手机", "会持续为玩家的女仆下发强制加载的票据，但为保证性能，仅下发一区块的加载票据，"
                         + "所以——如果你的女仆是闪电侠，有可能会跑到未加载区块里。")));
-        sections.add(new ManualSection("写在最后",
-                split("本模组由我（罗春）使用AI工作流协助开发，如果有任何不足，烦请反映至Anirtual@gmail.com，谢谢！\n"
+        sections.add(sec("写在最后",
+                entry("写在最后", "本模组由我（罗春）使用AI工作流协助开发，如果有任何不足，烦请反映至Anirtual@gmail.com，谢谢！\n"
                         + "还有——感谢你们的下载与体验，我爱你们！")));
     }
 
-    /** 按"（数字）"标记把一段含多个小栏目的正文拆成二级条目列表；无编号则整体一个条目。 */
-    private static List<ManualEntry> split(String body) {
-        List<ManualEntry> out = new ArrayList<>();
-        Matcher m = Pattern.compile("(?=（\\d+）)").matcher(body);
-        int prev = 0;
-        boolean hasSub = false;
-        while (m.find()) {
-            hasSub = true;
-            String part = body.substring(prev, m.start()).trim();
-            prev = m.start();
-            if (!part.isEmpty()) {
-                out.add(new ManualEntry(firstLine(part), part, null));
-            }
-            // 重新定位到该分栏起点
-        }
-        if (hasSub) {
-            String last = body.substring(prev).trim();
-            if (!last.isEmpty()) {
-                out.add(new ManualEntry(firstLine(last), last, null));
-            }
-        }
-        if (out.isEmpty()) {
-            String b = body.trim();
-            out.add(new ManualEntry(firstLine(b), b, null));
-        }
-        return out;
+    private static ManualSection sec(String title, ManualEntry... entries) {
+        return new ManualSection(title, List.of(entries));
     }
 
-    private static String firstLine(String s) {
-        int idx = s.indexOf('\n');
-        return idx < 0 ? s : s.substring(0, idx).trim();
+    private static ManualEntry entry(String title, String body) {
+        return new ManualEntry(title, body, null);
     }
 
     // ==================== 渲染 ====================
@@ -230,7 +169,7 @@ public class ManualPage implements IPhonePage {
                 baseY + (headerH - lineH(font)) / 2, 0xFFFFFFFF, UiFont.sc(0.85f));
     }
 
-    /** 一级大栏目列表 */
+    /** 一级大栏目列表（内容不多，不滚动） */
     private void renderSectionRoot(GuiGraphics g, int baseX, int baseY) {
         int w = PhoneOverlay.getPhoneWidth();
         int h = PhoneOverlay.getPhoneHeight();
@@ -240,19 +179,22 @@ public class ManualPage implements IPhonePage {
         int headerH = UiFont.sh(22);
         int pad = UiFont.sh(8);
         int top = baseY + headerH + UiFont.sh(6);
+        int bottom = baseY + h - UiFont.sh(6);
+        g.enableScissor(baseX, top, baseX + w, bottom);
         int rowH = UiFont.sh(34);
         int gap = UiFont.sh(4);
         int cy = top;
         for (ManualSection s : sections) {
-            if (cy + rowH > baseY + h - UiFont.sh(6)) break;
+            if (cy + rowH > bottom) break;
             UiShapes.fillRoundedRect(g, baseX + pad, cy, w - pad * 2, rowH, UiFont.sh(8), CARD_BG);
             drawScaledText(g, font, "›  " + s.title(), baseX + pad + UiFont.sh(10),
                     cy + (rowH - lineH(font)) / 2, TEXT_COLOR, UiFont.sc(0.9f));
             cy += rowH + gap;
         }
+        g.disableScissor();
     }
 
-    /** 二级小栏目列表（当前大栏目下） */
+    /** 二级小栏目列表（可滚动，scissor 限定内容区） */
     private void renderSectionList(GuiGraphics g, int baseX, int baseY) {
         int w = PhoneOverlay.getPhoneWidth();
         int h = PhoneOverlay.getPhoneHeight();
@@ -262,26 +204,28 @@ public class ManualPage implements IPhonePage {
         int headerH = UiFont.sh(22);
         int pad = UiFont.sh(8);
         int top = baseY + headerH + UiFont.sh(6);
+        int bottom = baseY + h - UiFont.sh(6);
         int rowH = UiFont.sh(34);
         int gap = UiFont.sh(4);
-        int contentBottom = baseY + h - UiFont.sh(6);
         int contentH = currentSection.entries().size() * (rowH + gap);
-        int viewH = contentBottom - top;
+        int viewH = bottom - top;
         int maxScroll = Math.max(0, contentH - viewH);
         sectionScroll = clamp(sectionScroll, maxScroll);
 
+        g.enableScissor(baseX, top, baseX + w, bottom);
         int cy = top - (int) sectionScroll;
         for (ManualEntry e : currentSection.entries()) {
-            if (cy + rowH < baseY + headerH) { cy += rowH + gap; continue; }
-            if (cy > contentBottom) break;
+            if (cy + rowH < top) { cy += rowH + gap; continue; }
+            if (cy > bottom) break;
             UiShapes.fillRoundedRect(g, baseX + pad, cy, w - pad * 2, rowH, UiFont.sh(8), CARD_BG);
             drawScaledText(g, font, "›  " + e.title(), baseX + pad + UiFont.sh(10),
                     cy + (rowH - lineH(font)) / 2, TEXT_COLOR, UiFont.sc(0.9f));
             cy += rowH + gap;
         }
+        g.disableScissor();
     }
 
-    /** 正文详情（可滚动 + 可选图片） */
+    /** 正文详情（可滚动 + 可选图片，scissor 限定内容区） */
     private void renderBody(GuiGraphics g, int baseX, int baseY) {
         int w = PhoneOverlay.getPhoneWidth();
         int h = PhoneOverlay.getPhoneHeight();
@@ -316,6 +260,7 @@ public class ManualPage implements IPhonePage {
         float maxScroll = Math.max(0, totalH - bodyAreaH);
         scroll = clamp(scroll, maxScroll);
 
+        g.enableScissor(baseX, contentTop, baseX + w, bodyBottom);
         int textX = baseX + pad;
         int textY = contentTop - (int) scroll;
         for (FormattedCharSequence line : lines) {
@@ -324,6 +269,7 @@ public class ManualPage implements IPhonePage {
             }
             textY += lh;
         }
+        g.disableScissor();
     }
 
     private static float clamp(float v, float max) {
@@ -370,15 +316,13 @@ public class ManualPage implements IPhonePage {
         int rowH = UiFont.sh(34);
         int gap = UiFont.sh(4);
         int top = headerH + UiFont.sh(6);
+        int bottom = h - UiFont.sh(6);
 
         if (currentEntry != null) {
-            // 正文：点返回已处理；其余交给滚轮
             return false;
         }
         if (currentSection != null) {
-            // 二级列表：点条目进入正文
-            int contentBottom = h - UiFont.sh(6);
-            int viewH = contentBottom - top;
+            int viewH = bottom - top;
             int contentH = currentSection.entries().size() * (rowH + gap);
             int maxScroll = Math.max(0, contentH - viewH);
             sectionScroll = clamp(sectionScroll, maxScroll);
@@ -393,10 +337,10 @@ public class ManualPage implements IPhonePage {
             }
             return false;
         }
-        // 一级列表：点大栏目进入其二级列表
+        // 一级列表
         int cy = top;
         for (ManualSection s : sections) {
-            if (cy + rowH > h - UiFont.sh(6)) break;
+            if (cy + rowH > bottom) break;
             if (relX >= pad && relX <= w - pad && relY >= cy && relY <= cy + rowH) {
                 currentSection = s;
                 currentEntry = null;
