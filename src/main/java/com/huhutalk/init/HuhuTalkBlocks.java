@@ -24,7 +24,9 @@ public final class HuhuTalkBlocks {
     public static final DeferredHolder<Block, Block> WIFI_BLOCK =
             BLOCKS.register("wifi_block",
                     () -> new BlockWifi(BlockBehaviour.Properties.ofFullCopy(Blocks.IRON_BLOCK)
-                            .strength(2.0f, 6.0f)));
+                            .strength(2.0f, 6.0f)
+                            // 非完整方块：相邻方块的面不剔除，底部草地方块能正常渲染
+                            .noOcclusion()));
 
     /** WiFi 方块的物品形态（便于摆放） */
     public static final DeferredHolder<Item, BlockItem> WIFI_BLOCK_ITEM =
