@@ -31,10 +31,10 @@ public final class HuhuTalkClientSettings {
     private static String themeId = "pearl_pink";
     /** 手机壳方块 id（如 "minecraft:iron_block"），空串表示默认无自定义壳 */
     private static String phoneCaseBlock = "";
-    /** 手机屏幕比例（宽:高），可选 "20:9" / "9:16" / "4:3" */
-    private static String phoneAspect = "20:9";
-    /** 手机屏幕高度占实际屏幕高度的比例（0.5 ~ 1.0） */
-    private static float phoneSize = 0.6f;
+    /** 手机屏幕比例（宽:高），可选 "20:9" / "9:16" / "4:3"。默认 9:16（标准竖屏，避免默认过细长导致按键误触） */
+    private static String phoneAspect = "9:16";
+    /** 手机屏幕高度占实际屏幕高度的比例（0.5 ~ 1.0）。默认 75%，避免默认过小 */
+    private static float phoneSize = 0.75f;
     /** 手机相对默认右下角锚点的水平/垂直拖拽偏移（GUI 缩放坐标，持久化） */
     private static float phoneOffsetX = 0f;
     private static float phoneOffsetY = 0f;
@@ -161,10 +161,10 @@ public final class HuhuTalkClientSettings {
         save();
     }
 
-    /** 设置屏幕比例（非法值回退 "20:9"） */
+    /** 设置屏幕比例（非法值回退默认 "9:16"） */
     public static void setPhoneAspect(String aspect) {
         if (aspect == null || aspect.isBlank()) {
-            phoneAspect = "20:9";
+            phoneAspect = "9:16";
         } else {
             phoneAspect = aspect;
         }
