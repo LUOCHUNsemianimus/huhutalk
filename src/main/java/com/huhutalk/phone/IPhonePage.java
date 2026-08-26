@@ -21,4 +21,10 @@ public interface IPhonePage {
     default boolean mouseScrolled(double relX, double relY, double scrollDelta) { return false; }
     /** 鼠标移动：可用于高亮判定 */
     default void mouseMoved(double relX, double relY) {}
+
+    /**
+     * 右键返回。页面可在此处理"多级返回"（如手册子栏目逐级回退）。
+     * 返回 true 表示已消费该右键（上层不再执行 popPage/关闭手机）；false 则交给上层默认逻辑。
+     */
+    default boolean onBackPressed() { return false; }
 }

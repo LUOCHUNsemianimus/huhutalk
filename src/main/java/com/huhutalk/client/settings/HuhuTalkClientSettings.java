@@ -38,8 +38,12 @@ public final class HuhuTalkClientSettings {
     private static float phoneOffsetY = 0f;
     /** 消息免打扰（DND）：开启后女仆消息不再弹未读红点/通知 */
     private static boolean dndEnabled = false;
-    /** 「女仆悄悄话」：开启后通过手机唤起聊天时，女仆回复不出现在聊天栏/头顶气泡（默认关） */
+    /** 「女仆悄悄话」：开启后通过手机唤起聊天时，女仆回复不出现在头顶气泡（默认关） */
     private static boolean maidWhisperEnabled = false;
+    /** 「沉浸式聊天」：开启后通过手机唤起聊天时，女仆回复不出现在左下角公屏聊天栏（默认关） */
+    private static boolean immersiveChatEnabled = false;
+    /** 是否已看过手机内置手册（设置 APP）：首次未看时主界面该 APP 右上角标小红点，点击后消除 */
+    private static boolean manualSeen = false;
     /** 消息断句动画开关 */
     private static boolean messageAnimation = true;
     /** 「切屏动画」全局界面动画总开关：关闭后所有界面瞬时切换，所有动画逻辑跳过 */
@@ -70,6 +74,8 @@ public final class HuhuTalkClientSettings {
     public static float getPhoneOffsetY() { return phoneOffsetY; }
     public static boolean isDndEnabled() { return dndEnabled; }
     public static boolean isMaidWhisperEnabled() { return maidWhisperEnabled; }
+    public static boolean isImmersiveChatEnabled() { return immersiveChatEnabled; }
+    public static boolean isManualSeen() { return manualSeen; }
     public static boolean isMessageAnimationEnabled() { return messageAnimation; }
     /** 「切屏动画」全局界面动画总开关 */
     public static boolean isUiAnimationEnabled() { return uiAnimation; }
@@ -198,6 +204,18 @@ public final class HuhuTalkClientSettings {
         save();
     }
 
+    /** 设置「沉浸式聊天」开关 */
+    public static void setImmersiveChatEnabled(boolean enabled) {
+        immersiveChatEnabled = enabled;
+        save();
+    }
+
+    /** 标记已看过手册（消除首次红点） */
+    public static void setManualSeen(boolean seen) {
+        manualSeen = seen;
+        save();
+    }
+
     public static void setMessageAnimation(boolean enabled) {
         messageAnimation = enabled;
         save();
@@ -289,6 +307,8 @@ public final class HuhuTalkClientSettings {
             phoneOffsetY = data.phoneOffsetY;
             dndEnabled = data.dndEnabled;
             maidWhisperEnabled = data.maidWhisperEnabled;
+            immersiveChatEnabled = data.immersiveChatEnabled;
+            manualSeen = data.manualSeen;
             messageAnimation = data.messageAnimation;
             uiAnimation = data.uiAnimation;
             if (data.charTypingMs > 0) charTypingMs = data.charTypingMs;
@@ -325,6 +345,8 @@ public final class HuhuTalkClientSettings {
             data.phoneOffsetY = phoneOffsetY;
             data.dndEnabled = dndEnabled;
             data.maidWhisperEnabled = maidWhisperEnabled;
+            data.immersiveChatEnabled = immersiveChatEnabled;
+            data.manualSeen = manualSeen;
             data.messageAnimation = messageAnimation;
             data.uiAnimation = uiAnimation;
             data.charTypingMs = charTypingMs;
@@ -351,6 +373,8 @@ public final class HuhuTalkClientSettings {
         float phoneOffsetY;
         boolean dndEnabled;
         boolean maidWhisperEnabled;
+        boolean immersiveChatEnabled;
+        boolean manualSeen;
         boolean messageAnimation;
         boolean uiAnimation;
         long charTypingMs;

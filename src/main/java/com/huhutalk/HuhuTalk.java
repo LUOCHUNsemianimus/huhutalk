@@ -5,6 +5,7 @@ import com.huhutalk.core.status.MaidScanTicker;
 import com.huhutalk.core.status.MaidStatusTicker;
 import com.huhutalk.command.ModCommands;
 import com.huhutalk.core.event.FilmTransformHandler;
+import com.huhutalk.core.chat.ChatBannerMuteController;
 import com.huhutalk.core.chat.ImmersiveBubbleController;
 import com.huhutalk.core.chat.SignalDelayManager;
 import com.huhutalk.core.load.TicketManager;
@@ -56,12 +57,16 @@ public class HuhuTalk {
         NeoForge.EVENT_BUS.addListener(RegisterCommandsEvent.class, ModCommands::register);
         NeoForge.EVENT_BUS.addListener(ServerStoppingEvent.class, e -> MaidMoveData.restoreOnServerStop());
         NeoForge.EVENT_BUS.addListener(ServerStoppingEvent.class, e -> ImmersiveBubbleController.restoreAll());
+        NeoForge.EVENT_BUS.addListener(ServerStoppingEvent.class, e -> ChatBannerMuteController.restoreAll());
         NeoForge.EVENT_BUS.addListener(PlayerEvent.PlayerLoggedOutEvent.class, e -> ImmersiveBubbleController.restoreAll());
+        NeoForge.EVENT_BUS.addListener(PlayerEvent.PlayerLoggedOutEvent.class, e -> ChatBannerMuteController.restoreAll());
         NeoForge.EVENT_BUS.addListener(ServerTickEvent.Post.class, e -> MaidMoveData.tickMoveQueue());
         // 信号延迟队列：每 tick 对账，到点投递延迟的 AI 聊天回复
         NeoForge.EVENT_BUS.addListener(ServerTickEvent.Post.class, e -> SignalDelayManager.tick(e.getServer()));
         // 女仆悄悄话气泡抑制：每 tick 对账，到点恢复被抑制女仆的气泡
         NeoForge.EVENT_BUS.addListener(ServerTickEvent.Post.class, e -> ImmersiveBubbleController.tick(e.getServer()));
+        // 沉浸式聊天公屏抑制：每 tick 对账，到点清除过期静音标记
+        NeoForge.EVENT_BUS.addListener(ServerTickEvent.Post.class, e -> ChatBannerMuteController.tick(e.getServer()));
 
         modEventBus.addListener(RegisterPayloadHandlersEvent.class, this::setupPackets);
     }

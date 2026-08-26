@@ -631,10 +631,8 @@ public class PhoneOverlay {
         drawScaledText(graphics, font, Component.literal(gameTimeString()).getVisualOrderText(),
                 baseX + 14, baseY + 3, 0xFFFFFFFF, UiFont.sc(0.75f));
         int rightX = baseX + w;
-        // 关闭 X（透明隐藏：逻辑仍在，点击右上角仍可关闭；颜色 alpha=0）
-        drawScaledText(graphics, font, Component.literal("X").getVisualOrderText(),
-                rightX - UiFont.sh(12), baseY + 3, 0x00FF0000, UiFont.sc(0.75f));
-        // 电池：垂直电池图标（🔋 旋转 90° 仿现实电池，尺寸为原 emoji 的 1.5 倍，位于 X 左侧）
+        // 关闭 X（完全透明：不绘制文字，视觉不可见；点击区域逻辑保留于 handleMouseClicked 状态栏右侧）
+        // 电池：垂直电池图标（🔋 旋转 90° 仿现实电池，尺寸为原 emoji 的 1.5 倍，位于原 X 左侧）
         renderBattery(graphics, rightX - UiFont.sh(28), baseY + UiFont.sh(STATUSBAR_H) / 2);
         // 信号（0.75 倍，离开右圆角，位于电池左侧）
         renderSignalBars(graphics, rightX - UiFont.sh(50), baseY, UiFont.sh(STATUSBAR_H));
@@ -891,7 +889,8 @@ public class PhoneOverlay {
                     cp.cancelVoice();
                     return true;
                 }
-                if (curPage instanceof ChatPage cp && cp.onBackPressed()) {
+                // 页面自身处理右键返回（多级回退，如手册子栏目逐级返回）；已消费则不 popPage
+                if (curPage != null && curPage.onBackPressed()) {
                     return true;
                 }
                 if (isInSubPage()) {

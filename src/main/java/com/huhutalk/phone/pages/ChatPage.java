@@ -285,7 +285,8 @@ public class ChatPage implements IPhonePage {
         messages.add(new ChatMessage(text, true, false, false, currentGameTime(), null, null));
         ChatHistoryStorage.appendMessage(stableId, text, true, false);
         ChatHistoryStorage.setDraft(stableId, "");
-        PacketDistributor.sendToServer(new C2SMaidChatPacket(stableId, text, HuhuTalkClientSettings.isMaidWhisperEnabled()));
+        PacketDistributor.sendToServer(new C2SMaidChatPacket(stableId, text,
+                HuhuTalkClientSettings.isMaidWhisperEnabled(), HuhuTalkClientSettings.isImmersiveChatEnabled()));
         this.waitingResponse = true;
         scrollOffset = 0;
     }
@@ -418,7 +419,8 @@ public class ChatPage implements IPhonePage {
         messages.add(new ChatMessage(text, true, false, false, currentGameTime(), null, null));
         ChatHistoryStorage.appendMessage(stableId, text, true, false);
         ChatHistoryStorage.setDraft(stableId, "");
-        PacketDistributor.sendToServer(new C2SMaidChatPacket(stableId, text, HuhuTalkClientSettings.isMaidWhisperEnabled()));
+        PacketDistributor.sendToServer(new C2SMaidChatPacket(stableId, text,
+                HuhuTalkClientSettings.isMaidWhisperEnabled(), HuhuTalkClientSettings.isImmersiveChatEnabled()));
         this.waitingResponse = true; // 进入"对方正在输入…"状态
         currentInput = "";
         cursorIndex = 0;
@@ -1460,7 +1462,8 @@ public class ChatPage implements IPhonePage {
         String token = PhotoLibrary.writeVisionTmp(img);
         if (token == null) {
             LOGGER.error("[HuhuTalk] 发送图片失败：vision_tmp 写入失败，退化为纯文字");
-            PacketDistributor.sendToServer(new C2SMaidChatPacket(stableId, text == null ? "" : text, HuhuTalkClientSettings.isMaidWhisperEnabled()));
+            PacketDistributor.sendToServer(new C2SMaidChatPacket(stableId, text == null ? "" : text,
+                    HuhuTalkClientSettings.isMaidWhisperEnabled(), HuhuTalkClientSettings.isImmersiveChatEnabled()));
             this.waitingResponse = true;
             resetAfterSend();
             ChatHistoryStorage.setDraft(stableId, "");
@@ -1469,7 +1472,8 @@ public class ChatPage implements IPhonePage {
         LOGGER.info("[HuhuTalk] 发送图片聊天: stableId={}, token={}, text='{}', imgBytes={}",
                 stableId, token, text, img.length);
         PacketDistributor.sendToServer(new C2SMaidImageChatPacket(stableId,
-                text == null ? "" : text, token, HuhuTalkClientSettings.isMaidWhisperEnabled()));
+                text == null ? "" : text, token,
+                HuhuTalkClientSettings.isMaidWhisperEnabled(), HuhuTalkClientSettings.isImmersiveChatEnabled()));
         this.waitingResponse = true;
         // 清空输入框与草稿（否则重进页面草稿里还存着已发出去的这份文字）
         resetAfterSend();

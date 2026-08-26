@@ -233,8 +233,8 @@ public class ContactListPage implements IPhonePage {
         int statusY = nameY + nameH + 1;
 
         // 右侧好感度等级（右对齐，与头像一左一右；heart.png 作背景，内填 0.75 倍字体数字）
-        // 心形背景用 1.0 倍字体大小，确保包住 0.75 倍的数字
-        int favSize = (int) (lineH * UiFont.sc(1.0f));
+        // 心形背景用 1.6 倍字体大小（比数字醒目、仍在条目高度内），数字 0.75 倍居中
+        int favSize = (int) (lineH * UiFont.sc(1.6f));
         int favX = baseX + w - UiFont.sh(10) - favSize;
         int favY = centerY - favSize / 2;
         g.blit(HEART_TEX, favX, favY, favSize, favSize,

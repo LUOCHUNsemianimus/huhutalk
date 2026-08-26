@@ -27,7 +27,8 @@ import java.util.List;
 public class MaidChatHandler {
     private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger("huhutalk.maid_chat");
 
-    public static void handleChat(ServerPlayer player, String stableId, String message, boolean immersive) {
+    public static void handleChat(ServerPlayer player, String stableId, String message,
+                                  boolean bubbleMute, boolean chatBannerMute) {
         EntityMaid maid = findMaidByStableId(player.getServer(), stableId);
         if (maid == null) {
             handleOfflineMessage(player, stableId, message);
@@ -56,9 +57,13 @@ public class MaidChatHandler {
         manager.addUserHistory(message);
 
         Runnable chatAction = () -> {
-            // 女仆悄悄话：沉浸手机聊天时抑制该女仆头顶气泡（全局生效，覆盖整个回复周期）
-            if (immersive) {
+            // 女仆悄悄话：抑制该女仆头顶气泡（全局生效）
+            if (bubbleMute) {
                 ImmersiveBubbleController.suppress(maid);
+            }
+            // 沉浸式聊天：本次回复不进公屏聊天栏
+            if (chatBannerMute) {
+                ChatBannerMuteController.suppress(maid);
             }
             List<LLMMessage> messages = buildMessages(manager, message);
             // 消息来源上下文：告知女仆这是手机消息 + 当前与主人的距离（SYSTEM，不写历史）
@@ -72,7 +77,7 @@ public class MaidChatHandler {
                     messages.add(0, LLMMessage.systemChat(maidIn, String.join("\n", pending)));
                 }
             }
-            HuhuTalkChatCallback callback = new HuhuTalkChatCallback(manager, messages, player, stableIdIn, immersive);
+            HuhuTalkChatCallback callback = new HuhuTalkChatCallback(manager, messages, player, stableIdIn, bubbleMute);
             site.client().chat(callback);
         };
 
@@ -117,7 +122,8 @@ public class MaidChatHandler {
      * 流程：读图 → {@link VisionService} 识图得到描述 → 把描述作为<b>本次调用的临时系统消息</b>
      * （不写历史、不显示），连同用户文字一起发给聊天 LLM，让女仆对图片做出反应。
      */
-    public static void handleImageChat(ServerPlayer player, String stableId, String userText, String imageToken, boolean immersive) {
+    public static void handleImageChat(ServerPlayer player, String stableId, String userText, String imageToken,
+                                       boolean bubbleMute, boolean chatBannerMute) {
         EntityMaid maid = findMaidByStableId(player.getServer(), stableId);
         if (maid == null) {
             LOGGER.error("[HuhuTalk] 图片聊天失败：找不到女仆 stableId={}", stableId);
@@ -179,14 +185,18 @@ public class MaidChatHandler {
                     LOGGER.info("[HuhuTalk] 识图成功 stableId={}, descLen={}", stableIdIn, desc == null ? 0 : desc.length());
                     // 回到服务端线程再做 LLM 调用（TLM 强制主线程）
                     playerIn.getServer().submit(() -> {
-                        // 女仆悄悄话：沉浸手机聊天时抑制该女仆头顶气泡（全局生效，覆盖整个回复周期）
-                        if (immersive) {
+                        // 女仆悄悄话：抑制该女仆头顶气泡（全局生效）
+                        if (bubbleMute) {
                             ImmersiveBubbleController.suppress(maidIn);
+                        }
+                        // 沉浸式聊天：本次回复不进公屏聊天栏
+                        if (chatBannerMute) {
+                            ChatBannerMuteController.suppress(maidIn);
                         }
                         // 先构建消息（此时历史尚未写入本条文字，末尾 userChat 即本条唯一一次），
                         // 发起调用后再把用户文字写入历史，供后续对话记住本条；图片描述本身不写历史。
                         List<LLMMessage> messages = buildImageMessages(manager, playerIn, desc, userTextIn);
-                        HuhuTalkChatCallback callback = new HuhuTalkChatCallback(manager, messages, playerIn, stableIdIn, immersive);
+                        HuhuTalkChatCallback callback = new HuhuTalkChatCallback(manager, messages, playerIn, stableIdIn, bubbleMute);
                         site.client().chat(callback);
                         if (userTextIn != null && !userTextIn.isBlank()) {
                             manager.addUserHistory(userTextIn);

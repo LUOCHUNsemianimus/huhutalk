@@ -239,6 +239,12 @@ public class MainPage implements IPhonePage {
                     drawScaledText(graphics, font, num, dotX + 2, dotY + 1, 0xFFFFFFFF, UiFont.sc(0.75f));
                 }
             }
+            // 设置（手册）首次未看：右上角小红点提示
+            if ("设置".equals(app.name) && !HuhuTalkClientSettings.isManualSeen()) {
+                int dotX = x + iconW - 8;
+                int dotY = y - 5;
+                graphics.fill(dotX, dotY, dotX + 9, dotY + 9, 0xFFFF0000);
+            }
         }
 
         // SOS 点击后的短暂提示
@@ -275,6 +281,10 @@ public class MainPage implements IPhonePage {
                 if ("HuhuTalk".equals(app.name)) {
                     PhoneOverlay.openChatApp();
                     return true;
+                }
+                // 设置（手册）：点击即标记已看，消除首次红点
+                if ("设置".equals(app.name)) {
+                    HuhuTalkClientSettings.setManualSeen(true);
                 }
                 if (app.implemented && app.pageFactory != null) {
                     PhoneOverlay.pushPage(app.pageFactory.get());
