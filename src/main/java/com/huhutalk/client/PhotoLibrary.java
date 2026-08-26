@@ -232,7 +232,9 @@ public final class PhotoLibrary {
             int nw = Math.max(1, Math.round(w * scale));
             int nh = Math.max(1, Math.round(h * scale));
             NativeImage out = new NativeImage(nw, nh, true);
-            out.resizeSubRectTo(0, 0, nw, nh, img);
+            // resizeSubRectTo(x, y, w, h, dest) 是「从 this(源) 读子矩形缩放进 dest(目标)」，
+            // 必须以原图为源、新图为目标（读整张原图），否则会把空白新图写进原图 → 输出全白/透明
+            img.resizeSubRectTo(0, 0, img.getWidth(), img.getHeight(), out);
             img.close();
             Path tmp = Files.createTempFile("huhutalk_scale", ".png");
             try {
