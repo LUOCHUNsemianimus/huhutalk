@@ -10,6 +10,7 @@ import com.huhutalk.common.StableIdProvider;
 import com.huhutalk.core.contact.MaidContactBook;
 import com.huhutalk.core.contact.MaidContactEntry;
 import com.huhutalk.core.vision.VisionService;
+import com.huhutalk.network.C2SMaidImageChatPacket;
 import com.huhutalk.network.S2CMaidChatErrorPacket;
 import com.huhutalk.network.S2CMaidChatInfoPacket;
 import net.minecraft.server.MinecraftServer;
