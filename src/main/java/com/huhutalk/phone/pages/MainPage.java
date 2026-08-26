@@ -45,13 +45,13 @@ public class MainPage implements IPhonePage {
     /** 女仆表情资源命名空间与目录（与聊天页一致） */
     private static final String EMOJI_NAMESPACE = "touhou_little_maid";
     private static final String EMOJI_DIR = "textures/chat_bubble/maid_emoji";
-    /** HuhuTalk APP 图标贴图（32x32 像素图标，替换狐狸 emoji） */
+    /** HuhuTalk APP 图标贴图（新图标 256x256，替换狐狸 emoji） */
     private static final ResourceLocation HUHUTALK_ICON =
             ResourceLocation.fromNamespaceAndPath("huhutalk", "textures/huhutalk_symbol.png");
-    /** HuhuTalk 图标贴图原始尺寸 */
-    private static final int HUHUTALK_ICON_SIZE = 32;
-    /** HuhuTalk 图标在桌面方块内占据的比例（0.7 = 占 70%）。想调大调小改这里即可。 */
-    private static final float ICON_FILL_RATIO = 0.7f;
+    /** HuhuTalk 图标贴图原始尺寸（256x256 源图） */
+    private static final int HUHUTALK_ICON_SIZE = 256;
+    /** HuhuTalk 图标在桌面方块内占据的比例（1.0 = 铺满，边正好对上 APP 方框的边）。想留边调小即可。 */
+    private static final float ICON_FILL_RATIO = 1.0f;
     /** 随机池：全部女仆表情（emoji_01~20） */
     private static final String[] ALL_EMOJI = {
             "emoji_01.png", "emoji_02.png", "emoji_03.png", "emoji_04.png", "emoji_05.png",
@@ -222,9 +222,9 @@ public class MainPage implements IPhonePage {
 
             // 图标中心内容：HuhuTalk 用像素图标贴图，其它用文字/emoji
             if ("HuhuTalk".equals(app.name)) {
-                // 贴图占图标方块 70%（可手动调 ICON_FILL_RATIO）；像素图整体缩放
+                // 贴图占图标方块的 ICON_FILL_RATIO（1.0=铺满，边对上 APP 方框）；源图 256x256 整体缩放
                 int iconDraw = (int) (iconW * ICON_FILL_RATIO);
-                int inset = Math.max(1, (iconW - iconDraw) / 2);
+                int inset = Math.max(0, (iconW - iconDraw) / 2);
                 graphics.blit(HUHUTALK_ICON, x + inset, y + inset, iconDraw, iconDraw,
                         0.0f, 0.0f, HUHUTALK_ICON_SIZE, HUHUTALK_ICON_SIZE, HUHUTALK_ICON_SIZE, HUHUTALK_ICON_SIZE);
             } else {
