@@ -131,7 +131,11 @@ var generateModMetadata = tasks.register("generateModMetadata", ProcessResources
             mod_version            : mod_version,
     ]
     inputs.properties replaceProperties
-    expand replaceProperties
+    // 用 filter 逐变量替换，避免 Groovy 模板引擎把模板中的中文括号等误当作表达式解析
+    filter { line ->
+        replaceProperties.entrySet().stream()
+                .reduce(line, (acc, e) -> acc.replace("\${" + e.key + "}", String.valueOf(e.value)), (a, b) -> a)
+    }
     from "src/main/templates"
     into "build/generated/sources/modMetadata"
 }
