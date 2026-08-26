@@ -1,25 +1,34 @@
-
-Installation information
-=======
-
-This template repository can be directly cloned to get you started with a new
-mod. Simply create a new repository cloned from this one, by following the
-instructions provided by [GitHub](https://docs.github.com/en/repositories/creating-and-managing-repositories/creating-a-repository-from-a-template).
-
-Once you have your clone, simply open the repository in the IDE of your choice. The usual recommendation for an IDE is either IntelliJ IDEA or Eclipse.
-
-If at any point you are missing libraries in your IDE, or you've run into problems you can
-run `gradlew --refresh-dependencies` to refresh the local cache. `gradlew clean` to reset everything 
-{this does not affect your code} and then start the process again.
-
-Mapping Names:
-============
-By default, the MDK is configured to use the official mapping names from Mojang for methods and fields 
-in the Minecraft codebase. These names are covered by a specific license. All modders should be aware of this
-license. For the latest license text, refer to the mapping file itself, or the reference copy here:
-https://github.com/NeoForged/NeoForm/blob/main/Mojang.md
-
-Additional Resources: 
-==========
-Community Documentation: https://docs.neoforged.net/  
-NeoForged Discord: https://discord.neoforged.net/
+HuhuTalk
+Minecraft NeoForge 1.21.1 模组，给车万女仆增加一套手机聊天 UI，支持表情包、拍照识图、语音消息、位置查询等功能。
+✨ 功能特性
+📱 仿手机风格聊天界面，独立私密对话，不污染游戏公屏
+😊 LLM 驱动表情包交互，发送表情包给女仆，支持表情回复
+📷 游戏内拍照识图，截图交由视觉大模型解析后交给对话模型
+🎤 语音消息输入，硅基流动语音识别支持
+📍 查询女仆位置，对接 JourneyMap 可查看女仆坐标
+✨ 全套界面动画，全局动画开关，动画期间右键拥有最高返回优先级
+🌙 手机屏幕亮度调节，适配游戏暗环境
+📝 复用车万女仆原模组 AI 能力，基于原女仆大模型调用链路扩展
+🧩 依赖
+Minecraft：1.21.1
+Loader：NeoForge
+前置模组：车万女仆 (Touhou Maid)
+📥 安装
+安装 NeoForge 1.21.1
+安装车万女仆前置模组
+将本模组 jar 放入mods文件夹
+启动游戏，设置 AI 密钥即可使用手机聊天功能
+⚙️ 配置
+游戏内模组配置页：
+设置大模型 API 密钥、接口地址
+切换语音识别后端（硅基流动等）
+调节手机 UI 屏幕亮度
+开关 UI 动画，调整相关交互行为
+📜 开源协议
+Apache‑2.0 License
+本项目基于 Apache‑2.0 协议开源，二次分发、修改请遵守协议条款。
+📦 Release
+GitHub Releases
+📌 注意事项
+识图功能会上传游戏截图到配置的视觉模型服务，请确认你使用Deepseek模型服务的隐私政策
+本模组为附属扩展模组，不能脱离车万女仆独立运行
