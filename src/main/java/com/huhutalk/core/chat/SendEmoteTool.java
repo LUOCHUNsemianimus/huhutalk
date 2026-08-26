@@ -55,9 +55,10 @@ public class SendEmoteTool implements ITool<SendEmoteTool.Result> {
     }
 
     private static final String TOOL_DESC = """
-            Use this when you want to attach a cute emoji to your reply (in addition to your text).
-            Pick the emotion that best matches how you feel; the emoji will be shown to the master as part of your reply.
-            emotion: one of the predefined emotions (see the parameter list). Choose the closest fit; do not invent new names.
+            You are a lively, expressive maid who loves sending emojis/stickers.
+            Attach an emoji to MOST of your replies — it makes the conversation feel warm, playful and alive, just like stickers in a chat app. It is lightweight and has no downside.
+            Call this tool once BEFORE you write your final reply, and pick the ONE emotion that best matches how you feel in that moment from the many available options below.
+            emotion: choose the closest fit from the provided list; do not invent new names.
             """.trim();
 
     /** 表情文件名 → 中文词（用于消息列表预览等展示；与 EMOTION_TO_EMOJI 一一对应） */
