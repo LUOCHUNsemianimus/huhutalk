@@ -56,6 +56,8 @@ public final class HuhuTalkClientSettings {
     private static long maxTypingMs = 2400;
     /** 手机 UI 全局字体倍率（可选 0.5/0.75/1.0/1.5/2.0）。1.0 = 默认，不缩放 */
     private static float uiFontScale = 1.0f;
+    /** 主界面 HuhuTalk 图标风格："symbol2"（高清）/ "symbol"（低清）/ "fox"（狐狸emoji） */
+    private static String huhutalkIconStyle = "symbol2";
     /** 屏幕亮度（0~1，1=满亮度不调；往低调则变暗，最低叠 70% 黑色滤镜） */
     private static float screenBrightness = 1f;
     /** 女仆手动分组：stableId -> 分组名 */
@@ -85,6 +87,7 @@ public final class HuhuTalkClientSettings {
     public static long getMaxTypingMs() { return maxTypingMs; }
     public static float getUiFontScale() { return uiFontScale; }
     public static float getScreenBrightness() { return screenBrightness; }
+    public static String getHuhutalkIconStyle() { return huhutalkIconStyle; }
 
     /** 读取某女仆手动分组；未手动设置返回 null */
     public static String getMaidGroup(String stableId) {
@@ -261,6 +264,16 @@ public final class HuhuTalkClientSettings {
         save();
     }
 
+    /** 设置主界面 HuhuTalk 图标风格：symbol2 / symbol / fox（非法值回退 symbol2） */
+    public static void setHuhutalkIconStyle(String style) {
+        if ("symbol".equals(style) || "fox".equals(style) || "symbol2".equals(style)) {
+            huhutalkIconStyle = style;
+        } else {
+            huhutalkIconStyle = "symbol2";
+        }
+        save();
+    }
+
     /** 设置屏幕亮度（钳制 0~1）。0 表示最暗（叠 70% 黑色滤镜），1 表示满亮度不调。 */
     public static void setScreenBrightness(float b) {
         screenBrightness = Math.max(0f, Math.min(1f, b));
@@ -321,6 +334,7 @@ public final class HuhuTalkClientSettings {
             if (data.uiFontScale > 0f) uiFontScale = Math.max(0.5f, Math.min(2.0f, data.uiFontScale));
             screenBrightness = data.screenBrightness == null
                     ? 1f : Math.max(0f, Math.min(1f, data.screenBrightness));
+            if (data.huhutalkIconStyle != null) setHuhutalkIconStyle(data.huhutalkIconStyle);
             maidGroups.clear();
             if (data.maidGroups != null) {
                 maidGroups.putAll(data.maidGroups);
@@ -366,6 +380,7 @@ public final class HuhuTalkClientSettings {
             data.maxTypingMs = maxTypingMs;
             data.uiFontScale = uiFontScale;
             data.screenBrightness = screenBrightness;
+            data.huhutalkIconStyle = huhutalkIconStyle;
             data.maidGroups = maidGroups;
             data.customGroupNames = customGroupNames;
             Path file = settingsFile();
@@ -401,6 +416,7 @@ public final class HuhuTalkClientSettings {
         long maxTypingMs;
         float uiFontScale;
         Float screenBrightness; // 可空：缺失时默认满亮度 1.0
+        String huhutalkIconStyle; // 可空：缺失时默认 symbol2
         Map<String, String> maidGroups;
         List<String> customGroupNames;
     }

@@ -45,12 +45,14 @@ public class MainPage implements IPhonePage {
     /** 女仆表情资源命名空间与目录（与聊天页一致） */
     private static final String EMOJI_NAMESPACE = "touhou_little_maid";
     private static final String EMOJI_DIR = "textures/chat_bubble/maid_emoji";
-    /** HuhuTalk APP 图标贴图（新图标 256x256，替换狐狸 emoji） */
-    private static final ResourceLocation HUHUTALK_ICON =
+    /** HuhuTalk APP 图标贴图（三档可选：高清 symbol2 / 低清 symbol / 狐狸 emoji） */
+    private static final ResourceLocation ICON_SYMBOL2 =
             ResourceLocation.fromNamespaceAndPath("huhutalk", "textures/huhutalk_symbol.png");
-    /** HuhuTalk 图标贴图原始尺寸（256x256 源图） */
-    private static final int HUHUTALK_ICON_SIZE = 256;
-    /** HuhuTalk 图标在桌面方块内占据的比例（1.0 = 铺满，边正好对上 APP 方框的边）。想留边调小即可。 */
+    private static final int ICON_SYMBOL2_SIZE = 256;
+    private static final ResourceLocation ICON_SYMBOL =
+            ResourceLocation.fromNamespaceAndPath("huhutalk", "textures/huhutalk_symbol_legacy.png");
+    private static final int ICON_SYMBOL_SIZE = 32;
+    /** HuhuTalk 图标贴图在桌面方块内占据的比例（1.0 = 铺满，边正好对上 APP 方框的边）。想留边调小即可。 */
     private static final float ICON_FILL_RATIO = 1.0f;
     /** 随机池：全部女仆表情（emoji_01~20） */
     private static final String[] ALL_EMOJI = {
@@ -220,13 +222,27 @@ public class MainPage implements IPhonePage {
             int r = Math.max(4, iconW / 4);
             UiShapes.fillRoundedRect(graphics, x, y, iconW, iconH, r, app.color | 0xFF000000);
 
-            // 图标中心内容：HuhuTalk 用像素图标贴图，其它用文字/emoji
+            // 图标中心内容：HuhuTalk 按玩家选择的风格（高清/低清贴图或狐狸 emoji），其它用文字/emoji
             if ("HuhuTalk".equals(app.name)) {
-                // 贴图占图标方块的 ICON_FILL_RATIO（1.0=铺满，边对上 APP 方框）；源图 256x256 整体缩放
-                int iconDraw = (int) (iconW * ICON_FILL_RATIO);
-                int inset = Math.max(0, (iconW - iconDraw) / 2);
-                graphics.blit(HUHUTALK_ICON, x + inset, y + inset, iconDraw, iconDraw,
-                        0.0f, 0.0f, HUHUTALK_ICON_SIZE, HUHUTALK_ICON_SIZE, HUHUTALK_ICON_SIZE, HUHUTALK_ICON_SIZE);
+                String style = HuhuTalkClientSettings.getHuhutalkIconStyle();
+                if ("fox".equals(style)) {
+                    // 狐狸 emoji（与其它 app 一样用大字）
+                    String fox = "🦊";
+                    float cs = UiFont.sc(2.25f);
+                    int cw = (int) (font.width(fox) * cs);
+                    int ch = (int) (font.lineHeight * cs);
+                    drawScaledText(graphics, font, fox,
+                            x + (iconW - cw) / 2, y + (iconH - ch) / 2, 0xFFFFFFFF, cs);
+                } else {
+                    // 贴图：高清 symbol2 / 低清 symbol，占图标方块 ICON_FILL_RATIO（1.0=铺满，边对上方框）
+                    boolean legacy = "symbol".equals(style);
+                    ResourceLocation tex = legacy ? ICON_SYMBOL : ICON_SYMBOL2;
+                    int srcSize = legacy ? ICON_SYMBOL_SIZE : ICON_SYMBOL2_SIZE;
+                    int iconDraw = (int) (iconW * ICON_FILL_RATIO);
+                    int inset = Math.max(0, (iconW - iconDraw) / 2);
+                    graphics.blit(tex, x + inset, y + inset, iconDraw, iconDraw,
+                            0.0f, 0.0f, srcSize, srcSize, srcSize, srcSize);
+                }
             } else {
                 float cs = UiFont.sc(app.centerScale);
                 int cw = (int) (font.width(app.center) * cs);

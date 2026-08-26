@@ -96,7 +96,7 @@ public class SettingsPage implements IPhonePage {
         int colorTitleY, colorRectY, colorRectH;
         int[] colorRow = new int[2];
         int dispTitleY, dispRectY, dispRectH;
-        int[] dispRow = new int[4]; // 屏幕比例 / 屏幕大小 / 字体倍率 / 屏幕亮度
+        int[] dispRow = new int[5]; // 屏幕比例 / 屏幕大小 / 字体倍率 / 屏幕亮度 / HuhuTalk图标风格
         int contentH;
     }
 
@@ -149,16 +149,16 @@ public class SettingsPage implements IPhonePage {
         y = L.colorRow[1] + rowH() + rectPad();
         y += groupTitleTop();
 
-        // 显示 分组（4 行：屏幕比例 / 屏幕大小滑块 / 字体倍率 / 屏幕亮度）
+        // 显示 分组（5 行：屏幕比例 / 屏幕大小滑块 / 字体倍率 / 屏幕亮度 / HuhuTalk图标风格）
         L.dispTitleY = y;
         y += titleH + cardGap();
-        for (int i = 0; i < 4; i++) {
+        for (int i = 0; i < 5; i++) {
             L.dispRow[i] = y;
             y += rowH();
         }
         L.dispRectY = L.dispRow[0] - rectPad();
-        L.dispRectH = (L.dispRow[3] + rowH()) - L.dispRectY + rectPad();
-        y = L.dispRow[3] + rowH() + rectPad();
+        L.dispRectH = (L.dispRow[4] + rowH()) - L.dispRectY + rectPad();
+        y = L.dispRow[4] + rowH() + rectPad();
         y += UiFont.sh(4);
 
         L.contentH = y - (L.navH + UiFont.sh(8)) + UiFont.sh(4);
@@ -305,6 +305,10 @@ public class SettingsPage implements IPhonePage {
             double mx = mc.mouseHandler.xpos() * mc.getWindow().getGuiScaledWidth() / mc.getWindow().getScreenWidth();
             updateBrightnessFromRelX(mx - baseX, rectW);
         }
+        drawDivider(g, rectX, rectW, y3 + rowH());
+        // HuhuTalk 图标风格
+        int y4 = ly(L, baseY, L.dispRow[4]);
+        drawButtonRow(g, font, rectX, rectW, y4, "HuhuTalk图标：" + iconStyleLabel(), "切换");
     }
 
     // ==================== 控件绘制 ====================
@@ -450,6 +454,26 @@ public class SettingsPage implements IPhonePage {
         HuhuTalkClientSettings.setPhoneAspect(ASPECT_OPTIONS.get(idx < 0 ? 0 : next));
     }
 
+    /** 图标风格显示名 */
+    private static String iconStyleLabel() {
+        return switch (HuhuTalkClientSettings.getHuhutalkIconStyle()) {
+            case "symbol" -> "低清图标";
+            case "fox" -> "狐狸emoji";
+            default -> "高清图标";
+        };
+    }
+
+    /** 在 高清图标 / 低清图标 / 狐狸emoji 三档间循环 */
+    private void cycleIconStyle() {
+        String cur = HuhuTalkClientSettings.getHuhutalkIconStyle();
+        String next = switch (cur) {
+            case "symbol" -> "fox";
+            case "fox" -> "symbol2";
+            default -> "symbol";
+        };
+        HuhuTalkClientSettings.setHuhutalkIconStyle(next);
+    }
+
     private void updateSizeFromRelX(double relX, int w) {
         float f = 0.5f + (float) ((relX - 12) / (double) (w - 24)) * 0.5f;
         HuhuTalkClientSettings.setPhoneSizeRaw(f);
@@ -574,6 +598,11 @@ public class SettingsPage implements IPhonePage {
         if (hit(relX, ly, rectX, L.dispRow[3], rectW, rowH())) {
             brightnessDragging = true;
             updateBrightnessFromRelX(relX, rectW);
+            return true;
+        }
+        // 显示：HuhuTalk 图标风格切换
+        if (hitButton(relX, ly, L.dispRow[4], rectW, "切换")) {
+            cycleIconStyle();
             return true;
         }
         return false;
