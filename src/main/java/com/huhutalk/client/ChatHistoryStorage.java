@@ -71,6 +71,39 @@ public class ChatHistoryStorage {
         saveToDisk(currentWorldKey); // 写入即落盘
     }
 
+    /** 新增一条"物品气泡/文件"消息（M→P 女仆发来的物品），玩家侧=false。 */
+    public static void appendItemTransfer(String stableId, com.huhutalk.phone.ItemTransfer.Payload payload) {
+        if (payload == null) {
+            return;
+        }
+        currentHistory()
+                .computeIfAbsent(stableId, k -> new ArrayList<>())
+                .add(new ChatMessageEntry("", false, false, false, currentGameTime(), null, null, payload));
+        saveToDisk(currentWorldKey);
+    }
+
+    /** 领取部分物品后，把对应 transferId 的物品消息的待领取数更新为 newPending（0 即显示已接收）。返回是否命中。 */
+    public static boolean updateItemTransfer(String stableId, String transferId, int newPending) {
+        if (transferId == null) {
+            return false;
+        }
+        List<ChatMessageEntry> list = currentHistory().get(stableId);
+        if (list == null) {
+            return false;
+        }
+        for (int i = 0; i < list.size(); i++) {
+            ChatMessageEntry e = list.get(i);
+            com.huhutalk.phone.ItemTransfer.Payload p = e.item();
+            if (p != null && transferId.equals(p.transferId)) {
+                list.set(i, new ChatMessageEntry(e.text(), e.isPlayer(), e.isError(), e.pending(),
+                        e.gameTime(), e.emote(), e.image(), p.withPending(newPending)));
+                saveToDisk(currentWorldKey);
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** 当前客户端世界游戏时间（tick）。无世界时返回 0 */
     private static long currentGameTime() {
         net.minecraft.client.multiplayer.ClientLevel level = Minecraft.getInstance().level;
@@ -118,6 +151,9 @@ public class ChatHistoryStorage {
             return "";
         }
         ChatMessageEntry last = list.get(list.size() - 1);
+        if (last.item() != null) {
+            return last.item().claimed() ? "（文件·已接收）" : "（文件·待领取）";
+        }
         if (last.image() != null && !last.image().isEmpty()) {
             return "（图片）";
         }
@@ -302,6 +338,13 @@ public class ChatHistoryStorage {
         }
     }
 
-    public record ChatMessageEntry(String text, boolean isPlayer, boolean isError, boolean pending, long gameTime, String emote, String image) {
+    public record ChatMessageEntry(String text, boolean isPlayer, boolean isError, boolean pending, long gameTime,
+                                   String emote, String image,
+                                   com.huhutalk.phone.ItemTransfer.Payload item) {
+        /** 兼容旧的无 item 字段的构造（item 默认 null）。 */
+        public ChatMessageEntry(String text, boolean isPlayer, boolean isError, boolean pending, long gameTime,
+                                String emote, String image) {
+            this(text, isPlayer, isError, pending, gameTime, emote, image, null);
+        }
     }
 }

@@ -40,6 +40,16 @@ public class HuhuTalkChatCallback extends LLMCallback {
         this.pendingEmote = emotePath == null ? "" : emotePath;
     }
 
+    /** 触发本次聊天的主人（ServerPlayer）。 */
+    public ServerPlayer getSender() {
+        return sender;
+    }
+
+    /** 本会话女仆的 stableId。 */
+    public String getStableId() {
+        return stableId;
+    }
+
     @Override
     public void onSuccess(ResponseChat responseChat) {
         // 气泡抑制已由 ImmersiveBubbleController 在聊天发起时处理（覆盖整个回复周期 + 全局生效），

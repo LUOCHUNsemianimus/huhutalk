@@ -538,6 +538,8 @@ public class MaidInfoPage implements IPhonePage {
         if (hit(relX, ly, cardX, L.cardY[1], cardW, cardH())) {
             if (ChatHistoryStorage.hasConversation(stableId)) {
                 ChatHistoryStorage.deleteConversation(stableId);
+                // 删除聊天记录时，把该会话收件箱里尚未领取的文件一股脑掉到玩家脚下
+                PacketDistributor.sendToServer(new com.huhutalk.network.C2SDropTransferInboxPacket(stableId));
                 showFlash("🗑 已删除聊天记录");
             } else {
                 showFlash("暂无聊天记录");
@@ -622,6 +624,8 @@ public class MaidInfoPage implements IPhonePage {
         if (relX >= delX && relX <= delX + btnW && relY >= btnY && relY <= btnY + btnH) {
             PacketDistributor.sendToServer(new C2SDeleteContactPacket(stableId));
             ChatHistoryStorage.deleteConversation(stableId);
+            // 删除联系人/会话时，一并把未领取文件掉到玩家脚下
+            PacketDistributor.sendToServer(new com.huhutalk.network.C2SDropTransferInboxPacket(stableId));
             HuhuTalkClientSettings.setMaidGroup(stableId, "");
             confirmDeletePending = false;
             showFlash("☠ 已删除联系人");

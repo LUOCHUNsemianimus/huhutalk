@@ -12,7 +12,10 @@ import com.huhutalk.network.S2CMaidChatErrorPacket;
 import com.huhutalk.network.S2CMaidChatInfoPacket;
 import com.huhutalk.network.S2CMaidChatResponsePacket;
 import com.huhutalk.network.S2CMaidDeliveredPacket;
+import com.huhutalk.network.S2CMaidItemClaimResultPacket;
+import com.huhutalk.network.S2CMaidItemTransferPacket;
 import com.huhutalk.network.S2CMaidListPacket;
+import com.huhutalk.network.S2CMaidItemsSendResultPacket;
 import com.huhutalk.network.S2CMaidStatusPacket;
 import com.huhutalk.network.S2CSosBindPacket;
 import com.huhutalk.network.S2CSosTaskListPacket;
@@ -35,6 +38,9 @@ public class ClientPayloadSetup {
         registrar.playToClient(S2CMaidChatErrorPacket.TYPE, S2CMaidChatErrorPacket.STREAM_CODEC, ClientPayloadSetup::handleError);
         registrar.playToClient(S2CMaidChatInfoPacket.TYPE, S2CMaidChatInfoPacket.STREAM_CODEC, ClientPayloadSetup::handleInfo);
         registrar.playToClient(S2CMaidDeliveredPacket.TYPE, S2CMaidDeliveredPacket.STREAM_CODEC, ClientPayloadSetup::handleDelivered);
+        registrar.playToClient(S2CMaidItemTransferPacket.TYPE, S2CMaidItemTransferPacket.STREAM_CODEC, ClientPayloadSetup::handleItemTransfer);
+        registrar.playToClient(S2CMaidItemClaimResultPacket.TYPE, S2CMaidItemClaimResultPacket.STREAM_CODEC, ClientPayloadSetup::handleItemClaimResult);
+        registrar.playToClient(S2CMaidItemsSendResultPacket.TYPE, S2CMaidItemsSendResultPacket.STREAM_CODEC, ClientPayloadSetup::handleItemsSendResult);
         registrar.playToClient(S2CMaidListPacket.TYPE, S2CMaidListPacket.STREAM_CODEC, ClientPayloadSetup::handleMaidList);
         registrar.playToClient(S2CMaidStatusPacket.TYPE, S2CMaidStatusPacket.STREAM_CODEC, ClientPayloadSetup::handleStatus);
         registrar.playToClient(S2CSosBindPacket.TYPE, S2CSosBindPacket.STREAM_CODEC, ClientPayloadSetup::handleSosBind);
@@ -109,6 +115,60 @@ public class ClientPayloadSetup {
             IPhonePage current = PhoneOverlay.getCurrentPage();
             if (current instanceof ChatPage chatPage && chatPage.getStableId().equals(packet.stableId())) {
                 chatPage.clearPending();
+            }
+        });
+    }
+
+    /** 收到女仆发来的一批文件（M→P）：落盘 + 若正打开该聊天则实时显示物品气泡。 */
+    private static void handleItemTransfer(S2CMaidItemTransferPacket packet, IPayloadContext context) {
+        context.enqueueWork(() -> {
+            ChatHistoryStorage.appendItemTransfer(packet.stableId(), packet.toPayload());
+            IPhonePage current = PhoneOverlay.getCurrentPage();
+            if (current instanceof ChatPage chatPage && chatPage.getStableId().equals(packet.stableId())) {
+                chatPage.onReceiveItemTransfer(packet.toPayload());
+                if (!PhoneOverlay.isVisible()) {
+                    HuhuTalkSounds.playMsgReceiveOuter();
+                }
+            } else {
+                NotificationManager.addUnread(packet.stableId());
+            }
+        });
+    }
+
+    /** 领取结果回包：更新该物品气泡的待领取数（0 = 已接收）。 */
+    private static void handleItemClaimResult(S2CMaidItemClaimResultPacket packet, IPayloadContext context) {
+        context.enqueueWork(() -> {
+            ChatHistoryStorage.updateItemTransfer(packet.stableId(), packet.transferId(), packet.pending());
+            IPhonePage current = PhoneOverlay.getCurrentPage();
+            if (current instanceof ChatPage chatPage && chatPage.getStableId().equals(packet.stableId())) {
+                chatPage.onItemClaimResult(packet.transferId(), packet.pending());
+            }
+        });
+    }
+
+    /** P→M "文字+物品"发送结果：ok=整条已发(补文字气泡+清队列)，否则保留队列并提示。 */
+    private static void handleItemsSendResult(S2CMaidItemsSendResultPacket packet, IPayloadContext context) {
+        context.enqueueWork(() -> {
+            String text = packet.text() == null ? "" : packet.text();
+            IPhonePage current = PhoneOverlay.getCurrentPage();
+            ChatPage chatPage = (current instanceof ChatPage cp && cp.getStableId().equals(packet.stableId())) ? cp : null;
+
+            if (packet.ok()) {
+                // 成功：文字已发出 → 落盘（含不在当前页的情况），并在打开页时补内存气泡、清空物品队列
+                if (!text.isBlank()) {
+                    ChatHistoryStorage.appendMessage(packet.stableId(), text, true, false);
+                }
+                if (chatPage != null) {
+                    chatPage.onItemSendAccepted();
+                }
+            } else {
+                // 失败：整条未发 → 落盘一条提示，打开页时还原文字并保留队列
+                String msg = packet.message() == null ? "发送失败" : packet.message();
+                ChatHistoryStorage.appendMessage(packet.stableId(), "[提示] " + msg, false, true);
+                NotificationManager.addUnread(packet.stableId());
+                if (chatPage != null) {
+                    chatPage.onItemSendRejected(msg);
+                }
             }
         });
     }

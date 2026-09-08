@@ -8,7 +8,9 @@ import com.huhutalk.client.PhotoLibrary;
 import com.huhutalk.client.settings.HuhuTalkClientSettings;
 import com.huhutalk.init.HuhuTalkSounds;
 import com.huhutalk.network.C2SMaidChatPacket;
+import com.huhutalk.network.C2SMaidChatWithItemsPacket;
 import com.huhutalk.network.C2SMaidImageChatPacket;
+import com.huhutalk.network.C2SClaimTransferPacket;
 import com.huhutalk.network.C2SRequestMaidStatusPacket;
 import com.huhutalk.phone.IPhonePage;
 import com.huhutalk.phone.PhoneInputScreen;
@@ -17,13 +19,17 @@ import com.huhutalk.phone.UiFont;
 import com.huhutalk.phone.UiShapes;
 import com.huhutalk.phone.voice.VoiceInput;
 import com.huhutalk.util.MessageSplitter;
+import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.player.AbstractClientPlayer;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.FormattedCharSequence;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
 import net.neoforged.neoforge.network.PacketDistributor;
 import org.lwjgl.glfw.GLFW;
 
@@ -49,6 +55,16 @@ public class ChatPage implements IPhonePage {
     private final String stableId;
     private final String maidName;
     private final List<ChatMessage> messages = new ArrayList<>();
+
+    // ==================== P→M 传文件：随消息发送的物品队列 ====================
+    /** 最多可随一条消息发送的物品格数（2行×5） */
+    public static final int TRANSFER_CELLS = 10;
+    /** 待发送物品队列：每个格子引用"我的背包"一个主槽位（-1=空）。随下次聊天发送一并发给女仆 */
+    private final int[] transferQueue = new int[TRANSFER_CELLS];
+    /** 是否正在等待一条"带物品消息"的服务端确认（确认前不再次发送） */
+    private boolean itemSendAwait = false;
+    /** 待确认那条消息的文字（便于确认成功后补气泡 / 失败后还原到输入框） */
+    private String pendingItemText = "";
     private String currentInput = "";
     private boolean inputActive = false;
     private int cursorIndex = 0;
@@ -134,7 +150,10 @@ public class ChatPage implements IPhonePage {
         this.stableId = stableId;
         this.maidName = maidName;
         for (ChatHistoryStorage.ChatMessageEntry e : ChatHistoryStorage.getMessages(stableId)) {
-            if (e.image() != null) {
+            if (e.item() != null) {
+                // 物品气泡（M→P 传文件）：整体恢复
+                messages.add(new ChatMessage("", false, false, false, e.gameTime(), null, null, e.item()));
+            } else if (e.image() != null) {
                 // 图片消息：直接整条恢复（图片已持久化在 chat_images，重进后仍可渲染）
                 messages.add(new ChatMessage(e.text(), e.isPlayer(), e.isError(), e.pending(), e.gameTime(), null, e.image()));
             } else if (e.emote() != null) {
@@ -153,6 +172,9 @@ public class ChatPage implements IPhonePage {
         }
         this.currentInput = ChatHistoryStorage.getDraft(stableId);
         this.cursorIndex = currentInput.length();
+        for (int i = 0; i < TRANSFER_CELLS; i++) {
+            transferQueue[i] = -1;
+        }
         NotificationManager.clear(stableId);
         // 按需请求一次该女仆的当前状态（打开聊天页立刻刷新状态小字）
         PacketDistributor.sendToServer(new C2SRequestMaidStatusPacket(List.of(stableId)));
@@ -160,6 +182,32 @@ public class ChatPage implements IPhonePage {
 
     public boolean isWaitingResponse() { return waitingResponse; }
     public void setWaitingResponse(boolean waiting) { this.waitingResponse = waiting; }
+
+    /** 本地新增一条女仆发来的物品气泡（M→P）。历史持久化由网络接收端负责，这里只加到内存列表。 */
+    public void onReceiveItemTransfer(com.huhutalk.phone.ItemTransfer.Payload payload) {
+        if (payload == null) {
+            return;
+        }
+        clearPending();
+        scrollOffset = 0;
+        messages.add(new ChatMessage("", false, false, false, currentGameTime(), null, null, payload));
+    }
+
+    /** 收到领取结果后，更新对应物品气泡的待领取数（0 = 已接收）。 */
+    public void onItemClaimResult(String transferId, int newPending) {
+        if (transferId == null) {
+            return;
+        }
+        for (int i = messages.size() - 1; i >= 0; i--) {
+            ChatMessage m = messages.get(i);
+            com.huhutalk.phone.ItemTransfer.Payload p = m.item();
+            if (p != null && transferId.equals(p.transferId)) {
+                messages.set(i, new ChatMessage("", false, false, false, m.gameTime(), null, null,
+                        p.withPending(newPending)));
+                break;
+            }
+        }
+    }
 
     /** 是否处于相机模式（用于让手机体在相机模式下透明化，透出游戏画面） */
     public boolean isCameraMode() { return cameraActive; }
@@ -218,13 +266,8 @@ public class ChatPage implements IPhonePage {
     public void onInputFinished(String text, boolean send) {
         this.inputActive = false;
         this.currentInput = text;
-        // 有选中图时（无论回车还是点发送）都走图片+文字一起发送；否则按普通文字发送
-        if (send && (!text.isBlank() || selectedImageKey != null)) {
-            if (selectedImageKey != null) {
-                sendImageChat();
-            } else {
-                sendCurrentMessage();
-            }
+        if (send) {
+            routeChatSend();
         } else {
             ChatHistoryStorage.setDraft(stableId, text);
         }
@@ -411,6 +454,160 @@ public class ChatPage implements IPhonePage {
         splitIndex = 0;
     }
 
+    // ==================== P→M 传文件：队列访问（供 FileTransferPage 使用） ====================
+
+    /** 是否还有待随消息发送的物品（有则底栏"+"角标显示粉点）。 */
+    public boolean hasPendingTransfers() {
+        for (int s : transferQueue) {
+            if (s >= 0) return true;
+        }
+        return false;
+    }
+
+    /** 待发送物品文件数。 */
+    public int transferCount() {
+        int c = 0;
+        for (int s : transferQueue) {
+            if (s >= 0) c++;
+        }
+        return c;
+    }
+
+    /** 某发送格引用的"我的背包"源槽位（-1=空）。 */
+    public int transferSlot(int cell) {
+        if (cell < 0 || cell >= TRANSFER_CELLS) return -1;
+        return transferQueue[cell];
+    }
+
+    /** 某个背包源槽位是否已在队列中被占用（避免同一格重复发两次）。 */
+    public boolean transferSourceUsed(int srcSlot) {
+        for (int s : transferQueue) {
+            if (s == srcSlot) return true;
+        }
+        return false;
+    }
+
+    /** 把某背包源槽位放入指定发送格。若该源已在队列或格子越界则不放入。 */
+    public boolean transferSet(int cell, int srcSlot) {
+        if (cell < 0 || cell >= TRANSFER_CELLS) return false;
+        if (transferSourceUsed(srcSlot)) return false;
+        transferQueue[cell] = srcSlot;
+        return true;
+    }
+
+    /** 把某背包源槽位放进队列的第一个空格。该源已在队列或队列满则失败。 */
+    public boolean transferAdd(int srcSlot) {
+        if (transferSourceUsed(srcSlot)) return false;
+        for (int i = 0; i < TRANSFER_CELLS; i++) {
+            if (transferQueue[i] < 0) {
+                transferQueue[i] = srcSlot;
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 移除某发送格。 */
+    public void transferRemove(int cell) {
+        if (cell >= 0 && cell < TRANSFER_CELLS) {
+            transferQueue[cell] = -1;
+        }
+    }
+
+    /** 发送成功后清空整条队列。 */
+    public void transferClearAll() {
+        for (int i = 0; i < TRANSFER_CELLS; i++) {
+            transferQueue[i] = -1;
+        }
+    }
+
+    // ==================== 发送：普通文字 / 图片 / 带物品 ====================
+
+    /** 中央分发：文字 / 图片 / 带物品三条发送路径择一。 */
+    private void routeChatSend() {
+        boolean hasItems = hasPendingTransfers();
+        boolean hasImg = selectedImageKey != null;
+        boolean hasText = !currentInput.isBlank();
+        if (!hasText && !hasImg && !hasItems) {
+            return;
+        }
+        if (hasItems) {
+            // 有物品随消息：走 ack 流（整条成功后女仆才收到），物品优先于图片附件
+            trySendWithItems();
+            return;
+        }
+        if (hasImg) {
+            sendImageChat();
+            return;
+        }
+        sendCurrentMessage();
+    }
+
+    /**
+     * 发送"文字 + 队列里的物品"（P→M，随消息发给女仆）。
+     * 文字可以为空（仅发物品）。发送后本地不立即提交，等服务端 ack 决定成/败。
+     */
+    private void trySendWithItems() {
+        if (itemSendAwait) {
+            return; // 上一条还在等确认，先忽略
+        }
+        String text = currentInput;
+        // 记录待确认文字（空则只发物品）
+        pendingItemText = text == null ? "" : text;
+        List<Integer> slots = new ArrayList<>();
+        for (int s : transferQueue) {
+            if (s >= 0) slots.add(s);
+        }
+        if (slots.isEmpty()) {
+            return; // 无物品也不该走这里
+        }
+        if (!pendingItemText.isBlank()) {
+            flushPendingSplitting();
+        }
+        // 本地不提交文字，先清输入框等待确认
+        currentInput = "";
+        cursorIndex = 0;
+        inputScrollOffset = 0;
+        ChatHistoryStorage.setDraft(stableId, "");
+        itemSendAwait = true;
+        PacketDistributor.sendToServer(new C2SMaidChatWithItemsPacket(stableId, pendingItemText, slots,
+                HuhuTalkClientSettings.isMaidWhisperEnabled(), HuhuTalkClientSettings.isImmersiveChatEnabled()));
+    }
+
+    /**
+     * 服务端确认成功：整条已发给女仆。补上玩家的文字气泡、清空物品队列、进入"对方正在输入…"。
+     * 历史落盘由网络处理端负责（含不在当前页的情况），这里只更新内存视图。
+     */
+    public void onItemSendAccepted() {
+        String text = pendingItemText;
+        itemSendAwait = false;
+        pendingItemText = "";
+        transferClearAll();
+        scrollOffset = 0;
+        if (text != null && !text.isBlank()) {
+            messages.add(new ChatMessage(text, true, false, false, currentGameTime(), null, null));
+            waitingResponse = true;
+        }
+    }
+
+    /**
+     * 服务端确认失败（放不下/不在线等）：整条未发送。还原文字到输入框、保留物品队列、提示原因。
+     */
+    public void onItemSendRejected(String message) {
+        String text = pendingItemText;
+        itemSendAwait = false;
+        pendingItemText = "";
+        // 还原文字
+        if (text != null && !text.isBlank()) {
+            currentInput = text;
+            cursorIndex = currentInput.length();
+            ChatHistoryStorage.setDraft(stableId, text);
+        }
+        // 队列保留（粉点还在，可稍后再发）
+        String notice = message == null || message.isEmpty() ? "发送失败，物品已保留" : message;
+        messages.add(new ChatMessage("[提示] " + notice, false, true, false, currentGameTime(), null, null));
+    }
+
     private void sendCurrentMessage() {
         if (currentInput.isBlank()) return;
         String text = currentInput;
@@ -513,6 +710,8 @@ public class ChatPage implements IPhonePage {
         if (extPanelIcon == 1) return (int)(phoneH() * 0.45);
         // 图片面板（🖼️）：高度 = 缩放后的图片边长 + 上下留白，保证图片完整可见
         if (extPanelIcon == 2) return galleryItemSize() + UiFont.sh(12);
+        // 附加栏工具网格（第5个"+"）：略高于默认占位，好放 app 图标 + 名称
+        if (extPanelIcon == 4) return (int)(phoneH() * 0.22);
         return (int)(phoneH() * 0.18);
     }
     /** 面板顶：直接位于拓展功能栏上方；打开时把输入框往上顶，而不是从输入框上方伸出 */
@@ -711,6 +910,8 @@ public class ChatPage implements IPhonePage {
                 renderEmotePanel(g, font, baseX, pTop, pBottom, w);
             } else if (extPanelIcon == 2) {
                 renderGalleryPanel(g, font, baseX, pTop, pBottom, w);
+            } else if (extPanelIcon == 4) {
+                renderToolsPanel(g, font, baseX, pTop, pBottom, w);
             } else {
                 int panelMidY = (pTop + pBottom) / 2;
                 String panelText = "🚧 面板开发中";
@@ -793,6 +994,12 @@ public class ChatPage implements IPhonePage {
                 UiShapes.fillRoundedRect(g, cx + btnSize / 2 - dot - UiFont.sh(1),
                         extCenterY - btnSize / 2 + UiFont.sh(1), dot, dot, 1, 0xFFDE6F8D);
             }
+            // 附加栏（第5个"+"，index 4）有待随消息发送的物品时同样标粉点
+            if (i == 4 && hasPendingTransfers()) {
+                int dot = UiFont.sh(5);
+                UiShapes.fillRoundedRect(g, cx + btnSize / 2 - dot - UiFont.sh(1),
+                        extCenterY - btnSize / 2 + UiFont.sh(1), dot, dot, 1, 0xFFDE6F8D);
+            }
         }
     }
 
@@ -819,6 +1026,10 @@ public class ChatPage implements IPhonePage {
      * groupTop = 该条是「同一时刻分组」的顶部时，需多预留 timeH 放居中时间标签。
      */
     private int bubbleHeight(Font font, ChatMessage m, int phoneW, boolean groupTop) {
+        // 物品气泡（M→P 传文件）：固定高度
+        if (m.item() != null) {
+            return itemBubbleSize() + (groupTop ? timeH() : 0);
+        }
         // 表情消息：固定高度
         if (m.emote() != null) {
             return emoteBubbleSize() + (groupTop ? timeH() : 0);
@@ -841,6 +1052,10 @@ public class ChatPage implements IPhonePage {
      */
     private int drawBubble(GuiGraphics g, Font font, int baseX, int yBottom, int phoneW, ChatMessage m,
                            boolean showAvatar, boolean groupTop) {
+        // 物品气泡（M→P 传文件）：走专用物品气泡
+        if (m.item() != null) {
+            return drawItemBubble(g, font, baseX, yBottom, phoneW, m, showAvatar, groupTop);
+        }
         // 表情消息：走纯图片气泡（始终带头像）
         if (m.emote() != null) {
             return drawEmoteBubble(g, font, baseX, yBottom, phoneW, m, showAvatar, groupTop);
@@ -902,6 +1117,131 @@ public class ChatPage implements IPhonePage {
             }
         }
         // 同一时刻分组的顶部：在屏幕中间上方显示"xx天前"（保留 0.5 倍灰字字号与颜色）
+        if (groupTop) {
+            String timeText = formatGameTime(m.gameTime());
+            if (!timeText.isEmpty()) {
+                float ts = UiFont.sc(0.5f);
+                int centerX = baseX + phoneW / 2;
+                drawScaledText(g, font, timeText,
+                        centerX - font.width(timeText) * ts / 2f, yTop - timeH(), 0xFF9A8A90, ts);
+            }
+        }
+        return bubbleH + (groupTop ? timeH() : 0);
+    }
+
+    // ==================== 物品气泡（M→P 传文件） ====================
+
+    /** 物品预览图标格子边长：两倍默认字体行高（随字体/缩放变化，不写死像素）。 */
+    private static int itemBox() {
+        return Math.max(8, 2 * lh());
+    }
+
+    /** 物品气泡总高度：上距 + 图标行 + 间距 + 两行状态/说明文字 + 下距 */
+    private int itemBubbleSize() {
+        int textH = lh() + 1;
+        return 6 + itemBox() + 5 + textH * 2 + 6;
+    }
+
+    /** 由预览数据还原一个仅用于渲染图标的 ItemStack（未知物品返回 EMPTY）。 */
+    private static ItemStack previewToStack(com.huhutalk.phone.ItemTransfer.Preview p) {
+        if (p == null || p.itemId == null || p.itemId.isEmpty()) {
+            return ItemStack.EMPTY;
+        }
+        try {
+            ResourceLocation rl = ResourceLocation.parse(p.itemId);
+            Item it = BuiltInRegistries.ITEM.get(rl);
+            ItemStack s = new ItemStack(it);
+            s.setCount(Math.max(1, p.count));
+            return s.isEmpty() ? ItemStack.EMPTY : s;
+        } catch (Exception ex) {
+            return ItemStack.EMPTY;
+        }
+    }
+
+    /** 画一个放大的物品图标（原生16px缩放后放进 box 大小的方框）。 */
+    private static void drawItemIcon(GuiGraphics g, ItemStack stack, int centerX, int centerY) {
+        if (stack == null || stack.isEmpty()) {
+            return;
+        }
+        PoseStack pose = g.pose();
+        pose.pushPose();
+        int ib = itemBox();
+        pose.translate(centerX - ib / 2f, centerY - ib / 2f, 0);
+        float s = ib / 16f;
+        pose.scale(s, s, 1f);
+        g.renderItem(stack, 0, 0);
+        pose.popPose();
+    }
+
+    /** 女仆发送的物品气泡：画预览图标(最多前3个)、额外物品数说明与领取状态，整块可点击领取。 */
+    private int drawItemBubble(GuiGraphics g, Font font, int baseX, int yBottom, int phoneW, ChatMessage m,
+                               boolean showAvatar, boolean groupTop) {
+        int textH = lh() + 1;
+        int ib = itemBox();
+        int bubbleH = itemBubbleSize();
+        int yTop = yBottom - bubbleH;
+
+        int bubbleLeft = baseX + AVATAR + MARGIN;          // 女仆侧
+        int maxW = phoneW - AVATAR * 2 - MARGIN * 2;
+        com.huhutalk.phone.ItemTransfer.Payload payload = m.item();
+        java.util.List<com.huhutalk.phone.ItemTransfer.Preview> previews =
+                payload.previews == null ? java.util.Collections.emptyList() : payload.previews;
+
+        // 每格图标步进与内边距（跟随字体尺寸）
+        int step = ib + 6;
+        int padX = 6;
+        // 宽度能放下几个图标：最多 3；极端大字体(ib 很大)时自动减少，防止图标溢出屏幕
+        int iconFit = Math.min(3, (maxW - 2 * padX + step) / step);
+        iconFit = Math.max(1, iconFit);
+        int shown = Math.min(previews.size(), iconFit);
+
+        // 说明行（第二行 / 第三行），长度决定气泡在图标行之外还需多宽
+        int hidden = Math.max(0, payload.total - shown);
+        String lineA = hidden > 0 ? "和剩余 " + hidden + " 个文件" : "";
+        String lineB = payload.claimed() ? "✓ 已接收"
+                : (payload.pending > 0 ? "待领取 " + payload.pending + " 个文件" : "");
+        float capTs = 0.7f;
+        // 气泡宽度贴合内容：图标行宽 与 说明最长一行 取大，封顶到 maxW（不再堆满整屏）
+        int iconRowW = 2 * padX + shown * ib + Math.max(0, shown - 1) * 6;
+        int capW = (int) (Math.max(font.width(lineA), font.width(lineB)) * capTs) + 2 * padX;
+        int bubbleW = Math.min(maxW, Math.max(iconRowW, Math.max(capW, ib + 2 * padX)));
+        if (bubbleW > maxW) bubbleW = maxW;
+        int radius = Math.max(2, bubbleH / 5);
+        UiShapes.fillRoundedRect(g, bubbleLeft, yTop, bubbleW, bubbleH, radius, 0xFF525A6E);
+
+        // 第一行：预览图标（最多 shown 个）
+        int iconCenterY = yTop + 6 + ib / 2;
+        int cx = bubbleLeft + padX + ib / 2;
+        for (int i = 0; i < shown; i++) {
+            ItemStack st = previewToStack(previews.get(i));
+            // 图标底色框
+            UiShapes.fillRoundedRect(g, cx - ib / 2 - 1, iconCenterY - ib / 2 - 1,
+                    ib + 2, ib + 2, 4, 0x33000000);
+            drawItemIcon(g, st, cx, iconCenterY);
+            // 每个物品的数量小字（右上角）
+            if (!st.isEmpty() && st.getCount() > 1) {
+                String cnt = String.valueOf(st.getCount());
+                drawScaledText(g, font, cnt,
+                        cx + ib / 2f - font.width(cnt) * 0.6f, iconCenterY - ib / 2f - 2,
+                        0xFFFFFFFF, 0.6f);
+            }
+            cx += step;
+        }
+
+        // 第二行：超出图标数量的说明（仅当有多出的文件）
+        int textX = bubbleLeft + padX;
+        int textY = yTop + 6 + ib + 4;
+        if (!lineA.isEmpty()) {
+            drawScaledText(g, font, lineA, textX, textY, 0xFFD8DCE6, capTs);
+        }
+        // 第三行：领取状态
+        int stateY = textY + textH;
+        int stateColor = payload.claimed() ? 0xFF7FE08A : 0xFFFFE08A;
+        drawScaledText(g, font, lineB, textX, stateY, stateColor, capTs);
+
+        if (showAvatar) {
+            drawAvatarPlaceholder(g, baseX + 2, yTop, false);
+        }
         if (groupTop) {
             String timeText = formatGameTime(m.gameTime());
             if (!timeText.isEmpty()) {
@@ -1036,6 +1376,84 @@ public class ChatPage implements IPhonePage {
         Minecraft mc = Minecraft.getInstance();
         return org.lwjgl.glfw.GLFW.glfwGetMouseButton(mc.getWindow().getWindow(),
                 GLFW.GLFW_MOUSE_BUTTON_LEFT) == GLFW.GLFW_PRESS;
+    }
+
+    // ==================== 附加栏工具（第5个"+"，传文件等） ====================
+
+    /** 附加栏内的工具（图标 emoji + 名称）。目前第一个工具是"传文件"，后续可继续追加。 */
+    private static final String[][] EXTRA_TOOLS = {{"📃", "传文件"}};
+
+    /** 附加栏工具的圆角方框边长：跟随默认字体行高变化（约两倍行高），不写死像素。 */
+    private static int toolTile() {
+        return Math.max(10, Math.round(2 * lh()));
+    }
+
+    /** 绘制附加栏工具网格：app 风格圆角方块图标 + 名称。 */
+    private void renderToolsPanel(GuiGraphics g, Font font, int baseX, int pTop, int pBottom, int w) {
+        int padX = UiFont.sh(8);
+        int padY = UiFont.sh(6);
+        int labelH = lh();
+        int availH = pBottom - pTop;
+        int tileS = toolTile();
+        int gap = UiFont.sh(6);
+        int cols = Math.max(1, (w - padX * 2 + gap) / (tileS + gap));
+        int startX = baseX + padX;
+        int startY = pTop + padY;
+        for (int i = 0; i < EXTRA_TOOLS.length; i++) {
+            int col = i % cols;
+            int row = i / cols;
+            int x = startX + col * (tileS + gap);
+            int y = startY + row * (tileS + labelH + UiFont.sh(2));
+            UiShapes.fillRoundedRect(g, x, y, tileS, tileS, Math.max(3, tileS / 5), 0xFFFFFFFF);
+            String icon = EXTRA_TOOLS[i][0];
+            float ts = UiFont.sc(1.5f);
+            drawScaledText(g, font, icon,
+                    x + (tileS - font.width(icon) * ts) / 2f,
+                    y + (tileS - lh() * ts) / 2f, 0xFFDE6F8D, ts);
+            drawScaledText(g, font, EXTRA_TOOLS[i][1],
+                    x + (tileS - font.width(EXTRA_TOOLS[i][1]) * UiFont.sc(0.8f)) / 2f,
+                    y + tileS + 1, 0xFF6A5A5A, UiFont.sc(0.8f));
+        }
+    }
+
+    /** 命中附加栏里的某个工具。当前只有"传文件"，命中即返回 true。 */
+    private boolean hitExtraTool(double relX, double relY) {
+        if (!bottomPanelOpen || extPanelIcon != 4) {
+            return false;
+        }
+        int pTop = panelTop(0);
+        int pBottom = extBarTop(0);
+        if (relY < pTop || relY >= pBottom) {
+            return false;
+        }
+        int padX = UiFont.sh(8);
+        int padY = UiFont.sh(6);
+        int labelH = lh();
+        int availH = pBottom - pTop;
+        int tileS = toolTile();
+        int gap = UiFont.sh(6);
+        int cols = Math.max(1, (phoneW() - padX * 2 + gap) / (tileS + gap));
+        int startX = padX;
+        int startY = pTop + padY;
+        for (int i = 0; i < EXTRA_TOOLS.length; i++) {
+            int col = i % cols;
+            int row = i / cols;
+            int x = startX + col * (tileS + gap);
+            int y = startY + row * (tileS + labelH + UiFont.sh(2));
+            if (relX >= x && relX <= x + tileS && relY >= y && relY <= y + tileS) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 打开选中的附加工具页面。当前为"传文件"发送页（与当前聊天共用发送队列）。 */
+    private void openExtraTool(int index) {
+        if (index == 0) {
+            PhoneOverlay.pushPage(new FileTransferPage(this));
+        }
+        bottomPanelOpen = false;
+        extPanelIcon = -1;
     }
 
     /** 绘制语音面板里的圆形"按住说话"大按钮（#de7e7e 底白字，居中，直径 = 扩展栏高度 5/6） */
@@ -1771,6 +2189,45 @@ public class ChatPage implements IPhonePage {
         return bubbleH + (groupTop ? timeH() : 0);
     }
 
+    // ==================== 物品气泡点击领取（M→P） ====================
+
+    /** 检测本次左键点是否落在某个"尚未接收"的物品气泡上，是则发领取包并返回 true。 */
+    private boolean tryClaimItemAt(double relX, double relY, int w) {
+        double msgTop = navH();
+        double msgBottom = inputTop(0) - 2;
+        if (relY < msgTop || relY > msgBottom || messages.isEmpty()) {
+            return false;
+        }
+        Font font = Minecraft.getInstance().font;
+        int[] gs = computeGroupStart();
+        int n = messages.size();
+        // 与渲染一致：自底部向上逐条回溯，把屏幕 Y 映射回某条消息
+        double y = msgBottom - 4 + scrollOffset;
+        for (int i = n - 1; i >= 0; i--) {
+            boolean groupTop = gs[i] == i;
+            int totalBubble = bubbleHeight(font, messages.get(i), w, groupTop) + 4;
+            if (relY >= y - totalBubble && relY <= y) {
+                ChatMessage m = messages.get(i);
+                var p = m.item();
+                if (p != null && !p.claimed()) {
+                    claimItemTransfer(p.transferId);
+                    return true;
+                }
+                return false; // 点在非待领物品消息上：不吞事件
+            }
+            y -= totalBubble;
+        }
+        return false;
+    }
+
+    /** 发送领取请求：服务端尽力放入玩家背包，剩余可再点，满则整批丢地，随后回包刷新。 */
+    private void claimItemTransfer(String transferId) {
+        if (transferId == null || transferId.isEmpty()) {
+            return;
+        }
+        PacketDistributor.sendToServer(new C2SClaimTransferPacket(stableId, transferId));
+    }
+
     /** 矩形命中判定（relX/relY 相对手机左上角） */
     private static boolean hit(double x, double y, int rx, int ry, int rw, int rh) {
         return x >= rx && x <= rx + rw && y >= ry && y <= ry + rh;
@@ -1796,6 +2253,11 @@ public class ChatPage implements IPhonePage {
 
         if (relX >= w - 24 && relX <= w && relY >= 0 && relY <= navH()) {
             PhoneOverlay.pushPage(new MaidInfoPage(stableId, maidName));
+            return true;
+        }
+
+        // 物品气泡（M→P 传文件）：点击"尚未接收"的物品消息即向服务端申请领取
+        if (tryClaimItemAt(relX, relY, w)) {
             return true;
         }
 
@@ -1843,6 +2305,33 @@ public class ChatPage implements IPhonePage {
             }
         }
 
+        // 附加栏(第5个"+"，index4)的工具面板：点工具图标则打开对应工具页
+        if (bottomPanelOpen && extPanelIcon == 4) {
+            int pTop = panelTop(0);
+            int pBottom = extBarTop(0);
+            if (relY >= pTop && relY < pBottom) {
+                int padX = UiFont.sh(8);
+                int padY = UiFont.sh(6);
+                int labelH = lh();
+                int availH = pBottom - pTop;
+                int tileS = toolTile();
+                int gap = UiFont.sh(6);
+                int cols = Math.max(1, (w - padX * 2 + gap) / (tileS + gap));
+                int startX = padX;
+                int startY = pTop + padY;
+                for (int i = 0; i < EXTRA_TOOLS.length; i++) {
+                    int col = i % cols;
+                    int row = i / cols;
+                    int x = startX + col * (tileS + gap);
+                    int y = startY + row * (tileS + labelH + UiFont.sh(2));
+                    if (relX >= x && relX <= x + tileS && relY >= y && relY <= y + tileS) {
+                        openExtraTool(i);
+                        return true;
+                    }
+                }
+            }
+        }
+
         // 拓展功能栏（贴屏幕底部）：点击任意按钮切换上拉面板 / 进入相机
         int extTop = extBarTop(0);
         if (relY >= extTop && relY <= phoneH()) {
@@ -1868,11 +2357,7 @@ public class ChatPage implements IPhonePage {
 
         if (relX >= sendX(baseX) && relX <= sendX(baseX) + sendW()
                 && relY >= sendY(baseY) && relY <= sendY(baseY) + sendH()) {
-            if (selectedImageKey != null) {
-                sendImageChat();
-            } else {
-                sendCurrentMessage();
-            }
+            routeChatSend();
             return true;
         }
 
@@ -1928,6 +2413,15 @@ public class ChatPage implements IPhonePage {
         Minecraft.getInstance().setScreen(new PhoneInputScreen(this));
     }
 
-    private record ChatMessage(String text, boolean isPlayer, boolean isError, boolean pending, long gameTime, String emote, String image) {
+    /**
+     * 一条聊天消息。emote/image 为资源/图片 key；item 为物品气泡负载（M→P 传文件），null=无。
+     * 为了少改动已有调用点，保留一个不带 item 的便捷构造（item=null）。
+     */
+    private record ChatMessage(String text, boolean isPlayer, boolean isError, boolean pending, long gameTime,
+                               String emote, String image, com.huhutalk.phone.ItemTransfer.Payload item) {
+        private ChatMessage(String text, boolean isPlayer, boolean isError, boolean pending, long gameTime,
+                            String emote, String image) {
+            this(text, isPlayer, isError, pending, gameTime, emote, image, null);
+        }
     }
 }

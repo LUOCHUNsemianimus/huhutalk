@@ -16,7 +16,10 @@ import com.huhutalk.init.HuhuTalkItems;
 import com.huhutalk.init.HuhuTalkSounds;
 import com.huhutalk.network.C2SMaidChatPacket;
 import com.huhutalk.network.C2SMaidImageChatPacket;
+import com.huhutalk.network.C2SClaimTransferPacket;
 import com.huhutalk.network.C2SDeleteContactPacket;
+import com.huhutalk.network.C2SDropTransferInboxPacket;
+import com.huhutalk.network.C2SMaidChatWithItemsPacket;
 import com.huhutalk.network.C2SRequestMaidListPacket;
 import com.huhutalk.network.C2SRequestMaidStatusPacket;
 import com.huhutalk.network.C2SRequestSosTaskListPacket;
@@ -81,6 +84,12 @@ public class HuhuTalk {
         registrar.playToServer(C2SMaidChatPacket.TYPE, C2SMaidChatPacket.STREAM_CODEC, C2SMaidChatPacket::handle);
         // 客户端 → 服务端：带一张图片的聊天（图片走 vision_tmp 共享目录，包内只传 token）
         registrar.playToServer(C2SMaidImageChatPacket.TYPE, C2SMaidImageChatPacket.STREAM_CODEC, C2SMaidImageChatPacket::handle);
+        // 客户端 → 服务端：领取女仆发来的物品（M→P 传文件）
+        registrar.playToServer(C2SClaimTransferPacket.TYPE, C2SClaimTransferPacket.STREAM_CODEC, C2SClaimTransferPacket::handle);
+        // 客户端 → 服务端：文字 + 随信物品（P→M）
+        registrar.playToServer(C2SMaidChatWithItemsPacket.TYPE, C2SMaidChatWithItemsPacket.STREAM_CODEC, C2SMaidChatWithItemsPacket::handle);
+        // 客户端 → 服务端：删除会话时清空该会话收件箱（未领物品掉玩家脚下）
+        registrar.playToServer(C2SDropTransferInboxPacket.TYPE, C2SDropTransferInboxPacket.STREAM_CODEC, C2SDropTransferInboxPacket::handle);
         // 客户端 → 服务端：删除联系人
         registrar.playToServer(C2SDeleteContactPacket.TYPE, C2SDeleteContactPacket.STREAM_CODEC, C2SDeleteContactPacket::handle);
         // 客户端 → 服务端：请求女仆列表

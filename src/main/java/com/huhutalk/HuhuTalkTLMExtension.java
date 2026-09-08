@@ -8,6 +8,7 @@ import com.github.tartaricacid.touhoulittlemaid.item.bauble.BaubleManager;
 import com.huhutalk.core.chat.SendEmoteTool;
 import com.huhutalk.core.move.MoveToTool;
 import com.huhutalk.core.move.TaskMoveTo;
+import com.huhutalk.core.transfer.SendItemTool;
 import com.huhutalk.init.HuhuTalkItems;
 
 /**
@@ -36,5 +37,7 @@ public class HuhuTalkTLMExtension implements ILittleMaid {
     public void registerAITool(ToolRegister register) {
         register.register(new MoveToTool());
         register.register(new SendEmoteTool());
+        // 传文件（M→P）：女仆把自己身上/隙间里的物品发给主人，主人聊天里点气泡领取
+        register.register(new SendItemTool());
     }
 }
