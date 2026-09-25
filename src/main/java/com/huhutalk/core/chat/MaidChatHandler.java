@@ -67,6 +67,9 @@ public class MaidChatHandler {
 
         manager.addUserHistory(message);
 
+        // 手机来源窗口：本条消息来自手机 → 通知客户端播放「使用手机」附加动画
+        PhoneChatSourceController.open(maid);
+
         Runnable chatAction = () -> {
             // 女仆悄悄话：抑制该女仆头顶气泡（全局生效）
             if (bubbleMute) {
@@ -207,6 +210,8 @@ public class MaidChatHandler {
                         // 发起调用后再把用户文字写入历史，供后续对话记住本条；图片描述本身不写历史。
                         List<LLMMessage> messages = buildImageMessages(manager, playerIn, desc, userTextIn);
                         HuhuTalkChatCallback callback = new HuhuTalkChatCallback(manager, messages, playerIn, stableIdIn, bubbleMute);
+                        // 手机来源窗口：图片消息同样来自手机
+                        PhoneChatSourceController.open(maidIn);
                         site.client().chat(callback);
                         if (userTextIn != null && !userTextIn.isBlank()) {
                             manager.addUserHistory(userTextIn);

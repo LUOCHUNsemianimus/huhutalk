@@ -4,6 +4,7 @@ import com.github.tartaricacid.touhoulittlemaid.ai.manager.entity.LLMCallback;
 import com.github.tartaricacid.touhoulittlemaid.ai.manager.entity.MaidAIChatManager;
 import com.github.tartaricacid.touhoulittlemaid.ai.manager.response.ResponseChat;
 import com.github.tartaricacid.touhoulittlemaid.ai.service.llm.LLMMessage;
+import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
 import com.huhutalk.network.S2CMaidChatErrorPacket;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
@@ -56,6 +57,11 @@ public class HuhuTalkChatCallback extends LLMCallback {
         // 这里无需再临时关气泡。
         super.onSuccess(responseChat);
 
+        // 回复已到达 → 关闭手机来源窗口，客户端据此播放「放下手机」段。
+        // 注意：TLM 的 wait 气泡在 addLLMChatText 里被移除，所以窗口必须在回复落地时关闭，
+        // 否则动画会一直停在持机状态。
+        closePhoneSource();
+
         String replyText = responseChat.getChatText();
         if (sender != null && sender.isAlive() && !replyText.isBlank()) {
             if (getMaid().level() instanceof ServerLevel serverLevel) {
@@ -72,6 +78,8 @@ public class HuhuTalkChatCallback extends LLMCallback {
     @Override
     public void onFailure(HttpRequest request, Throwable throwable, int errorCode) {
         super.onFailure(request, throwable, errorCode);
+        // 失败同样关闭窗口，避免动画卡在持机状态
+        closePhoneSource();
         if (sender != null && sender.isAlive()) {
             if (getMaid().level() instanceof ServerLevel serverLevel) {
                 serverLevel.getServer().submit(() -> {
@@ -79,6 +87,14 @@ public class HuhuTalkChatCallback extends LLMCallback {
                             new S2CMaidChatErrorPacket(stableId, throwable.getMessage()));
                 });
             }
+        }
+    }
+
+    /** 关闭该女仆的手机来源窗口（幂等）。用 {@code asEntity()} + instanceof 取实体，避免依赖具体实现。 */
+    private void closePhoneSource() {
+        EntityMaid maid = (getMaid().asEntity() instanceof EntityMaid m) ? m : null;
+        if (maid != null) {
+            PhoneChatSourceController.close(maid);
         }
     }
 }

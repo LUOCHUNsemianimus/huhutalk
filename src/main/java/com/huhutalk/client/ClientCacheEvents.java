@@ -31,6 +31,7 @@ public class ClientCacheEvents {
         MaidStatusCache.clear();
         SosBindCache.clear();
         SosTaskCache.clear();
+        PhoneChatSourceCache.clear();
         PhoneOverlay.resetForNewWorld();
         // 重置路径点同步签名 + 同步 JourneyMap 路径点给服务端（可选软依赖，未装时自动跳过）
         WaypointSync.reset();

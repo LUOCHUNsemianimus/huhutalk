@@ -5,9 +5,11 @@ import com.huhutalk.client.ChatHistoryStorage;
 import com.huhutalk.client.MaidListCache;
 import com.huhutalk.client.MaidStatusCache;
 import com.huhutalk.client.NotificationManager;
+import com.huhutalk.client.PhoneChatSourceCache;
 import com.huhutalk.client.SosBindCache;
 import com.huhutalk.client.SosTaskCache;
 import com.huhutalk.init.HuhuTalkSounds;
+import com.huhutalk.network.S2CPhoneChatSourcePacket;
 import com.huhutalk.network.S2CMaidChatErrorPacket;
 import com.huhutalk.network.S2CMaidChatInfoPacket;
 import com.huhutalk.network.S2CMaidChatResponsePacket;
@@ -45,6 +47,13 @@ public class ClientPayloadSetup {
         registrar.playToClient(S2CMaidStatusPacket.TYPE, S2CMaidStatusPacket.STREAM_CODEC, ClientPayloadSetup::handleStatus);
         registrar.playToClient(S2CSosBindPacket.TYPE, S2CSosBindPacket.STREAM_CODEC, ClientPayloadSetup::handleSosBind);
         registrar.playToClient(S2CSosTaskListPacket.TYPE, S2CSosTaskListPacket.STREAM_CODEC, ClientPayloadSetup::handleSosTaskList);
+        // 服务端 → 客户端：手机聊天来源窗口（驱动「使用手机」附加动画）
+        registrar.playToClient(S2CPhoneChatSourcePacket.TYPE, S2CPhoneChatSourcePacket.STREAM_CODEC, ClientPayloadSetup::handlePhoneChatSource);
+    }
+
+    /** 手机来源窗口同步：只有窗口内的女仆才播放手机动画。 */
+    private static void handlePhoneChatSource(S2CPhoneChatSourcePacket packet, IPayloadContext context) {
+        context.enqueueWork(() -> PhoneChatSourceCache.set(packet.stableId(), packet.active()));
     }
 
     private static void handleResponse(S2CMaidChatResponsePacket packet, IPayloadContext context) {

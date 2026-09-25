@@ -7,7 +7,9 @@ import com.huhutalk.command.ModCommands;
 import com.huhutalk.core.event.FilmTransformHandler;
 import com.huhutalk.core.chat.ChatBannerMuteController;
 import com.huhutalk.core.chat.ImmersiveBubbleController;
+import com.huhutalk.core.chat.PhoneChatSourceController;
 import com.huhutalk.core.chat.SignalDelayManager;
+import com.huhutalk.client.PhoneAnimationRegistration;
 import com.huhutalk.core.load.TicketManager;
 import com.huhutalk.core.move.MaidMoveData;
 import com.huhutalk.init.HuhuTalkBlocks;
@@ -74,6 +76,12 @@ public class HuhuTalk {
         NeoForge.EVENT_BUS.addListener(ServerTickEvent.Post.class, e -> ImmersiveBubbleController.tick(e.getServer()));
         // 沉浸式聊天公屏抑制：每 tick 对账，到点清除过期静音标记
         NeoForge.EVENT_BUS.addListener(ServerTickEvent.Post.class, e -> ChatBannerMuteController.tick(e.getServer()));
+        // 手机聊天来源窗口：每 tick 兜底关闭超时窗口（LLM 长时间无响应保护）
+        NeoForge.EVENT_BUS.addListener(ServerTickEvent.Post.class, e -> PhoneChatSourceController.tick(e.getServer()));
+        NeoForge.EVENT_BUS.addListener(ServerStoppingEvent.class, e -> PhoneChatSourceController.clearAll());
+        NeoForge.EVENT_BUS.addListener(PlayerEvent.PlayerLoggedOutEvent.class, e -> PhoneChatSourceController.clearAll());
+        // 「使用手机」附加动画：并入 TLM 女仆默认动画表（须在构造期手动注册，见类注释）
+        PhoneAnimationRegistration.register();
 
         modEventBus.addListener(RegisterPayloadHandlersEvent.class, this::setupPackets);
     }

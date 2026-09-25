@@ -9,7 +9,8 @@
     "ChatBubbleManagerMixin"
   ],
   "client": [
-    "MouseHandlerMixin"
+    "MouseHandlerMixin",
+    "GeckoMaidEntityMixin"
   ],
   "injectors": {
     "defaultRequire": 1
