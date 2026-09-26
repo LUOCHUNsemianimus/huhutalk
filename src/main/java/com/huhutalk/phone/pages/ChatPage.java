@@ -11,6 +11,7 @@ import com.huhutalk.network.C2SMaidChatPacket;
 import com.huhutalk.network.C2SMaidChatWithItemsPacket;
 import com.huhutalk.network.C2SMaidImageChatPacket;
 import com.huhutalk.network.C2SClaimTransferPacket;
+import com.huhutalk.network.C2SPhoneTypingDonePacket;
 import com.huhutalk.network.C2SRequestMaidStatusPacket;
 import com.huhutalk.phone.IPhonePage;
 import com.huhutalk.phone.PhoneInputScreen;
@@ -127,16 +128,18 @@ public class ChatPage implements IPhonePage {
     // 打字耗时由设置里的「每字耗时 / 单句上限」控制（见 typingMillis），不再用硬编码常量。
     /** 待逐条显示的短句队列（整段回复按断句符拆分后填充） */
     private final List<String> splitQueue = new ArrayList<>();
+    /** 每条短句应落屏的绝对时间戳（毫秒，System.currentTimeMillis）；与 splitQueue 一一对应 */
+    private final List<Long> splitSchedule = new ArrayList<>();
     /** 下一条要显示的短句在 splitQueue 中的下标 */
     private int splitIndex = 0;
-    /** 上一条短句显示的时间戳（毫秒） */
-    private long lastSplitTime = 0;
     /** 当前断句回复的发送时间（游戏时间 tick）：同一回复被拆成的短句共享一致时间，便于分组显示 */
     private long splitGameTime = 0;
     /** 是否正在断句逐条显示（期间"对方正在输入…"保持） */
     private boolean splitting = false;
     /** 本次回复待显示的表情附件（ResourceLocation 字符串，null=无）。文本短句显示完后，作为同组附件尾部出现 */
     private String pendingReplyEmote = null;
+    /** 本次回复的逐条显示是否已回执服务端（用于关闭手机来源窗口 → 动画放下段）。每次回复复位 */
+    private boolean splitDoneNotified = false;
 
     // ==================== 语音（按住说话） ====================
     /** 语音输入来源：鼠标按住按钮 / F 快捷键 */
@@ -379,47 +382,57 @@ public class ChatPage implements IPhonePage {
         }
         // 进入断句模式：重置队列，每条短句按"自己字数 × 0.5s（封顶 2.4s）"逐条显示。
         // 长句打字慢、短句快；第一条也要等它自己的耗时，因此不提前立即显示。
+        // 用「绝对落屏时间戳」排程而非"上次显示时间 + 耗时"：这样即使玩家收起了手机
+        // （渲染循环不再驱动），时序依然按真实时间推进，重开手机时不会把积压的短句一次性倾倒出来。
+        splitSchedule.clear();
         splitQueue.clear();
         splitQueue.addAll(segments);
+        long scheduleAt = System.currentTimeMillis();
+        for (String seg : segments) {
+            scheduleAt += typingMillis(seg);
+            splitSchedule.add(scheduleAt);
+        }
         splitIndex = 0;
+        splitDoneNotified = false;
         splitGameTime = groupTime; // 该回复的所有短句 + 附件表情共享同一发送时间
         pendingReplyEmote = pendingEmoteLocal;
         splitting = true;
         waitingResponse = true; // 断句期间保持"对方正在输入…"
-        lastSplitTime = System.currentTimeMillis();
     }
 
     /**
-     * 每帧推进断句显示：每条短句出现的延迟 = <b>它自己</b>的字数 × 每字耗时（每字 0.5s、封顶 2.4s）。
-     * 长句打字慢、短句快；全部显示完（含附件表情）才结束"正在输入…"。在 render 每帧调用。
+     * 按绝对时间推进断句显示：把所有"应落屏时间已到"的短句补上。
+     * <p>
+     * 幂等且与调用频率无关——既由渲染每帧调用（手机打开时最跟手），
+     * 也由客户端每 tick 调用（手机收起时仍按真实时间推进，修掉"收起手机后重开才逐条播"的遗留问题）。
+     * 全部短句与尾随表情落屏后，回执服务端关闭手机来源窗口，动画进入放下段。
      */
-    private void advanceSplitting() {
+    public void advanceSplitting() {
         if (!splitting) {
             return;
         }
         long now = System.currentTimeMillis();
-        // 逐条追加：要显示的当前句（splitIndex）决定它何时出现（打字耗时 = 该句自己的字数）
-        while (splitIndex < splitQueue.size()) {
-            long typingMs = typingMillis(splitQueue.get(splitIndex));
-            if (now - lastSplitTime < typingMs) {
-                break;
-            }
+        // 逐条追加：到点即落屏
+        while (splitIndex < splitQueue.size() && now >= splitSchedule.get(splitIndex)) {
             messages.add(new ChatMessage(splitQueue.get(splitIndex), false, false, false, splitGameTime, null, null));
             // 界面内接收音：随断句逐条出现响一次（受 DND 影响）
             HuhuTalkSounds.playMsgReceiveUi();
             splitIndex++;
-            lastSplitTime = now;
         }
         // 文本全部显示完 → 附带的表情作为同一分组尾部出现
         if (splitIndex >= splitQueue.size() && pendingReplyEmote != null) {
             messages.add(new ChatMessage("", false, false, false, splitGameTime, pendingReplyEmote, null));
             pendingReplyEmote = null;
-            lastSplitTime = now;
         }
-        // 全部显示完（含附件表情）→ 结束"正在输入…"
+        // 全部显示完（含附件表情）→ 结束"正在输入…"并回执服务端
         if (splitIndex >= splitQueue.size() && pendingReplyEmote == null) {
             splitting = false;
             waitingResponse = false;
+            if (!splitDoneNotified) {
+                splitDoneNotified = true;
+                // 通知服务端：本条回复已播完 → 关闭手机来源窗口 → 动画放下手机
+                PacketDistributor.sendToServer(new C2SPhoneTypingDonePacket(stableId));
+            }
         }
     }
 
@@ -451,7 +464,13 @@ public class ChatPage implements IPhonePage {
         splitting = false;
         waitingResponse = false;
         splitQueue.clear();
+        splitSchedule.clear();
         splitIndex = 0;
+        // 内容已全部落屏（玩家抢先发了下一条）：同样回执服务端关闭窗口，动画才能放下手机
+        if (!splitDoneNotified) {
+            splitDoneNotified = true;
+            PacketDistributor.sendToServer(new C2SPhoneTypingDonePacket(stableId));
+        }
     }
 
     // ==================== P→M 传文件：队列访问（供 FileTransferPage 使用） ====================

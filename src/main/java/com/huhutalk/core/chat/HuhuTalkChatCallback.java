@@ -57,10 +57,11 @@ public class HuhuTalkChatCallback extends LLMCallback {
         // 这里无需再临时关气泡。
         super.onSuccess(responseChat);
 
-        // 回复已到达 → 关闭手机来源窗口，客户端据此播放「放下手机」段。
-        // 注意：TLM 的 wait 气泡在 addLLMChatText 里被移除，所以窗口必须在回复落地时关闭，
-        // 否则动画会一直停在持机状态。
-        closePhoneSource();
+        // 注意：这里【不】关闭手机来源窗口。
+        // 窗口需要覆盖"思考 + 逐条打字显示"整段，而逐条显示是纯客户端行为（节拍由玩家的
+        // 「每字耗时 / 单句上限」决定），服务端无从得知何时播完。因此改由客户端在最后一条
+        // 短句落屏后回执 C2SPhoneTypingDonePacket，服务端再关闭窗口 → 动画放下手机。
+        // 服务端 tick 仍有超时兜底，防止客户端异常导致窗口悬挂。
 
         String replyText = responseChat.getChatText();
         if (sender != null && sender.isAlive() && !replyText.isBlank()) {
@@ -78,7 +79,7 @@ public class HuhuTalkChatCallback extends LLMCallback {
     @Override
     public void onFailure(HttpRequest request, Throwable throwable, int errorCode) {
         super.onFailure(request, throwable, errorCode);
-        // 失败同样关闭窗口，避免动画卡在持机状态
+        // 失败没有回复可显示，不会再有客户端回执 → 立即关闭窗口，避免动画卡在持机状态
         closePhoneSource();
         if (sender != null && sender.isAlive()) {
             if (getMaid().level() instanceof ServerLevel serverLevel) {

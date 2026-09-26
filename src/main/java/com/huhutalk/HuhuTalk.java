@@ -18,6 +18,7 @@ import com.huhutalk.init.HuhuTalkSounds;
 import com.huhutalk.network.C2SMaidChatPacket;
 import com.huhutalk.network.C2SMaidImageChatPacket;
 import com.huhutalk.network.C2SClaimTransferPacket;
+import com.huhutalk.network.C2SPhoneTypingDonePacket;
 import com.huhutalk.network.C2SDeleteContactPacket;
 import com.huhutalk.network.C2SDropTransferInboxPacket;
 import com.huhutalk.network.C2SMaidChatWithItemsPacket;
@@ -111,6 +112,8 @@ public class HuhuTalk {
         registrar.playToServer(C2SRequestSosTaskListPacket.TYPE, C2SRequestSosTaskListPacket.STREAM_CODEC, C2SRequestSosTaskListPacket::handle);
         // 客户端 → 服务端：同步 JourneyMap 路径点
         registrar.playToServer(C2SSyncWaypointsPacket.TYPE, C2SSyncWaypointsPacket.STREAM_CODEC, C2SSyncWaypointsPacket::handle);
+        // 客户端 → 服务端：本条回复的逐条打字显示已播完（关闭手机来源窗口 → 动画放下段）
+        registrar.playToServer(C2SPhoneTypingDonePacket.TYPE, C2SPhoneTypingDonePacket.STREAM_CODEC, C2SPhoneTypingDonePacket::handle);
         // 注意：S2C 包在 ClientPayloadSetup 中注册
     }
 }

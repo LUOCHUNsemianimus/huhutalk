@@ -4,6 +4,7 @@ import com.huhutalk.HuhuTalk;
 import com.huhutalk.client.settings.HuhuTalkClientSettings;
 import com.huhutalk.client.theme.ThemeManager;
 import com.huhutalk.phone.PhoneOverlay;
+import com.huhutalk.phone.pages.ChatPage;
 import net.minecraft.network.chat.Component;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
@@ -45,6 +46,12 @@ public class ClientCacheEvents {
     @SubscribeEvent
     public static void onClientTick(ClientTickEvent.Post event) {
         WaypointSync.tickSync();
+        // 逐条打字显示按真实时间推进：手机收起时渲染循环不再驱动它，改由 tick 驱动，
+        // 修掉"收起手机后消息不逐条播、重开才一次性弹出"的遗留问题；
+        // 也保证"打完最后一条"能及时回执服务端关闭手机来源窗口（动画放下段）。
+        if (PhoneOverlay.getCurrentPage() instanceof ChatPage chatPage) {
+            chatPage.advanceSplitting();
+        }
     }
 
     /** ✅ 退出世界/退出游戏前，把当前世界聊天历史落盘 */

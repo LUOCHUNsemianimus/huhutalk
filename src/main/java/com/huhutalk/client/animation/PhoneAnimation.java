@@ -55,10 +55,17 @@ public final class PhoneAnimation {
     /** 诊断：predicate 被调用的总次数（用于判断控制器是否真的被调用） */
     private static volatile long CALL_COUNT = 0L;
 
-    /** 上一帧的忙碌状态，用于只在跃变时换动画（避免每帧重置播放进度）。 */
-    private boolean wasActive = false;
+    /**
+     * 当前处于「手机窗口内」的女仆（按 stableId）。
+     * <p>
+     * 必须是 <b>static</b>：本 predicate 的实例字段挂在 {@code GeckoMaidEntity} 上，
+     * 而它是 NeoForge attachment、可能被重建。若状态随实例消失，每帧都会判定为
+     * "窗口刚开启" → 每帧 {@code markNeedsReload()} → {@code _raise} 被无限重启，
+     * 表现正是"手臂卡在抬手过程的起始帧、看起来像朝后伸，且反复抬起"。
+     */
+    private static final Set<String> ACTIVE_INSTANCES = ConcurrentHashMap.newKeySet();
 
-    /** 每只女仆一个实例（由 {@code GeckoMaidEntityMixin} 创建），持有各自的上帧状态。 */
+    /** 每只女仆一个实例（由 {@code GeckoMaidEntityMixin} 创建）。 */
     public PhoneAnimation() {
     }
 
@@ -88,25 +95,28 @@ public final class PhoneAnimation {
                     PhoneAnimationHandler.lastMergeSucceeded(),
                     CALL_COUNT);
         } else if (active && stableId != null && DIAGNOSED.add("ACTIVE:" + stableId)) {
-            HuhuTalk.LOGGER.info("[HuhuTalk] 手机动画启动: stableId={} raiseFound={} mergeOk={}",
+            HuhuTalk.LOGGER.info("[HuhuTalk] 手机动画启动: stableId={} raiseFound={} mergeOk={} activeCount={}",
                     stableId,
                     gecko.getAnimation(PhoneAnimationRegistration.ANIM_RAISE) != null,
-                    PhoneAnimationHandler.lastMergeSucceeded());
+                    PhoneAnimationHandler.lastMergeSucceeded(),
+                    ACTIVE_INSTANCES.size());
         }
 
         if (active) {
-            if (!wasActive) {
-                // 窗口刚开启：置 reload 确保上一轮的进度被丢弃，从抬手重新播
+            // 只在"窗口刚开启"这一帧重启，避免每帧 markNeedsReload 把 _raise 卡在起始帧。
+            // 状态用 static 集合按 stableId 记录，不随 predicate/实体实例重建而丢失。
+            if (stableId != null && ACTIVE_INSTANCES.add(stableId)) {
                 controller.markNeedsReload();
-                wasActive = true;
             }
-            // 窗口内每帧重复提交同一 builder；内容相同则控制器不会重启，只在 raise 播完后续上 hold
+            // 同一 builder 重复提交不会重启；_raise 播完由控制器自动续上 _hold 循环
             controller.setAnimation(RAISE_THEN_HOLD);
             return PlayState.CONTINUE;
         }
 
         // 窗口关闭：播放下段；播完（STOPPED）后停止驱动，骨骼回落给 main 控制器
-        wasActive = false;
+        if (stableId != null) {
+            ACTIVE_INSTANCES.remove(stableId);
+        }
         if (controller.getAnimationState() != AnimationState.STOPPED) {
             controller.setAnimation(LOWER);
             return PlayState.CONTINUE;
