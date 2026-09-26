@@ -107,6 +107,15 @@ public final class PhoneAnimation {
             // 状态用 static 集合按 stableId 记录，不随 predicate/实体实例重建而丢失。
             if (stableId != null && ACTIVE_INSTANCES.add(stableId)) {
                 controller.markNeedsReload();
+                HuhuTalk.LOGGER.info("[HuhuTalk] 窗口开启→重启动画链: stableId={} reloadFlag={}",
+                        stableId, true);
+            }
+            // 诊断：限频打印控制器真实进度，用于判断 _raise 是否在被反复重启
+            if (stableId != null && CALL_COUNT % 40 == 0) {
+                HuhuTalk.LOGGER.info("[HuhuTalk] 进度: state={} current={} calls={}",
+                        controller.getAnimationState(),
+                        describeCurrent(controller),
+                        CALL_COUNT);
             }
             // 同一 builder 重复提交不会重启；_raise 播完由控制器自动续上 _hold 循环
             controller.setAnimation(RAISE_THEN_HOLD);
@@ -122,5 +131,15 @@ public final class PhoneAnimation {
             return PlayState.CONTINUE;
         }
         return PlayState.STOP;
+    }
+
+    /** 诊断：描述控制器当前正在播放的动画（名称 + 时长），用于判断 _raise 是否被反复重启。 */
+    private static String describeCurrent(AnimationController<?> controller) {
+        try {
+            var anim = controller.getCurrentAnimation();
+            return anim == null ? "none" : (anim.animationName + "@" + anim.animationLength);
+        } catch (Exception e) {
+            return "err";
+        }
     }
 }
