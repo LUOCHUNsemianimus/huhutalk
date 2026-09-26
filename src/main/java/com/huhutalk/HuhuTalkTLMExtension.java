@@ -3,13 +3,19 @@ package com.huhutalk;
 import com.github.tartaricacid.touhoulittlemaid.ai.agent.tool.ToolRegister;
 import com.github.tartaricacid.touhoulittlemaid.api.ILittleMaid;
 import com.github.tartaricacid.touhoulittlemaid.api.LittleMaidExtension;
+import com.github.tartaricacid.touhoulittlemaid.client.renderer.entity.GeckoEntityMaidRenderer;
 import com.github.tartaricacid.touhoulittlemaid.entity.task.TaskManager;
 import com.github.tartaricacid.touhoulittlemaid.item.bauble.BaubleManager;
+import com.huhutalk.client.render.PhoneInHandLayer;
 import com.huhutalk.core.chat.SendEmoteTool;
 import com.huhutalk.core.move.MoveToTool;
 import com.huhutalk.core.move.TaskMoveTo;
 import com.huhutalk.core.transfer.SendItemTool;
 import com.huhutalk.init.HuhuTalkItems;
+import net.minecraft.client.renderer.entity.EntityRendererProvider;
+import net.minecraft.world.entity.Mob;
+import net.neoforged.api.distmarker.Dist;
+import net.neoforged.api.distmarker.OnlyIn;
 
 /**
  * 车万女仆(TLM)扩展入口。
@@ -39,5 +45,23 @@ public class HuhuTalkTLMExtension implements ILittleMaid {
         register.register(new SendEmoteTool());
         // 传文件（M→P）：女仆把自己身上/隙间里的物品发给主人，主人聊天里点气泡领取
         register.register(new SendItemTool());
+    }
+
+    /**
+     * 给女仆的 Gecko 渲染器加一个「手机挂手上」的渲染层（仅在手机来源窗口内显示）。
+     * <p>
+     * 这是 TLM 的官方扩展点（{@code ILittleMaid#addAdditionGeckoMaidLayer}），
+     * 由 {@code GeckoEntityMaidRenderer} 构造时回调，内部走公开的
+     * {@code addGeoLayerRenderer} → {@code addLayer}。挂点用模型自带的
+     * {@code RightHandLocator} 骨骼，所以**不需要改动任何模型文件**。
+     * <p>
+     * {@code @OnlyIn(Dist.CLIENT)}：方法签名引用了客户端类，必须标注，
+     * 否则专用服务端加载本类时会因 RuntimeDistCleaner 之外的原因解析失败。
+     */
+    @Override
+    @OnlyIn(Dist.CLIENT)
+    public void addAdditionGeckoMaidLayer(GeckoEntityMaidRenderer<? extends Mob> renderer,
+                                          EntityRendererProvider.Context context) {
+        renderer.addGeoLayerRenderer(new PhoneInHandLayer<>(renderer, context.getItemInHandRenderer()));
     }
 }

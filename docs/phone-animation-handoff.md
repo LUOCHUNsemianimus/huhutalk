@@ -1,10 +1,9 @@
 # HuhuTalk 女仆「使用手机」动画 — 任务状态交接
 
-> 交接时间点：动画已接入模组、能在游戏内播放；姿态方向已修好（实机确认）。
-> **「`_raise` 反复重播」根因已定位并修复**：TLM `AnimationController` 在"链式 builder 播完自动接下一个"时
-> **不会重新绑定骨骼关键帧队列**，导致 `hold` 的关键帧从未被求值、每 1.9s 用 `raise` 的关键帧把手臂放回静止再抬起。
-> 已改为"两条单动画 builder + 定时交接"。详见「零、症状 B 根因」。
-> 新对话请先读「零」与「四、下一步该做什么」。
+> 交接时间点：**本轮任务已全部完成**（姿态方向 + 反复重播都已修复并实机验证通过）。
+> 另已完成一项前瞻验证：**手机模型可以挂到女仆手上，且角度逐帧可调**，
+> 脚手架已落地并编译通过（详见「九、手机模型挂手：可行性验证结论」）。
+> 新对话请先读「零」（症状 B 根因）与「九」（手机挂手方案）。
 
 ---
 
@@ -365,6 +364,7 @@ private static void huhutalk$injectPhoneAnimation(ResourceLocation id, Animation
 | `src/main/java/com/huhutalk/mixin/GeckoModelLoaderMixin.java` | 把动画注入每个模型的动画表 |
 | `src/main/java/com/huhutalk/network/S2CPhoneChatSourcePacket.java` | 服务端→客户端窗口状态 |
 | `src/main/java/com/huhutalk/network/C2SPhoneTypingDonePacket.java` | 客户端→服务端"打字播完"回执 |
+| `src/main/java/com/huhutalk/client/render/PhoneInHandLayer.java` | **（九）手机挂手渲染层**：在模型自带的 `RightHandLocator` 上渲染手机物品 |
 
 ### 修改
 | 文件 | 改动 |
@@ -376,6 +376,7 @@ private static void huhutalk$injectPhoneAnimation(ResourceLocation id, Animation
 | `phone/pages/ChatPage.java` | 逐条显示改绝对时间排程 + 播完回执 + `advanceSplitting()` 转 public |
 | `client/ClientCacheEvents.java` | 进世界清 `PhoneChatSourceCache`；tick 驱动 `advanceSplitting()`；进/退世界调 `PhoneAnimation.reset()` |
 | `client/network/ClientPayloadSetup.java` | 处理 `S2CPhoneChatSourcePacket`（`enqueueWork` → 主线程，无竞态） |
+| `HuhuTalkTLMExtension.java` | **（九）** 覆写 `addAdditionGeckoMaidLayer`（`@OnlyIn(CLIENT)`）注册手机挂手层 |
 
 ---
 
@@ -427,11 +428,80 @@ private static void huhutalk$injectPhoneAnimation(ResourceLocation id, Animation
    其他模型包没有这些骨骼 → TLM 静默跳过（安全）。模型包若自带同名动画则以模型包为准。
 4. **头部会被 TLM 的看向玩家逻辑叠加**（`updateHead` 是 `+=`）：
    玩家站得比女仆低时低头量会偏大。已知可接受。
-5. **手机模型本体不做**（用户明确暂缓）。"手机抖动"目前编码在小臂的 position 抖动里；
-   若将来要手机独立二次晃动，需在模型里加 `PhoneLocator` 骨骼（要动 19 个酒狐模型，属后期内容）。
+5. ~~**手机模型本体不做**（用户明确暂缓）。若将来要手机独立二次晃动，需在模型里加 `PhoneLocator` 骨骼
+   （要动 19 个酒狐模型）。~~ → **已由「九」推翻**：模型里**本来就有** `RightHandLocator`，
+   不需要动任何模型文件；手机挂上去后可逐帧在动画 JSON 里调它，见「九」。
 6. **数值约定（本次新增，最重要）**：
    - 动画 JSON 的 rotation 用**度**，管线自动转弧度；
    - **X、Y 会被取负，Z 不会**（`RotationValue` / `GeoBuilder` 一致）；
    - 数值是**相对模型静置姿态的增量**，`[0,0,0]` = 静置；
    - `render_x > 0` = 手臂向前抬 / 头后仰；`render_y < 0` = 朝女仆右侧转；
    - 想写"抬手到身前"就写**负 X**，"低头"就写**正 X**。
+
+---
+
+## 九、手机模型挂手：可行性验证结论（已落地脚手架，待实机确认）
+
+**结论：可行，且不需要改动任何模型文件、不需要新增网络协议。** 已写出可编译的脚手架
+（`client/render/PhoneInHandLayer.java` + `HuhuTalkTLMExtension#addAdditionGeckoMaidLayer`），
+`mcp__IDEA__build_project` 通过。
+
+### 9.1 挂点：模型自带的 `RightHandLocator`
+
+TLM 的 gecko 模型每个女仆模型都自带 `RightHandLocator` / `LeftHandLocator` 空骨骼
+（父级链 `RightHandLocator → RightHand → RightForeArm → RightArm → Arm → UpperBody …`）。
+已逐个核对 `build/maidsrc/.../geckolib/models/entity/`：
+**18 个 winefox 模型全部都有 `RightHandLocator`**（zhiban*、foxmaid、sta、rice_cake_fox、
+qingluka、kluonoa、hailuo_new_year 等也都带）。
+→ **「要动 19 个模型」这个旧假设是错的，一个模型都不用改。**
+
+TLM 自己就用这根骨骼挂手持物：`GeckoLayerMaidHeld.translateToHand()` 调
+`RenderUtils.prepMatrixForLocator(poseStack, geoModel.rightHandBones())`。
+
+### 9.2 官方扩展点（不需要 mixin）
+
+| 环节 | 位置 |
+|---|---|
+| 扩展入口 | `ILittleMaid#addAdditionGeckoMaidLayer(GeckoEntityMaidRenderer<?>, Context)`（`@OnlyIn(CLIENT)`） |
+| 回调时机 | `GeckoEntityMaidRenderer` 构造时遍历 `TouhouLittleMaid.EXTENSIONS` |
+| 注册层 | `IGeoEntityRenderer#addGeoLayerRenderer` → `GeoReplacedEntityRenderer#addLayer`（`public final`） |
+| 我们已有的扩展类 | `HuhuTalkTLMExtension`（`@LittleMaidExtension`，已实现 `ILittleMaid`） |
+| 取模型 | `GeoLayerRenderer#getLocationModel(entity)` → `ILocationModel`，再取 `rightHandBones()` |
+| 应用变换 | `RenderUtils#prepMatrixForLocator`（public） |
+
+注意：`EXTENSIONS` 在 `CommonRegistry`（双端）构建，所以**扩展类本身是公共类**；
+覆写方法必须标 `@OnlyIn(Dist.CLIENT)`（已标），否则专用服务端会解析到客户端类。
+若想更保守，也可以完全绕开扩展点，改用纯客户端事件
+`EntityRenderersEvent.AddLayers` 拿到 `GeckoEntityMaidRenderer` 再 `addGeoLayerRenderer`。
+
+### 9.3 角度/数值是否可调？—— **三层可调，且最高优先级那层是逐帧的**
+
+| 层级 | 载体 | 改谁 | 说明 |
+|---|---|---|---|
+| 最细 / 逐帧 | 动画 JSON 里 `RightHandLocator` 的 `rotation`/`position`/`scale` 关键帧 | `huhutalk_phone.animation.json` | **完全可控、逐帧可写**。TLM 官方先例：`use_mainhand:spyglass` 用 `"RightHandLocator": {"rotation":[0.99,0.014,-180.2],"position":[0,-2,1.5]}` 把望远镜对准眼睛。`scale` 为 0 会跳过渲染（可当显示开关）。 |
+| 中等 | `PhoneInHandLayer` 的 `BASE_TRANSLATE_Y/Z`、`BASE_ROTATE_X`、`SCALE` 常量 | Java 代码 | 与 TLM 手持层一致的"手部局部系"基准变换，用于整体挪动/缩放手机。 |
+| 最粗 | 物品模型 JSON 的 `display.third_person_righthand` | `models/item/phone_*.json` | 手机相对手的出厂姿态，纯美术资源，改它不用改 Java。 |
+
+**继承关系自动成立**：`prepMatrixForLocator` 会沿父级链把每根骨骼的变换依次压栈，
+所以手机**自动跟随 `RightArm`/`RightForeArm` 的动画**（即我们那三段动画）；
+额外写 `RightHandLocator` 关键帧只是在这之上做二次微调
+（比如让手机在 hold 期独立小幅晃动——这正是旧文档说的"手机独立二次晃动"）。
+
+### 9.4 同步：零成本
+
+`PhoneInHandLayer` 直接用**同一个** `PhoneChatSourceCache.isActive(stableId)` 判定显示时机，
+与 `PhoneAnimation` 的窗口完全一致 → 手机的出现/消失天然伴随 raise/hold/lower，
+不需要新增任何包；因为它是渲染层，**其他玩家也能看到**。
+
+### 9.5 现在就能预判的注意点（后续实现要处理）
+
+1. **手机物品目前是 `item/generated` 平面贴图**（`models/item/phone_smart.json` 只有 `layer0`），
+   渲染出来是一张**纸片**而不是 3D 手机。想要真手机观感需换成带 `elements` 的 3D 物品模型
+   （或在 `display` 里摆正 + 缩放）。属**美术侧**工作，不影响本方案可行性。
+2. **与 TLM 手持层的挂点冲突**：`GeckoLayerMaidHeld` 已经会在 `RightHandLocator` 上画女仆真正手持的物品。
+   当前脚手架在"主手非空"时跳过渲染；也可以改成偏移到空手（左手 / `RightHandLocator2`）。
+3. **不戴手机的女仆不渲染**（走 `PhoneHelper.getPhoneTier`）；不戴手机本来也不会开窗口，一致。
+4. 需要实机确认的只有观感与位置（基准变换/缩放），**机制层面已无未知**。
+5. 若以后想让手机有独立骨骼动画（屏幕闪烁/翻盖等），再考虑给手机做 bedrock 模型并用
+   TLM 的 `BedrockModel` 路径渲染（`SimpleHatsRenderer.renderGeckoHat` 是现成先例），
+   挂点仍是 `RightHandLocator`。
