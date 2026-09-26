@@ -53,6 +53,8 @@ public record C2SPhoneTypingDonePacket(String stableId) implements CustomPacketP
             if (stableId == null || stableId.isEmpty()) {
                 return;
             }
+            // 诊断：客户端"打字播完"回执。窗口时长由它决定，故每次都必须可见。
+            com.huhutalk.HuhuTalk.LOGGER.info("[HuhuTalk] 收到打字播完回执: stableId={}", stableId);
             for (ServerLevel level : server.getAllLevels()) {
                 for (net.minecraft.world.entity.Entity entity : level.getAllEntities()) {
                     if (entity instanceof EntityMaid maid
@@ -63,6 +65,7 @@ public record C2SPhoneTypingDonePacket(String stableId) implements CustomPacketP
                     }
                 }
             }
+            com.huhutalk.HuhuTalk.LOGGER.warn("[HuhuTalk] 打字播完回执找不到女仆: stableId={}", stableId);
         });
     }
 }

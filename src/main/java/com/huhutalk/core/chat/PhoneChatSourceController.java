@@ -55,8 +55,11 @@ public final class PhoneChatSourceController {
         }
         long expire = maid.level().getServer().getTickCount() + WINDOW_TICKS;
         boolean wasOpen = OPEN.put(maid.getUUID(), expire) != null;
+        // 诊断：每一次 open 调用都打印（含"已在窗口内仅刷新"的情况）。
+        // 手机聊天每来一条消息都会调这里；若这里频繁出现 wasOpen=true，说明消息在重叠到达。
+        LOGGER.info("[PhoneChatSource] open 调用: stableId={} wasOpen={} (true=只刷新不重播动画)",
+                stableId, wasOpen);
         if (!wasOpen) {
-            LOGGER.info("[PhoneChatSource] 开启来源窗口: stableId={} uuid={}", stableId, maid.getUUID());
             broadcast(maid.level().getServer(), stableId, true);
         }
     }

@@ -7,12 +7,14 @@ import com.github.tartaricacid.touhoulittlemaid.geckolib3.core.PlayState;
 import com.github.tartaricacid.touhoulittlemaid.geckolib3.core.builder.AnimationBuilder;
 import com.github.tartaricacid.touhoulittlemaid.geckolib3.core.controller.AnimationController;
 import com.github.tartaricacid.touhoulittlemaid.geckolib3.core.event.predicate.AnimationEvent;
+import com.github.tartaricacid.touhoulittlemaid.geckolib3.core.processor.IBone;
 import com.huhutalk.HuhuTalk;
 import com.huhutalk.client.PhoneAnimationHandler;
 import com.huhutalk.client.PhoneAnimationRegistration;
 import com.huhutalk.client.PhoneChatSourceCache;
 import com.huhutalk.common.StableIdProvider;
 
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -49,7 +51,7 @@ public final class PhoneAnimation {
     private static final AnimationBuilder LOWER = new AnimationBuilder()
             .playOnce(PhoneAnimationRegistration.ANIM_LOWER);
 
-    /** 诊断：已打印过首次状态的女仆（按 stableId 去重，避免刷屏） */
+    /** 诊断：已打印过首帧状态的女仆（按 stableId 去重，避免刷屏） */
     private static final Set<String> DIAGNOSED = ConcurrentHashMap.newKeySet();
 
     /** 诊断：predicate 被调用的总次数（用于判断控制器是否真的被调用） */
@@ -64,6 +66,17 @@ public final class PhoneAnimation {
      * 表现正是"手臂卡在抬手过程的起始帧、看起来像朝后伸，且反复抬起"。
      */
     private static final Set<String> ACTIVE_INSTANCES = ConcurrentHashMap.newKeySet();
+
+    // ==================== 诊断（症状确认后删除） ====================
+
+    /** 上一次窗口状态取值；用于打印 true/false 边沿，跟服务端开关窗对时间 */
+    private static final Map<String, Boolean> LAST_ACTIVE = new ConcurrentHashMap<>();
+
+    /** 上一次看到的"当前动画名"；用于打印每一次 raise/hold/lower 切换（重播会留下痕迹） */
+    private static final Map<String, String> LAST_ANIM = new ConcurrentHashMap<>();
+
+    /** 动画链被重建的次数（按 stableId）。正常应恒为 1（整个窗口一次） */
+    private static final Map<String, Integer> RESTART_COUNT = new ConcurrentHashMap<>();
 
     /** 每只女仆一个实例（由 {@code GeckoMaidEntityMixin} 创建）。 */
     public PhoneAnimation() {
@@ -84,7 +97,16 @@ public final class PhoneAnimation {
             return PlayState.STOP;
         }
         String stableId = (maid instanceof StableIdProvider provider) ? provider.getStableId() : null;
+        String key = stableId == null ? "?" : stableId;
         boolean active = PhoneChatSourceCache.isActive(stableId);
+
+        // ---- 诊断 A：窗口状态边沿。与服务端 [PhoneChatSource] 开关窗日志对时间，即可判断
+        //      "重播"到底是服务端又开了一次窗，还是窗口没动而动画自己被重建 ----
+        Boolean prevActive = LAST_ACTIVE.put(key, active);
+        if (prevActive == null || prevActive != active) {
+            HuhuTalk.LOGGER.info("[HuhuTalk] 窗口状态: stableId={} active {} -> {} calls={}",
+                    key, prevActive, active, CALL_COUNT);
+        }
 
         // 每只女仆只打印一次首帧状态：稳定 ID 是否取到、窗口是否开启、动画能否查到
         if (stableId != null && DIAGNOSED.add(stableId)) {
@@ -94,31 +116,52 @@ public final class PhoneAnimation {
                     gecko.getAnimation(PhoneAnimationRegistration.ANIM_RAISE) != null,
                     PhoneAnimationHandler.lastMergeSucceeded(),
                     CALL_COUNT);
-        } else if (active && stableId != null && DIAGNOSED.add("ACTIVE:" + stableId)) {
-            HuhuTalk.LOGGER.info("[HuhuTalk] 手机动画启动: stableId={} raiseFound={} mergeOk={} activeCount={}",
-                    stableId,
-                    gecko.getAnimation(PhoneAnimationRegistration.ANIM_RAISE) != null,
-                    PhoneAnimationHandler.lastMergeSucceeded(),
-                    ACTIVE_INSTANCES.size());
+        }
+
+        // ---- 诊断 B：当前动画名切换。每一次 raise/hold/lower 的变化都会留下一条，
+        //      所以"卡在 raise 反复重播"会表现为多条 raise 行，与 hold 行交错 ----
+        String nowName = currentName(controller);
+        String prevName = LAST_ANIM.put(key, nowName);
+        if (prevName != null && !prevName.equals(nowName)) {
+            HuhuTalk.LOGGER.info("[HuhuTalk] 动画切换: stableId={} {} -> {} state={} active={} calls={}",
+                    key, prevName, nowName, controller.getAnimationState(), active, CALL_COUNT);
         }
 
         if (active) {
             // 只在"窗口刚开启"这一帧重启，避免每帧 markNeedsReload 把 _raise 卡在起始帧。
             // 状态用 static 集合按 stableId 记录，不随 predicate/实体实例重建而丢失。
+            boolean markedReload = false;
             if (stableId != null && ACTIVE_INSTANCES.add(stableId)) {
                 controller.markNeedsReload();
-                HuhuTalk.LOGGER.info("[HuhuTalk] 窗口开启→重启动画链: stableId={} reloadFlag={}",
-                        stableId, true);
+                markedReload = true;
+                HuhuTalk.LOGGER.info("[HuhuTalk] 重启原因=窗口刚开启: stableId={} calls={}", key, CALL_COUNT);
             }
-            // 诊断：限频打印控制器真实进度，用于判断 _raise 是否在被反复重启
-            if (stableId != null && CALL_COUNT % 40 == 0) {
-                HuhuTalk.LOGGER.info("[HuhuTalk] 进度: state={} current={} calls={}",
-                        controller.getAnimationState(),
-                        describeCurrent(controller),
+
+            // ---- 诊断 C：动画链重建检测。setAnimation 只在真正要重建队列时才会把
+            //      state 置为 TRANSITIONING；借此把"链被重建"这一事件精确抓出来，
+            //      并记录重建原因（我们刚 markNeedsReload / 之前当前动画 / 之前状态）----
+            AnimationState beforeState = controller.getAnimationState();
+            controller.setAnimation(RAISE_THEN_HOLD);
+            if (controller.getAnimationState() == AnimationState.TRANSITIONING
+                    && beforeState != AnimationState.TRANSITIONING) {
+                int n = RESTART_COUNT.merge(key, 1, Integer::sum);
+                HuhuTalk.LOGGER.info(
+                        "[HuhuTalk] raise 链被重建(第{}次): stableId={} 重建前动画={} 重建前state={} 我们markNeedsReload={} calls={}",
+                        n, key, nowName, beforeState, markedReload, CALL_COUNT);
+            }
+
+            // ---- 诊断 D：真实骨骼姿态。直接读控制器最终写入骨骼的角度（度）与位移，
+            //      可证明 hold 的抖动到底有没有被应用、幅度有多大 ----
+            if (stableId != null && CALL_COUNT % 60 == 0) {
+                IBone arm = gecko.getAnimationProcessor().getBone("RightArm");
+                IBone fore = gecko.getAnimationProcessor().getBone("RightForeArm");
+                HuhuTalk.LOGGER.info(
+                        "[HuhuTalk] 姿态: state={} current={} RightArm.x={} RightForeArm.x={} ForeArm.posY={} calls={}",
+                        controller.getAnimationState(), describeCurrent(controller),
+                        deg(arm), deg(fore),
+                        fore == null ? "-" : String.format("%.2f", fore.getPositionY()),
                         CALL_COUNT);
             }
-            // 同一 builder 重复提交不会重启；_raise 播完由控制器自动续上 _hold 循环
-            controller.setAnimation(RAISE_THEN_HOLD);
             return PlayState.CONTINUE;
         }
 
@@ -133,6 +176,16 @@ public final class PhoneAnimation {
         return PlayState.STOP;
     }
 
+    /** 当前动画名（诊断用）。 */
+    private static String currentName(AnimationController<?> controller) {
+        try {
+            var anim = controller.getCurrentAnimation();
+            return anim == null ? "none" : anim.animationName;
+        } catch (Exception e) {
+            return "err";
+        }
+    }
+
     /** 诊断：描述控制器当前正在播放的动画（名称 + 时长），用于判断 _raise 是否被反复重启。 */
     private static String describeCurrent(AnimationController<?> controller) {
         try {
@@ -141,5 +194,10 @@ public final class PhoneAnimation {
         } catch (Exception e) {
             return "err";
         }
+    }
+
+    /** 诊断：把骨骼的弧度旋转转成"度"打印，便于直接和动画 JSON 里的数值对照。 */
+    private static String deg(IBone bone) {
+        return bone == null ? "-" : String.format("%.2f", Math.toDegrees(bone.getRotationX()));
     }
 }

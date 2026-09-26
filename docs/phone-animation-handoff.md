@@ -1,8 +1,80 @@
 # HuhuTalk 女仆「使用手机」动画 — 任务状态交接
 
-> 交接时间点：动画已接入模组、能在游戏内播放。
-> **两个症状均已定位，其中一个已由实机日志验证修复，另一个（姿态朝后）已找到根因并改好数值，待实机确认。**
+> 交接时间点：动画已接入模组、能在游戏内播放；姿态方向已修好（实机确认）。
+> **「`_raise` 反复重播」仍在排查中**，但已有实机日志证明"hold 确实被进入"，
+> 而真正的问题是 **hold 段的抖动幅度小到看不见**（已放大）。
 > 新对话请先读「三、结论」与「四、下一步该做什么」。
+
+---
+
+## 零、第二轮排查（最新，优先级最高）
+
+### 0.1 姿势问题已确认修好
+实机确认：抬手方向、低头方向都正确了。
+
+### 0.2 实机日志证明 hold **确实**被进入（推翻了"压根没换 hold"）
+
+`run/logs/latest.log`（20:19–20:20 那次带修正数值的 run，全 session 只有一个窗口）：
+
+```
+20:20:32.984 [Server] 开启来源窗口
+20:20:33.084 [Client] 窗口开启→重启动画链        ← 只出现一次
+20:20:33.365 [Client] current=huhutalk_phone_raise@8.0
+20:20:33.743 [Client] current=huhutalk_phone_hold@38.0
+   ... 之后每一条采样都是 current=huhutalk_phone_hold@38.0，state 恒为 RUNNING ...
+20:20:44.018 [Server] 关闭来源窗口
+```
+
+raise 在 0.4s 内切到 hold，且 10 秒内没有任何采样退回 raise。
+**所以"卡在 raise"在日志层面不成立。** 但用户的观感（"只是抬起手然后停住"）是对的，
+原因是——
+
+### 0.3 真问题：`_hold` 的抖动幅度小到不可见（已修）
+
+原 `_hold` 抖动只有 ** forearm x: 64.39 ↔ 66.89（±1.25°）** 和
+**position y: ±0.12 单位（= 0.0075 格 ≈ 7 毫米）**。
+这个幅度在游戏里完全看不出来，所以 hold 播着也像"冻住了"，自然被判断为"没进 hold"。
+（旧文档写"手机抖动编码在小臂 position 抖动里"是事实，但幅度根本没到可见阈值。）
+
+**已放大**（节奏仍是原来的"三快一停"，keyframe 时间戳不变）：
+```
+RightForeArm.rotation x : -65.638 基准，抖动到 -70.5 ↔ -60.5（±5°）
+RightForeArm.position   : y ±0.5、z -0.75 ↔ -0.15（手上下浮动约 3 厘米）
+```
+→ 这也是一个**自检手段**：装上这版后如果能看到手在上下小幅点动，就说明 hold 确实在播。
+
+### 0.4 用户的怀疑 #1（消息分割导致 raise 重播）—— 结构上不成立，但同类耦合真实存在
+
+- **分割是纯客户端显示行为**：`MessageSplitter` + `ChatPage.splitSchedule` 只在本地把一条回复拆成多段逐条落屏，
+  **不发任何包**，也不碰 `PhoneChatSourceController`。
+- `PhoneChatSourceController.open(maid)` 只在 `MaidChatHandler` 的两个入口各调一次（第 71 / 214 行），
+  即"玩家发一条消息 = 一次 open"。所以**分割段本身不可能触发 raise**。
+- **但确实存在同族的耦合**（值得后续修）：
+  1. `open()` 只在"原本没开"时才广播；窗口已开时**只刷新 30s 到期时间、不广播、不打印任何日志**。
+     所以"发第二条消息"在客户端是完全静默的。
+  2. `C2SPhoneTypingDonePacket` **只带 stableId，不区分是哪一条回复**；
+     一旦某条回复显示完，客户端就回执 → 服务端立刻关窗。
+  3. 于是当两条消息重叠时：msg2 在 reply1 还在打字时到达（open 静默刷新）→
+     reply1 打完 → 客户端回执 → **关窗、手臂放下**，而 reply2 还没显示；
+     之后 reply2 显示完再回执时窗口早就关了（`close` 幂等，无广播）。
+     反过来又可能出现"关窗后 msg3 到达 → open 广播 true → 再次 raise"。
+  4. 结果就是**raise/hold/lower 的节奏和"消息到达时刻"对不上**，正是用户观察到的现象。
+- 要判定这次遇到的到底是不是它，看日志里的 `open 调用: wasOpen=` / `窗口状态` / `关闭来源窗口` 时间轴即可。
+
+### 0.5 本轮新增的诊断（下轮日志即可定案）
+
+| 日志 | 位置 | 能判定什么 |
+|---|---|---|
+| `窗口状态: active false -> true` | `PhoneAnimation` | 客户端窗口边沿，与服务端开关窗对齐时间 |
+| `动画切换: X -> Y state=.. active=..` | `PhoneAnimation` | 每一次 raise/hold/lower 切换；**重播一定会留下多条 raise 行** |
+| `raise 链被重建(第N次): 重建前动画=.. 重建前state=.. 我们markNeedsReload=..` | `PhoneAnimation` | **最关键**。只在队列真被重建时打印；`markNeedsReload=true` ⇒ 我们自己重启；`false` ⇒ 另有来源（渲染器重建 / 控制器被重建 / 别的 needsAnimationReload） |
+| `姿态: RightArm.x=.. RightForeArm.x=.. ForeArm.posY=..` | `PhoneAnimation` | 直接读骨骼最终角度（度）与位移，每 60 次调用一条。可证明 hold 抖动到底有没有被应用、幅度多大；数值可直接和 JSON 对照 |
+| `收到窗口包: active=..` | `ClientPayloadSetup` | 客户端收到的窗口广播 |
+| `open 调用: wasOpen=..` | `PhoneChatSourceController` | **每次** open 都打印（含静默刷新）。频繁 `wasOpen=true` ⇒ 消息在重叠到达 |
+| `收到打字播完回执 / 关闭来源窗口` | `C2SPhoneTypingDonePacket` / Controller | 回执时间轴，看是否与 open 错配 |
+
+**下一次复现后要提供的证据**：`run/logs/latest.log`（或 `grep -E "HuhuTalk|PhoneChatSource" run/logs/latest.log`），
+外加"我发了几条消息、大概什么节奏"。
 
 ---
 
@@ -33,7 +105,7 @@
 Head.rotation         : 0,0,0    →  +26,+10,0        （低头 26°、朝自己右手边 10°）
 RightArm.rotation     : 0,0,0    →  -25,0,-14
 RightForeArm.rotation : 0,0,0    →  -65.638,-7.181,-16.924
-RightForeArm 抖动     : -64.39 ↔ -66.89（"三快一停"节奏）+ Y/Z 微位移
+RightForeArm 抖动     : -70.5 ↔ -60.5（"三快一停"节奏）+ position y ±0.5 / z -0.75↔-0.15
 ```
 > ⚠️ 旧的 `Head.x=-26 / RightArm.x=+25 / RightForeArm.x=+65.638` 是**符号错**的，见「三、结论 A」。
 
@@ -174,13 +246,33 @@ private static void huhutalk$injectPhoneAnimation(ResourceLocation id, Animation
 
 ## 四、下一步该做什么（建议顺序）
 
-1. **跑一次 `runClient`，肉眼确认手臂**：现在应该是"上臂前抬 25°、肘部向前屈 65°、手在胸前"，
-   头略低并朝自己右手边偏。若手的位置偏高/偏低，调 `RightArm.x`（-25）与 `RightForeArm.x`（-65.638）即可。
-2. 若姿态方向对了但觉得手臂"夹太紧/张太开"，只调 Z：
-   `RightArm.z`（当前增量 -14，模型静置已是 +18）、`RightForeArm.z`（-16.924）。
-3. 观感确认后，清理诊断代码（见下）。
-4. 把修正后的数值同步回 `winefox.bbmodel`（可选，工程文件不参与打包）。
-5. 有空再处理「三、结论」里的 4 个遗留小问题。
+### 4.1 先确认 hold 现在"看得见"
+跑一次 `runClient`，只发**一条**消息，盯住手臂：抬手 0.4s 后应该能看到**手在上下小幅点动**
+（约 3 厘米，三快一停），而不是停住不动。看得到 ⇒ hold 正常，问题只剩"重播"。
+
+### 4.2 再复现"重播"，把日志给我
+建议发 3~4 条消息、故意让上一句还在逐条打字时就发下一句（这正是最可疑的重叠场景）。
+然后把 `run/logs/latest.log` 里的 `HuhuTalk` / `PhoneChatSource` 行给我
+（`grep -E "HuhuTalk|PhoneChatSource" run/logs/latest.log`），
+并说明"我发了几条、大概什么节奏"。
+
+**判读方法**：
+- 若 `动画切换` 里出现多条 `-> huhutalk_phone_raise`，且伴随 `窗口状态 active true -> false -> true`
+  或 `open 调用`/`关闭来源窗口` 频繁成对出现 → **是窗口开合抖动**（0.4 节的耦合），
+  修法：给窗口加"待显示回复计数"（或让回执带 reply token，只在计数归零时关窗）。
+- 若出现多条 `raise 链被重建(第N次)` 而**没有**窗口开合 → 是**动画链被自己重建**，
+  看 `我们markNeedsReload=` 是 true 还是 false：
+  - `true` ⇒ `ACTIVE_INSTANCES` 被误清空（可能窗口瞬时 false 一帧）；
+  - `false` ⇒ 来自 `switchRenderer`（模型/渲染器重建）或控制器被重建。
+- 若 `姿态` 行里 `RightForeArm.x` 在 60.5/70.5 之间变化 ⇒ hold 抖动确实在跑。
+
+### 4.3 收尾（观感确认后）
+1. 清理诊断代码（见「六、待清理的诊断代码」）。
+2. 若觉得手臂"夹太紧/张太开"，只调 Z：`RightArm.z`（增量 -14，模型静置已是 +18）、`RightForeArm.z`（-16.924）。
+3. 觉得抖动太快/太慢：`_hold` 的 keyframe 时间戳（0.15/0.3/0.45 + 0.35 停顿）就是节奏，改时间即可；
+   幅度改 `-70.5 ↔ -60.5` 和 position 的 ±0.5。
+4. 把数值同步回 `winefox.bbmodel`（可选，工程文件不参与打包）。
+5. 处理「三、结论 → 遗留小问题」里的 4 条。
 
 ---
 
@@ -215,11 +307,15 @@ private static void huhutalk$injectPhoneAnimation(ResourceLocation id, Animation
 
 ## 六、待清理的诊断代码（功能确认后删除）
 
-1. `PhoneAnimation`：`DIAGNOSED`、`CALL_COUNT`、`describeCurrent()`、两处 `LOGGER.info`
+1. `PhoneAnimation`：`DIAGNOSED`、`CALL_COUNT`、`LAST_ACTIVE`、`LAST_ANIM`、`RESTART_COUNT`、
+   `currentName()`、`describeCurrent()`、`deg()` 及全部 `LOGGER.info`
 2. `PhoneAnimationHandler`：`merged` / `lastMergeSucceeded()` 及注入日志
-3. `PhoneChatSourceController`：`open`/`close` 里的 `LOGGER.info`
-4. `PhoneAnimationRegistration`：若不再被引用可合并掉
-5. 三个空壳文件 `huhutalk_phone_{raise,hold,lower}.animation.json`（内容为 `"animations": {}`，无引用，可删）
+3. `PhoneChatSourceController`：`open`/`close` 里的 `LOGGER.info`（注意 `open` 的日志已改成**每次**都打，
+   清理时别把 `wasOpen` 逻辑一起删掉）
+4. `C2SPhoneTypingDonePacket`：回执日志 + "找不到女仆"警告
+5. `ClientPayloadSetup.handlePhoneChatSource`：`收到窗口包` 日志
+6. `PhoneAnimationRegistration`：若不再被引用可合并掉
+7. 三个空壳文件 `huhutalk_phone_{raise,hold,lower}.animation.json`（**已在本次删除**）
 
 ---
 

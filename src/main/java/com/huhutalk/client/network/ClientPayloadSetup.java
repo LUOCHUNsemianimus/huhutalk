@@ -53,7 +53,12 @@ public class ClientPayloadSetup {
 
     /** 手机来源窗口同步：只有窗口内的女仆才播放手机动画。 */
     private static void handlePhoneChatSource(S2CPhoneChatSourcePacket packet, IPayloadContext context) {
-        context.enqueueWork(() -> PhoneChatSourceCache.set(packet.stableId(), packet.active()));
+        context.enqueueWork(() -> {
+            // 诊断：与 PhoneAnimation 的"窗口状态"日志对时间，可判断动画重播是否由服务端开/关窗引起
+            HuhuTalk.LOGGER.info("[HuhuTalk] 收到窗口包: stableId={} active={}",
+                    packet.stableId(), packet.active());
+            PhoneChatSourceCache.set(packet.stableId(), packet.active());
+        });
     }
 
     private static void handleResponse(S2CMaidChatResponsePacket packet, IPayloadContext context) {
