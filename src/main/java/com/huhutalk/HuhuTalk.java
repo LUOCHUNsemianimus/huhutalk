@@ -9,7 +9,6 @@ import com.huhutalk.core.chat.ChatBannerMuteController;
 import com.huhutalk.core.chat.ImmersiveBubbleController;
 import com.huhutalk.core.chat.PhoneChatSourceController;
 import com.huhutalk.core.chat.SignalDelayManager;
-import com.huhutalk.client.PhoneAnimationRegistration;
 import com.huhutalk.core.load.TicketManager;
 import com.huhutalk.core.move.MaidMoveData;
 import com.huhutalk.init.HuhuTalkBlocks;
@@ -80,8 +79,6 @@ public class HuhuTalk {
         NeoForge.EVENT_BUS.addListener(ServerTickEvent.Post.class, e -> PhoneChatSourceController.tick(e.getServer()));
         NeoForge.EVENT_BUS.addListener(ServerStoppingEvent.class, e -> PhoneChatSourceController.clearAll());
         NeoForge.EVENT_BUS.addListener(PlayerEvent.PlayerLoggedOutEvent.class, e -> PhoneChatSourceController.clearAll());
-        // 「使用手机」附加动画：并入 TLM 女仆默认动画表（须在构造期手动注册，见类注释）
-        PhoneAnimationRegistration.register();
 
         modEventBus.addListener(RegisterPayloadHandlersEvent.class, this::setupPackets);
     }

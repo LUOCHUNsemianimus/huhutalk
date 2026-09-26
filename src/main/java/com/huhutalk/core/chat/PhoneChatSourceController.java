@@ -50,11 +50,13 @@ public final class PhoneChatSourceController {
         }
         String stableId = stableIdOf(maid);
         if (stableId == null) {
+            LOGGER.warn("[PhoneChatSource] open 失败：女仆 {} 尚未生成 stableId", maid.getUUID());
             return;
         }
         long expire = maid.level().getServer().getTickCount() + WINDOW_TICKS;
         boolean wasOpen = OPEN.put(maid.getUUID(), expire) != null;
         if (!wasOpen) {
+            LOGGER.info("[PhoneChatSource] 开启来源窗口: stableId={} uuid={}", stableId, maid.getUUID());
             broadcast(maid.level().getServer(), stableId, true);
         }
     }
@@ -72,6 +74,7 @@ public final class PhoneChatSourceController {
         }
         String stableId = stableIdOf(maid);
         if (stableId != null) {
+            LOGGER.info("[PhoneChatSource] 关闭来源窗口: stableId={}", stableId);
             broadcast(maid.level().getServer(), stableId, false);
         }
     }

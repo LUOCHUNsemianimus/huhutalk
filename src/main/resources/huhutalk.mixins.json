@@ -10,7 +10,8 @@
   ],
   "client": [
     "MouseHandlerMixin",
-    "GeckoMaidEntityMixin"
+    "GeckoMaidEntityMixin",
+    "GeckoModelLoaderMixin"
   ],
   "injectors": {
     "defaultRequire": 1
