@@ -1,80 +1,149 @@
 # HuhuTalk 女仆「使用手机」动画 — 任务状态交接
 
 > 交接时间点：动画已接入模组、能在游戏内播放；姿态方向已修好（实机确认）。
-> **「`_raise` 反复重播」仍在排查中**，但已有实机日志证明"hold 确实被进入"，
-> 而真正的问题是 **hold 段的抖动幅度小到看不见**（已放大）。
-> 新对话请先读「三、结论」与「四、下一步该做什么」。
+> **「`_raise` 反复重播」根因已定位并修复**：TLM `AnimationController` 在"链式 builder 播完自动接下一个"时
+> **不会重新绑定骨骼关键帧队列**，导致 `hold` 的关键帧从未被求值、每 1.9s 用 `raise` 的关键帧把手臂放回静止再抬起。
+> 已改为"两条单动画 builder + 定时交接"。详见「零、症状 B 根因」。
+> 新对话请先读「零」与「四、下一步该做什么」。
 
 ---
 
-## 零、第二轮排查（最新，优先级最高）
+## 零、症状 B「抬手反复重播」根因（已修复，待实机确认）
 
-### 0.1 姿势问题已确认修好
-实机确认：抬手方向、低头方向都正确了。
+### 0.1 症状回顾与日志证据
 
-### 0.2 实机日志证明 hold **确实**被进入（推翻了"压根没换 hold"）
+用户观感：女仆抬起手 → 顿一会 → **再抬一次**，周期约 1.5~2s；BB 里 hold 抖动幅度可见，
+游戏里**完全看不到抖动**；`lower` 在最后能正常播放。
 
-`run/logs/latest.log`（20:19–20:20 那次带修正数值的 run，全 session 只有一个窗口）：
+日志（第 5 次实机诊断，`姿态` 行每 60 次调用采样一次）：
 
 ```
-20:20:32.984 [Server] 开启来源窗口
-20:20:33.084 [Client] 窗口开启→重启动画链        ← 只出现一次
-20:20:33.365 [Client] current=huhutalk_phone_raise@8.0
-20:20:33.743 [Client] current=huhutalk_phone_hold@38.0
-   ... 之后每一条采样都是 current=huhutalk_phone_hold@38.0，state 恒为 RUNNING ...
-20:20:44.018 [Server] 关闭来源窗口
+[Client] 姿态: ... current=huhutalk_phone_raise@8.0  RightArm.x=21.14 RightForeArm.x=55.50 ForeArm.posY=0.00
+[Client] 动画切换: huhutalk_phone_raise -> huhutalk_phone_hold state=TRANSITIONING
+[Client] 姿态: ... current=huhutalk_phone_hold@38.0  RightArm.x=22.20 RightForeArm.x=58.28 ForeArm.posY=0.00
+[Client] 姿态: ... current=huhutalk_phone_hold@38.0  RightArm.x=25.00 RightForeArm.x=65.64 ForeArm.posY=0.00
+ ... 大多数采样都是 25.00 / 65.64，但每隔几条约 1.7s 出现一次明显偏低的采样：
+[Client] 姿态: ... current=huhutalk_phone_hold@38.0  RightArm.x= 9.02 RightForeArm.x=23.68 ForeArm.posY=0.00
+[Client] 姿态: ... current=huhutalk_phone_hold@38.0  RightArm.x= 0.92 RightForeArm.x= 2.42 ForeArm.posY=0.00
+[Client] 姿态: ... current=huhutalk_phone_hold@38.0  RightArm.x=14.52 RightForeArm.x=38.13 ForeArm.posY=0.00
 ```
 
-raise 在 0.4s 内切到 hold，且 10 秒内没有任何采样退回 raise。
-**所以"卡在 raise"在日志层面不成立。** 但用户的观感（"只是抬起手然后停住"）是对的，
-原因是——
+两条决定性指纹：
+1. **`RightArm.x` 与 `RightForeArm.x` 严格成比例**（9.02/25 = 0.361、23.68/65.64 = 0.361；0.92/25 = 0.037、2.42/65.64 = 0.037）。
+   即两个骨骼被**同一个"从当前姿态向 0（静止）插值"的因子**缩放 —— 这就是 `raise` 关键帧的进度值。
+2. **`ForeArm.posY` 永远是 0.00**。`raise` 的 position 关键帧 y 全是 0，而修正后的 `hold` 的 y 是 ±0.5。
+   所以驱动骨骼的**根本不是 hold 的关键帧列表**。
 
-### 0.3 真问题：`_hold` 的抖动幅度小到不可见（已修）
+且 `builder 切换`/`动画切换` 日志里**只有一次** raise→hold，没有第二条 raise —— 说明
+`currentAnimation` 确实是 hold，但**骨骼队列绑的还是 raise 的关键帧**。
 
-原 `_hold` 抖动只有 ** forearm x: 64.39 ↔ 66.89（±1.25°）** 和
-**position y: ±0.12 单位（= 0.0075 格 ≈ 7 毫米）**。
-这个幅度在游戏里完全看不出来，所以 hold 播着也像"冻住了"，自然被判断为"没进 hold"。
-（旧文档写"手机抖动编码在小臂 position 抖动里"是事实，但幅度根本没到可见阈值。）
+### 0.2 机制（TLM 的 `AnimationController` 缺陷）
 
-**已放大**（节奏仍是原来的"三快一停"，keyframe 时间戳不变）：
+`AnimationController.processCurrentAnimation()` 里，一次性动画播完时：
+
+```java
+Pair<ILoopType, Animation> peek = this.animationQueue.peek();   // 只看，不 poll
+this.animationState = AnimationState.TRANSITIONING;
+this.shouldResetTick = true;
+this.currentAnimation = peek.getSecond();                       // 换成 hold
 ```
-RightForeArm.rotation x : -65.638 基准，抖动到 -70.5 ↔ -60.5（±5°）
+
+它**没有 poll 掉队列头部**，也**没有调用 `switchAnimation()`**。
+而 `switchAnimation()` 才是做这件事的地方：
+
+```java
+private void switchAnimation() {
+    activeBoneAnimationQueues.clear();
+    for (BoneAnimation animation : this.currentAnimation.boneAnimations) {
+        BoneAnimationQueue queue = boneAnimationQueues.get(animation.boneName);
+        queue.animation = animation;     // ← "骨骼 → 关键帧列表"的唯一绑定点
+        ...
+    }
+}
+```
+
+它只在 `process()` 的 TRANSITIONING 分支里被调用，触发条件是 `if (resetTick || this.isJustStarting)`。
+而 `resetTick` 的来源被这一步吃掉了：
+
+```java
+double adjustedTick = adjustTick(tick);        // ← 这里已把 shouldResetTick 消费成 false
+...
+boolean resetTick = this.shouldResetTick;      // ← 第 246 行，恒为 false
+```
+
+只有 `setAnimation()` 在 **predicate 内**（即 adjustTick 之后、第 246 行之前）置位 `shouldResetTick` 的那一帧，
+`resetTick` 才为 true —— 也就是说**只有"换 builder"才能触发 `switchAnimation()`**。
+
+于是链式 builder（`playOnce(raise).loop(hold)`）的后果：
+- `currentAnimation` = hold，但 `activeBoneAnimationQueues[*].animation` 仍是 **raise**；
+- 每次 hold 循环（38 tick = 1.9s）把 tick 归零后，求值的是 `raise` 的第一帧 = **静止姿态**（`raise@0`），
+  随后 8 tick 内沿 `raise` 的第一段抬起 → **每隔 1.9s 重播一次抬手**；
+- `hold` 的关键帧**从未被求值** → 抖动永远看不见。
+
+**为什么 TLM 一直没被发现**：TLM 自身所有调用点都是单条 builder
+（`new AnimationBuilder().addAnimation(name, loopType)`，见 `AnimationManager:62/68`、
+`GeckoChairEntity:69`、`GunGeckoAnimation:165` 等），从未用到多条目链式 builder。
+我是全生态里唯一一个这么用的。
+
+### 0.3 修复
+
+`PhoneAnimation` 改为**两条单动画 builder + 定时交接**：
+
+```java
+RAISE = new AnimationBuilder().playOnce(ANIM_RAISE);   // 单条
+HOLD  = new AnimationBuilder().loop(ANIM_HOLD);        // 单条
+LOWER = new AnimationBuilder().playOnce(ANIM_LOWER);   // 单条（本来就这样）
+```
+
+按 stableId 维护阶段 `PHASE = {RAISE, HOLD}`：
+- 窗口刚开启（`PHASE == null`）→ `markNeedsReload()` + 提交 `RAISE`，记录起始 `event.getAnimationTick()`；
+- RAISE 阶段中，`nowTick - start >= RAISE_HANDOFF_TICKS(9.0)` 或状态已 `STOPPED` → 提交 `HOLD`
+  （**不同 builder ⇒ 走重建分支 ⇒ 下一帧正常 poll + `switchAnimation()` ⇒ 关键帧正确绑定**）；
+- HOLD 阶段 → 幂等续提交 `HOLD`（同 builder，不会重启；hold 的 loop 由 TLM 自己维持，不需要重绑）；
+- 窗口关闭 → 提交 `LOWER`，播完 `STOPPED` → 返回 `STOP`。
+
+**为什么是 9.0 tick 而不是等 raise 自己播完**：`setAnimation` 后要先花 `transitionLengthTicks = 2` tick 过渡，
+所以 raise 自己的 tick 0 在提交后第 2 tick、播完在第 10 tick。取 9 表示"在 raise 结束那一帧之前"换 builder：
+predicate 在 `processCurrentAnimation` 之前执行，因此那一帧不会走到 raise 的结束分支，
+也就不会出现"骨骼队列为空 → 被 `AnimationProcessor` 的重置逻辑（`resetTickLength` 默认 1 tick）
+瞬间拉回静止姿态"的一帧闪烁。（`STOPPED` 兜底分支正是为这种异常情况保留的。）
+
+**顺带**：`PhoneAnimation.reset()` 会在进/退世界时清空所有 static 状态
+（`ClientCacheEvents.onPlayerLogin/onPlayerLogout`），修掉了旧文档「遗留问题 1」
+（static 状态跨世界残留导致下一局可能跳过 raise）。
+
+### 0.4 hold 抖动幅度已放大（现在才会真正生效）
+
+原来 ±1.25°（64.39 ↔ 66.89）和 position ±0.12 单位本来就不可见 —— 而更关键的是它**从未被求值**。
+现在两个问题都修了，幅度也放大到可见：
+```
+RightForeArm.rotation x : -65.638 基准，抖动 -70.5 ↔ -60.5（±5°）
 RightForeArm.position   : y ±0.5、z -0.75 ↔ -0.15（手上下浮动约 3 厘米）
 ```
-→ 这也是一个**自检手段**：装上这版后如果能看到手在上下小幅点动，就说明 hold 确实在播。
 
-### 0.4 用户的怀疑 #1（消息分割导致 raise 重播）—— 结构上不成立，但同类耦合真实存在
+### 0.5 用户提出的两个怀疑的判定
 
-- **分割是纯客户端显示行为**：`MessageSplitter` + `ChatPage.splitSchedule` 只在本地把一条回复拆成多段逐条落屏，
-  **不发任何包**，也不碰 `PhoneChatSourceController`。
-- `PhoneChatSourceController.open(maid)` 只在 `MaidChatHandler` 的两个入口各调一次（第 71 / 214 行），
-  即"玩家发一条消息 = 一次 open"。所以**分割段本身不可能触发 raise**。
-- **但确实存在同族的耦合**（值得后续修）：
-  1. `open()` 只在"原本没开"时才广播；窗口已开时**只刷新 30s 到期时间、不广播、不打印任何日志**。
-     所以"发第二条消息"在客户端是完全静默的。
-  2. `C2SPhoneTypingDonePacket` **只带 stableId，不区分是哪一条回复**；
-     一旦某条回复显示完，客户端就回执 → 服务端立刻关窗。
-  3. 于是当两条消息重叠时：msg2 在 reply1 还在打字时到达（open 静默刷新）→
-     reply1 打完 → 客户端回执 → **关窗、手臂放下**，而 reply2 还没显示；
-     之后 reply2 显示完再回执时窗口早就关了（`close` 幂等，无广播）。
-     反过来又可能出现"关窗后 msg3 到达 → open 广播 true → 再次 raise"。
-  4. 结果就是**raise/hold/lower 的节奏和"消息到达时刻"对不上**，正是用户观察到的现象。
-- 要判定这次遇到的到底是不是它，看日志里的 `open 调用: wasOpen=` / `窗口状态` / `关闭来源窗口` 时间轴即可。
+- **「分割消息导致 raise 重播」：不成立。** 分割是纯客户端显示
+  （`MessageSplitter` + `ChatPage.splitSchedule` 本地逐条落屏），不发包、不碰 `PhoneChatSourceController`；
+  `open()` 只在 `MaidChatHandler:71/214` 各调一次（一条消息一次）。
+  实测日志也证实：单条消息、窗口全程只开一次，重播照样发生 ⇒ 与消息数/分割无关。
+- **「重叠消息耦合」：不是本次病灶**（用户单条消息也复现），但它**确实是一个真实隐患**：
+  `open()` 在窗口已开时静默刷新、`C2SPhoneTypingDonePacket` 只带 stableId 不区分回复，
+  多条消息重叠时开/关窗会错配。已加日志，后续可改为"待显示回复计数"。
+  详见「三、结论 → 遗留小问题」。
+- **「hold 没被正确播放」：完全正确**，就是 0.2 的 TLM 绑定缺陷。
 
-### 0.5 本轮新增的诊断（下轮日志即可定案）
+### 0.6 本轮诊断日志（保留，便于复验）
 
-| 日志 | 位置 | 能判定什么 |
+| 日志 | 位置 | 判定 |
 |---|---|---|
-| `窗口状态: active false -> true` | `PhoneAnimation` | 客户端窗口边沿，与服务端开关窗对齐时间 |
-| `动画切换: X -> Y state=.. active=..` | `PhoneAnimation` | 每一次 raise/hold/lower 切换；**重播一定会留下多条 raise 行** |
-| `raise 链被重建(第N次): 重建前动画=.. 重建前state=.. 我们markNeedsReload=..` | `PhoneAnimation` | **最关键**。只在队列真被重建时打印；`markNeedsReload=true` ⇒ 我们自己重启；`false` ⇒ 另有来源（渲染器重建 / 控制器被重建 / 别的 needsAnimationReload） |
-| `姿态: RightArm.x=.. RightForeArm.x=.. ForeArm.posY=..` | `PhoneAnimation` | 直接读骨骼最终角度（度）与位移，每 60 次调用一条。可证明 hold 抖动到底有没有被应用、幅度多大；数值可直接和 JSON 对照 |
-| `收到窗口包: active=..` | `ClientPayloadSetup` | 客户端收到的窗口广播 |
-| `open 调用: wasOpen=..` | `PhoneChatSourceController` | **每次** open 都打印（含静默刷新）。频繁 `wasOpen=true` ⇒ 消息在重叠到达 |
-| `收到打字播完回执 / 关闭来源窗口` | `C2SPhoneTypingDonePacket` / Controller | 回执时间轴，看是否与 open 错配 |
-
-**下一次复现后要提供的证据**：`run/logs/latest.log`（或 `grep -E "HuhuTalk|PhoneChatSource" run/logs/latest.log`），
-外加"我发了几条消息、大概什么节奏"。
+| `窗口状态: active X -> Y tick=..` | `PhoneAnimation` | 窗口边沿 |
+| `动画切换: X -> Y state=..` | `PhoneAnimation` | 每次动画名变化 |
+| `builder 切换(第N次): … 提交 raise / raise→hold 交接` | `PhoneAnimation` | **正常每个窗口恰好 2 次**（raise、hold；lower 走 `动画切换` 日志）。多于 2 次即异常重播 |
+| `姿态: state=.. current=.. RightArm.x=.. RightForeArm.x=.. ForeArm.posY=..` | `PhoneAnimation` | **决定性**：读骨骼最终角度（度）与位移。修好后应看到 `RightForeArm.x` 在 60.5↔70.5 抖动、`ForeArm.posY` 在 -0.5↔+0.5 变化、且**不再出现接近 0 的采样** |
+| `收到窗口包: active=..` | `ClientPayloadSetup` | 客户端收到的广播 |
+| `open 调用: wasOpen=..` | `PhoneChatSourceController` | 每次 open（含静默刷新） |
+| `收到打字播完回执 / 关闭来源窗口` | `C2SPhoneTypingDonePacket` / Controller | 关窗时间轴 |
 
 ---
 
@@ -92,7 +161,7 @@ RightForeArm.position   : y ±0.5、z -0.75 ↔ -0.15（手上下浮动约 3 厘
 ### 1. 三段动画资产
 
 `src/main/resources/assets/huhutalk/animation/huhutalk_phone.animation.json`
-（**合并单文件，含三个动画**；另有三个空壳 `_raise/_hold/_lower.animation.json` 建议删除）
+（**合并单文件，含三个动画**；三个空壳 `_raise/_hold/_lower.animation.json` 已删除）
 
 | 动画名 | 时长 | loop | 驱动骨骼 |
 |---|---|---|---|
@@ -164,27 +233,26 @@ private static void huhutalk$injectPhoneAnimation(ResourceLocation id, Animation
 
 ## 三、结论（本次排查的确定结果）
 
-### ✅ 症状 B（`_raise` 反复重播 / 进不了 hold）——**已修复，有实机日志实证**
+### ✅ 症状 B（`_raise` 反复重播 / 进不了 hold）——**根因已定位并修复，见「零」**
 
-根因就是 `PhoneAnimation` 把状态放在 predicate 实例字段里，随 `GeckoMaidEntity`（NeoForge attachment）
-重建而丢失 → 每帧都判定为"窗口刚开启" → 每帧 `markNeedsReload()` → `_raise` 被无限重启。
-改成 static 集合 `ACTIVE_INSTANCES` 后修复。
+分两层，前一版只修到第一层：
 
-`run/logs/latest.log`（最后一次 runClient）：
-```
-184: 手机动画诊断: stableId=6e4b... cacheActive=false raiseFound=true mergeOk=true calls=1
-188: 手机动画启动: stableId=6e4b... raiseFound=true mergeOk=true activeCount=0
-189: 窗口开启→重启动画链: stableId=6e4b... reloadFlag=true      ← 整个窗口只出现一次 ✅
-191: 进度: state=RUNNING current=huhutalk_phone_raise@8.0 calls=3640
-192: 进度: state=RUNNING current=huhutalk_phone_hold@38.0 calls=3680   ← 0.4s 内进入 hold ✅
-193~228: state=RUNNING current=huhutalk_phone_hold@38.0 ...           ← 一直保持在 hold ✅
-229: [PhoneChatSource] 关闭来源窗口: stableId=6e4b...
-```
-（`@8.0` / `@38.0` 是 `animation_length`（tick），不是进度；重点是动画名从 raise 变成 hold 并保持。）
+1. **第一层（已修，实机确认）**：`PhoneAnimation` 把状态放在 predicate 实例字段里，
+   随 `GeckoMaidEntity`（NeoForge attachment）重建而丢失 → 每帧判定"窗口刚开启" →
+   每帧 `markNeedsReload()` → raise 被无限重启。改成 static 状态后，
+   重播频率从"每帧"降到"每 1.9 秒一次"。
+2. **第二层（本轮定位，即"每 1.9 秒一次"的真身）**：
+   链式 builder `playOnce(raise).loop(hold)` 触发 TLM `AnimationController` 的缺陷——
+   raise 播完时只 `peek()` 换 `currentAnimation`，**不 `poll()`、不 `switchAnimation()`**，
+   于是骨骼队列永远绑着 `raise` 的关键帧：`hold` 的关键帧从未被求值（抖动看不见），
+   而每 1.9 秒 hold 循环归零后重新求值 `raise@0`（静止姿态）→ **手臂掉下去再抬起来**。
+   完整机制、日志证据、修复方案见「零」。
 
-**因此「线索 3：症状 A 只是症状 B 的副产品」不成立**——hold 确实在播，手臂朝后是姿态数值本身的问题。
+（`run/logs/latest.log` 里 `current=huhutalk_phone_raise@8.0` → `hold@38.0` 只是说明
+`currentAnimation` 这个名字换成了 hold，**并不能说明 hold 的关键帧在被求值** ——
+第 5 次诊断的 `姿态` 行才揭穿了这一点。）
 
-### 🔴 症状 A（手臂朝**身后**伸）——**根因 = X/Y 旋转符号全错**，已修数值，待实机确认
+### ✅ 症状 A（手臂朝**身后**伸）——**根因 = X/Y 旋转符号全错**，已修，实机确认
 
 **先否掉旧线索 1（度/弧度混用）**：`RotationValue.processValue()` 明确做了度→弧度转换，
 所以动画 JSON 里的度数不会被当成弧度。旧文档"25 度 ≈ 1433°"的担心不成立。
@@ -232,10 +300,9 @@ private static void huhutalk$injectPhoneAnimation(ResourceLocation id, Animation
 
 ### 🟡 遗留小问题（未修，建议知悉）
 
-1. **`PhoneAnimation.ACTIVE_INSTANCES` / `DIAGNOSED` 没有世界切换重置**，
-   而 `PhoneChatSourceCache.clear()` 有。若玩家在动画中途退出世界，static 集合里会残留该 stableId。
-   后果：下次开窗时 `markNeedsReload()` 可能不触发 → 直接续播 hold 而跳过 raise（外观问题，非功能问题）。
-   修法：给 `PhoneAnimation` 加 `reset()`，在 `ClientCacheEvents.onPlayerLogin/onPlayerLogout` 里调用。
+1. ~~**`PhoneAnimation` 的 static 状态没有世界切换重置**~~ —— **已修**：
+   新增 `PhoneAnimation.reset()`，在 `ClientCacheEvents.onPlayerLogin/onPlayerLogout` 调用
+   （与 `PhoneChatSourceCache.clear()` 同处），跨世界不再残留 stableId。
 2. **`ClientCacheEvents.onClientTick` 只在 `getCurrentPage() instanceof ChatPage` 时推进 `advanceSplitting()`**。
    收起手机没问题（页面仍在栈顶），但玩家**切到别的页面**时推进会暂停 → 回执延后 → 手臂保持举起，
    最坏等 30s 兜底关窗。修法：改为遍历"所有持有未播完断句的 ChatPage"（或让 tick 驱动与页面栈无关）。
@@ -246,25 +313,33 @@ private static void huhutalk$injectPhoneAnimation(ResourceLocation id, Animation
 
 ## 四、下一步该做什么（建议顺序）
 
-### 4.1 先确认 hold 现在"看得见"
-跑一次 `runClient`，只发**一条**消息，盯住手臂：抬手 0.4s 后应该能看到**手在上下小幅点动**
-（约 3 厘米，三快一停），而不是停住不动。看得到 ⇒ hold 正常，问题只剩"重播"。
+### 4.1 验证本次修复（只需一条消息）
 
-### 4.2 再复现"重播"，把日志给我
-建议发 3~4 条消息、故意让上一句还在逐条打字时就发下一句（这正是最可疑的重叠场景）。
-然后把 `run/logs/latest.log` 里的 `HuhuTalk` / `PhoneChatSource` 行给我
-（`grep -E "HuhuTalk|PhoneChatSource" run/logs/latest.log`），
-并说明"我发了几条、大概什么节奏"。
+跑一次 `runClient`，发**一条**消息，然后核对两件事：
 
-**判读方法**：
-- 若 `动画切换` 里出现多条 `-> huhutalk_phone_raise`，且伴随 `窗口状态 active true -> false -> true`
-  或 `open 调用`/`关闭来源窗口` 频繁成对出现 → **是窗口开合抖动**（0.4 节的耦合），
-  修法：给窗口加"待显示回复计数"（或让回执带 reply token，只在计数归零时关窗）。
-- 若出现多条 `raise 链被重建(第N次)` 而**没有**窗口开合 → 是**动画链被自己重建**，
-  看 `我们markNeedsReload=` 是 true 还是 false：
-  - `true` ⇒ `ACTIVE_INSTANCES` 被误清空（可能窗口瞬时 false 一帧）；
-  - `false` ⇒ 来自 `switchRenderer`（模型/渲染器重建）或控制器被重建。
-- 若 `姿态` 行里 `RightForeArm.x` 在 60.5/70.5 之间变化 ⇒ hold 抖动确实在跑。
+1. **不再周期性重播**：手臂抬起后应一直保持，直到回复打完才放下；
+   **不应**再出现"每 1.5~2 秒掉下去再抬起来"。
+2. **hold 抖动可见**：抬起后手应在上下小幅点动（约 3 厘米，三快一停）。
+
+日志核对（`grep -E "HuhuTalk|PhoneChatSource" run/logs/latest.log`）：
+- `builder 切换` 应在**每个窗口恰好出现 2 次**：`窗口刚开启 → 提交 raise`、`raise→hold 交接`
+  （lower 的切换看 `动画切换: hold -> huhutalk_phone_lower`）。
+  多于 2 次 ⇒ 还有别的重播来源。
+- `姿态` 行里 `RightForeArm.x` 应在 **60.5 ↔ 70.5** 抖动、`ForeArm.posY` 在 **-0.5 ↔ +0.5** 变化，
+  且**不应再出现接近 0（如 0.92 / 2.42）的采样**。旧日志里那些接近 0 的值就是 raise 关键帧在驱动的铁证。
+
+若仍有异常，把 `run/logs/latest.log` 的相关行发我。
+
+### 4.2 已知的遗留隐患（不是本次病灶，确认观感后再处理）
+
+- **多消息重叠时开/关窗会错配**：`open()` 在窗口已开时只静默刷新、
+  `C2SPhoneTypingDonePacket` 只带 stableId 不区分回复，所以 reply1 打完的
+  回执会关掉 reply2 还需要的窗口。修法：给窗口加"待显示回复计数"，
+  或让回执带 reply token，只在计数归零时关窗。
+- `ClientCacheEvents.onClientTick` 只在当前页是 `ChatPage` 时推进 `advanceSplitting()`；
+  切到别的页面会暂停推进，最坏等 30s 兜底关窗。
+- `PhoneChatSourceController.clearAll()` 只清 `OPEN`、不广播 `active=false`。
+- `PhoneAnimationHandler.ensureAnimations` 每个模型打一行注入日志（约 40 行，诊断噪音）。
 
 ### 4.3 收尾（观感确认后）
 1. 清理诊断代码（见「六、待清理的诊断代码」）。
@@ -272,7 +347,6 @@ private static void huhutalk$injectPhoneAnimation(ResourceLocation id, Animation
 3. 觉得抖动太快/太慢：`_hold` 的 keyframe 时间戳（0.15/0.3/0.45 + 0.35 停顿）就是节奏，改时间即可；
    幅度改 `-70.5 ↔ -60.5` 和 position 的 ±0.5。
 4. 把数值同步回 `winefox.bbmodel`（可选，工程文件不参与打包）。
-5. 处理「三、结论 → 遗留小问题」里的 4 条。
 
 ---
 
@@ -300,22 +374,23 @@ private static void huhutalk$injectPhoneAnimation(ResourceLocation id, Animation
 | `core/chat/MaidChatHandler.java` | `handleChat` + `handleImageChat` 两处 `PhoneChatSourceController.open(maid)` |
 | `core/chat/HuhuTalkChatCallback.java` | `onSuccess` **不再**关窗；`onFailure` 关窗 |
 | `phone/pages/ChatPage.java` | 逐条显示改绝对时间排程 + 播完回执 + `advanceSplitting()` 转 public |
-| `client/ClientCacheEvents.java` | 进世界清 `PhoneChatSourceCache`；tick 驱动 `advanceSplitting()` |
+| `client/ClientCacheEvents.java` | 进世界清 `PhoneChatSourceCache`；tick 驱动 `advanceSplitting()`；进/退世界调 `PhoneAnimation.reset()` |
 | `client/network/ClientPayloadSetup.java` | 处理 `S2CPhoneChatSourcePacket`（`enqueueWork` → 主线程，无竞态） |
 
 ---
 
 ## 六、待清理的诊断代码（功能确认后删除）
 
-1. `PhoneAnimation`：`DIAGNOSED`、`CALL_COUNT`、`LAST_ACTIVE`、`LAST_ANIM`、`RESTART_COUNT`、
-   `currentName()`、`describeCurrent()`、`deg()` 及全部 `LOGGER.info`
+1. `PhoneAnimation`：`DIAGNOSED`、`CALL_COUNT`、`LAST_ACTIVE`、`LAST_ANIM`、`SWITCH_COUNT`、
+   `logSwitch()`、`currentName()`、`describeCurrent()`、`deg()` 及全部 `LOGGER.info`
+   （**注意保留 `PHASE` / `RAISE_STARTED` / `reset()` 与两段式提交逻辑——那是修复本体，不是诊断**）
 2. `PhoneAnimationHandler`：`merged` / `lastMergeSucceeded()` 及注入日志
 3. `PhoneChatSourceController`：`open`/`close` 里的 `LOGGER.info`（注意 `open` 的日志已改成**每次**都打，
    清理时别把 `wasOpen` 逻辑一起删掉）
 4. `C2SPhoneTypingDonePacket`：回执日志 + "找不到女仆"警告
 5. `ClientPayloadSetup.handlePhoneChatSource`：`收到窗口包` 日志
 6. `PhoneAnimationRegistration`：若不再被引用可合并掉
-7. 三个空壳文件 `huhutalk_phone_{raise,hold,lower}.animation.json`（**已在本次删除**）
+7. 三个空壳文件 `huhutalk_phone_{raise,hold,lower}.animation.json`（**已删除**）
 
 ---
 
