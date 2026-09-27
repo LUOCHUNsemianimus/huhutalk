@@ -56,8 +56,23 @@ public class PhoneInHandLayer<T extends Mob, R extends IGeoEntityRenderer<T>> ex
     private static final float BASE_TRANSLATE_Y = -0.0625F;
     private static final float BASE_TRANSLATE_Z = -0.1F;
     private static final float BASE_ROTATE_X = -90.0F;
-    /** 手机整体缩放（手机比工具小，通常需要调小，1.0 = 与手持物品同比例） */
+    /** 手机整体缩放（1.0 = 与手持物品同比例；真正的尺寸旋钮是模型自带的 display.scale） */
     private static final float SCALE = 1.0F;
+
+    private static final org.slf4j.Logger LOGGER = com.mojang.logging.LogUtils.getLogger();
+    private static String lastDiag = "";
+    private static long lastDiagAt = 0L;
+
+    /** 诊断日志：同一条消息最多每 5 秒打一次，避免刷屏 */
+    private static void diag(String msg) {
+        long now = System.currentTimeMillis();
+        if (msg.equals(lastDiag) && now - lastDiagAt < 5000L) {
+            return;
+        }
+        lastDiag = msg;
+        lastDiagAt = now;
+        LOGGER.info("[HuhuTalk/Hand] {}", msg);
+    }
 
     private final ItemInHandRenderer itemInHandRenderer;
 
@@ -76,25 +91,34 @@ public class PhoneInHandLayer<T extends Mob, R extends IGeoEntityRenderer<T>> ex
                        T entity, float limbSwing, float limbSwingAmount, float partialTicks, float ageInTicks,
                        float netHeadYaw, float headPitch) {
         if (!(entity instanceof EntityMaid maid)) {
+            diag("skip: entity is not EntityMaid");
             return;
         }
         // 只在「手机来源窗口」内渲染 —— 与 huhutalk_phone_* 动画用的是同一个客户端窗口缓存，
         // 因此手机的出现/消失天然与 raise/hold/lower 同步，不需要额外同步协议。
         String stableId = (maid instanceof StableIdProvider provider) ? provider.getStableId() : null;
         if (!PhoneChatSourceCache.isActive(stableId)) {
+            diag("skip: chat window inactive, stableId=" + stableId);
             return;
         }
         // 主手有东西时不画，避免与 TLM 自带的 GeckoLayerMaidHeld 在同一挂点叠两层
         if (!maid.getMainHandItem().isEmpty()) {
+            diag("skip: main hand not empty = " + maid.getMainHandItem());
             return;
         }
         ItemStack phone = phoneOf(maid);
         if (phone.isEmpty()) {
+            diag("skip: maid has no phone tier (PhoneHelper.getPhoneTier)");
             return;
         }
         ILocationModel geoModel = getLocationModel(entity);
-        if (geoModel == null || geoModel.rightHandBones().isEmpty()) {
-            return; // 该模型没有 RightHandLocator（例如非酒狐系模型）→ 静默跳过
+        if (geoModel == null) {
+            diag("skip: getLocationModel returned null");
+            return;
+        }
+        if (geoModel.rightHandBones().isEmpty()) {
+            diag("skip: rightHandBones() empty (model has no RightHandLocator)");
+            return;
         }
 
         poseStack.pushPose();
@@ -105,6 +129,9 @@ public class PhoneInHandLayer<T extends Mob, R extends IGeoEntityRenderer<T>> ex
             poseStack.scale(SCALE, SCALE, SCALE);
             this.itemInHandRenderer.renderItem(maid, phone, ItemDisplayContext.THIRD_PERSON_RIGHT_HAND,
                     false, poseStack, bufferSource, packedLight);
+            diag("RENDERED " + phone.getItem() + " bones=" + geoModel.rightHandBones().size() + " SCALE=" + SCALE);
+        } else {
+            diag("skip: locator scale is zero");
         }
         poseStack.popPose();
     }

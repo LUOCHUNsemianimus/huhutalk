@@ -1,6 +1,3 @@
 {
-  "parent": "minecraft:item/generated",
-  "textures": {
-    "layer0": "huhutalk:item/phone_smart"
-  }
+  "parent": "huhutalk:item/phone_3d"
 }
