@@ -3,10 +3,11 @@
 > **下一轮对话请直接从这里开始。**
 > 现状：模型 / 贴图 / display 全部就绪，创造模式与女仆手上都能正常显示；
 > 第 5 轮换贴图 + 调角度大小，第 6 轮修好「手机浮在手外」（pivot 改到手机重心），
-> 第 7~8 轮按用户要求抬高 0.4 个手机的高、并沿手机宽边右→左挪 0.4 个手机的宽。
-> **待用户进游戏确认；§5.3.3 有位置微调的换算表（含两套映射，别搞混）。**
-> ⚠️ 本轮 Blockbench MCP 掉线，`.bbmodel` 里的 `display_settings` **没同步**成最新值，
-> 下次进 BB 记得先用 `set_display_transform` 对齐（否则从 BB 导出会覆盖掉）。
+> 第 7~8 轮抬高 0.4 个手机的高、沿手机宽边右→左挪 0.4 个手机的宽，
+> **第 9~10 轮做掉「用手机时隐藏主手物品」**（新增 `GeckoLayerMaidHeldMixin`，见「4.2」）。
+> **待用户进游戏确认：主手拿着东西时手机也应正常显示。**
+> ⚠️ BB 的 MCP 在第 8 轮掉线过，`.bbmodel` 里的 `display_settings` 可能还是旧值，
+> 下次进 BB 先核对一遍（否则从 BB 导出会覆盖掉 `phone_3d.json` 的 display）。
 
 ---
 
@@ -62,6 +63,7 @@
 | `src/main/resources/assets/huhutalk/models/item/phone_smart.json` | `{"parent": "huhutalk:item/phone_3d"}` | ⚠️ 临时改动，见「7.4」 |
 | `docs/blockbench/huhutalk_phone.bbmodel` | Blockbench 可编辑源 | ✅ 最新；`display_settings` 已同步成 §5.3 的值 |
 | `src/main/java/com/huhutalk/client/render/PhoneInHandLayer.java` | 手机挂手渲染层 | ⚠️ **含临时诊断日志**，问题解决后要清 |
+| `src/main/java/com/huhutalk/mixin/GeckoLayerMaidHeldMixin.java` | 用手机时压掉右手手持物 | ✅ 第 9 轮新增（见「4.2」） |
 | `src/main/java/com/huhutalk/init/ItemMaidPhone.java` | 手机物品 + `IMaidBauble` | ✅ **本轮修复：补上 `syncClient` → true**（见「4.1」） |
 | `src/main/java/com/huhutalk/HuhuTalkTLMExtension.java` | 注册渲染层的扩展入口 | 未改 |
 
@@ -139,17 +141,40 @@ public boolean syncClient(EntityMaid maid, ItemStack baubleItem) {
 `PhoneChatSourcePacket`），所以窗口状态能正常同步、`huhutalk_phone_*` 动画能正常播 ——
 **只有配饰栏没同步**。这就是「动画在演，手上却没东西」的原因。
 
-### 4.2 ⚠️ 主手有东西时手机让位（设计如此，未改）
+### 4.2 ✅ 主手物品让位给手机（第 9 轮实现）
 
-`PhoneInHandLayer` 在 `!maid.getMainHandItem().isEmpty()` 时直接跳过，原因是 TLM 自带的
-`GeckoLayerMaidHeld` 用的**就是同一个 `RightHandLocator`**（`GeckoLayerMaidHeld.java:43-45,86-88`），
-两层会穿模。
+**背景**：手机和女仆真正拿的东西**用的是同一根 `RightHandLocator` 骨骼**
+（`GeckoLayerMaidHeld.java:43-45,86-88`），同时渲染必然穿模。
+第 3 轮的做法是"主手非空就跳过手机层"，后果是**女仆只要拿着工具/武器就永远看不到手机** ——
+而她在战斗中恰恰最容易错过消息。
 
-**代价**：第 6 次日志里女仆挂着 `trident_attack` 任务、主手一直有三叉戟，
-所以**即使配饰同步修好了，那个时刻手机也不会显示**。
+⚠️ **注意：项目里从来没有"隐藏主手物品"的代码。** 第 9 轮之前 git log 里连着三条提交信息写着
+「去掉主手」（`8837589` / `6980260` / `381e895`），那是**在游戏里手动把主手物品拿走**，
+不是代码行为。`73174f6` 那个版本的 `PhoneInHandLayer` 里就已经有同样的
+`if (!maid.getMainHandItem().isEmpty()) return;` 了。
 
-复验时请让女仆主手空着（把三叉戟收回 / 换个不拿东西的任务），或者参考 `phone-model-handoff.md`
-后面「§6 备选」里改挂 `LeftHandLocator` 的方案。
+**第 9 轮改成"窗口开着 → 手持物让位给手机"**：
+
+| 文件 | 改动 |
+|---|---|
+| `PhoneInHandLayer.java` | **删掉**「主手非空就跳过」那条早退；新增 `public static boolean isUsingPhone(Entity)` |
+| `mixin/GeckoLayerMaidHeldMixin.java` | **新增**。`@Inject` 到 `GeckoLayerMaidHeld.renderArmWithItem` 的 HEAD，`arm == RIGHT && isUsingPhone(...)` 时 `ci.cancel()` |
+| `huhutalk.mixins.json` | `client` 列表加 `"GeckoLayerMaidHeldMixin"` |
+
+要点：
+
+- **只压右手**（`arm == RIGHT`），副手/左手的东西照常显示。
+- `renderArmWithItem` 内部还会遍历 `extraRightHandBones()` 再画一遍同一件物品，取消整个方法正好一次解决。
+- **判据与手机层共用** `isUsingPhone`（窗口开着 + 客户端知道她戴着手机），所以不会出现
+  「手持物藏了、手机没画」的空手帧。窗口一关条件立刻变假，手持物当帧恢复。
+- ⚠️ 目标方法签名很容易写错（第 9 轮第一次就写错了，编译能过、运行才炸）：
+  ```java
+  protected void renderArmWithItem(T livingEntity, ItemStack itemStack, ILocationModel geoModel,
+          ItemDisplayContext displayContext, HumanoidArm arm, PoseStack poseStack,
+          MultiBufferSource bufferSource, int light)
+  ```
+  **别漏掉第 3 个参数 `ILocationModel`，别把泛型 `T` 写成 `LivingEntity`**（擦除后是 `Mob`）。
+  Mixin 的签名是运行时校验的，`build_project` 通过**不代表**注入点对。
 
 ---
 
@@ -395,13 +420,14 @@ translation = [1.31, 1.71, 3.39]
 grep "HuhuTalk/Hand" run/logs/latest.log
 ```
 
-**测试条件**：女仆配饰栏里戴着手机 **+ 主手空着**（三叉戟要收起来）**+ 打开一次聊天窗口**。
+**测试条件**：女仆配饰栏里戴着手机 **+ 打开一次聊天窗口**。
+主手**不需要**空着 —— 窗口开着时手持物会自动让位给手机（见「4.2」）。
 
 | 日志行 | 判定 | 下一步 |
 |---|---|---|
 | `RENDERED ... bones=N SCALE=1.0` | ✅ 通了 —— 剩下的是**尺寸 / 朝向 / 位置**问题 | 调 `display.third_person_righthand.scale`（先试 2.5），或在 `PhoneInHandLayer` 里微调 `BASE_TRANSLATE_Y/Z` |
 | `skip: maid has no phone tier ..., clientBaubles=[...]` | 配饰还没同步下来 | 看 `clientBaubles=` 里的内容：`[]` = 同步仍然没发生（重登一次让 `MaidTrackEvent` 全量同步，或检查 `syncClient` 是否真的编进产物） |
-| `skip: main hand not empty = ...` | 女仆主手有东西 | 见「4.2」；按设计让位给 TLM 自带手持层，可考虑改挂左手 `LeftHandLocator` |
+| `skip: main hand not empty = ...` | **第 9 轮起已删除这条判定** —— 若还看到，说明跑的是旧构建 | 重启游戏；窗口开着时手持物应由 `GeckoLayerMaidHeldMixin` 压掉 |
 | `skip: chat window inactive` | **正常** —— 手机只在聊天窗口开着时才挂手上 | 确认测试时真的发了消息 |
 | `skip: rightHandBones() empty` | 该模型没有 `RightHandLocator` | 换酒狐系模型，或改用 `RightHandLocator2` |
 | `skip: locator scale is zero` | 骨骼链里有 scale = 0 的骨骼 | 查模型 |
@@ -546,6 +572,7 @@ grep "HuhuTalk/Hand" run/logs/latest.log
 | 7 | 用户要「再高 0.4 个手机的高、再向内 0.4 个手机的宽」。用**三次探测法**在 BB 里实测出映射 `Δ世界 = Rx(67.5°)·Δtranslation`（第 6 轮手推矩阵时转置算错、把 z 符号搞反过，靠探测纠正）→ `translation = [-1.51, 1.39, 2.71]`。换算表见 §5.3.3 |
 | 8 | 用户纠正：「向内移动 0.4 手机的宽」实为「**沿手机自己的宽边从右往左**」。第 7 轮按「世界 −X」做的 `(−1.512,0,0)` 在游戏里让手机**沿手臂滑向手肘**。改用手机自身轴算：`Δtranslation = R_disp·(±0.4W,0,0)` → `translation = [1.31, 1.71, 3.39]`。**顺带发现：说「手机的宽/高」时应按手机自身轴算，别自作主张换成世界轴**（§5.3.3a）。本轮 BB 的 MCP 掉线，`.bbmodel` 的 `display_settings` 没能同步 |
 | 9 | 用户问「沿手臂（手肘→手掌）改哪个数、正负怎么分」。答:**第一个数 `translation.x`**，正 = 手肘→手掌、负 = 手掌→手肘（由第 7 轮实测反推）；`y`/`z` 是「上 × 侧」的斜交坐标，单独改不干净。用户自行把 `x` 翻成了 `-1.31`。本轮无代码改动，只补了 §5.3.3 的「三个数各自管什么」表 |
+| 10 | 用户报「动画中隐藏主手物品的功能掉了，只有空手才显示模型」。排查结论：**这个功能从来不存在** —— `PhoneInHandLayer` 自 `73174f6` 起就有「主手非空则跳过」的早退，git log 里三条「去掉主手」是用户在游戏里手动清空主手。**本轮改为「窗口开着 → 手持物让位给手机」**：删掉早退、新增 `isUsingPhone`，并新增 `GeckoLayerMaidHeldMixin` 压掉右手手持物（只压右手）。第一次 mixin 签名写错（漏 `ILocationModel`、`T` 写成 `LivingEntity`），已修正 |
 
 **未落地的备选方案**（若要继续深挖）：
 把手机从「物品模型」升级为 **Bedrock geo + 自绘渲染层**（旧文档 §9.5.5），

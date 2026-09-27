@@ -14,6 +14,7 @@ import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.math.Axis;
 import net.minecraft.client.renderer.ItemInHandRenderer;
 import net.minecraft.client.renderer.MultiBufferSource;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.Mob;
 import net.minecraft.world.item.ItemDisplayContext;
 import net.minecraft.world.item.ItemStack;
@@ -48,7 +49,13 @@ import net.minecraft.world.item.ItemStack;
  *
  * <h2>与 TLM 自带手持层的分工</h2>
  * {@code GeckoLayerMaidHeld} 已经在 {@code RightHandLocator}/{@code LeftHandLocator} 上渲染
- * **女仆真正手持的物品**。为避免同一个挂点叠两层，本层在"主手非空"时直接跳过。
+ * **女仆真正手持的物品**。两者用的是同一根骨骼，不能同时画，所以按下述规则二选一：
+ * <ul>
+ *   <li><b>手机窗口开着</b> → 本层画手机;TLM 那一层由
+ *       {@code GeckoLayerMaidHeldMixin} 把**右手**的手持物压掉（左手/副手不受影响）。</li>
+ *   <li><b>窗口关着</b> → 本层不画,手持物照常由 TLM 渲染。</li>
+ * </ul>
+ * 判定入口是 {@link #isUsingPhone(Entity)}，两边共用同一个条件。
  */
 public class PhoneInHandLayer<T extends Mob, R extends IGeoEntityRenderer<T>> extends GeoLayerRenderer<T, R> {
 
@@ -101,11 +108,11 @@ public class PhoneInHandLayer<T extends Mob, R extends IGeoEntityRenderer<T>> ex
             diag("skip: chat window inactive, stableId=" + stableId);
             return;
         }
-        // 主手有东西时不画，避免与 TLM 自带的 GeckoLayerMaidHeld 在同一挂点叠两层
-        if (!maid.getMainHandItem().isEmpty()) {
-            diag("skip: main hand not empty = " + maid.getMainHandItem());
-            return;
-        }
+        // 主手物品此时已被 {@code GeckoLayerMaidHeldMixin} 隐藏掉了（她正拿着手机，
+        // 不该再画一件手持物），所以这里**不再**因「主手非空」早退 ——
+        // 否则女仆手里只要拿着工具/武器，手机就永远看不到。
+        // 两者用的是同一根 RightHandLocator，必须"要么画手持物、要么画手机"，由谁来画
+        // 完全取决于手机窗口是否开着（见 isUsingPhone）。
         ItemStack phone = phoneOf(maid);
         if (phone.isEmpty()) {
             // 客户端看不到手机 = 服务端没把配饰同步下来。dump 出客户端这份配饰栏的内容，
@@ -136,6 +143,24 @@ public class PhoneInHandLayer<T extends Mob, R extends IGeoEntityRenderer<T>> ex
             diag("skip: locator scale is zero");
         }
         poseStack.popPose();
+    }
+
+    /**
+     * 该女仆此刻是否「正在用手机」：手机来源窗口开着，且客户端知道她戴着手机。
+     * <p>
+     * {@code GeckoLayerMaidHeldMixin} 用它来**隐藏女仆右手上的真实手持物** ——
+     * 手机和手持物挂的是同一根 {@code RightHandLocator} 骨骼，只能画一个。
+     * 这里的条件必须与 {@link #render} 里"真的要画手机"的条件完全一致，
+     * 否则会出现「手持物被藏了但手机没画」的空手窗口。
+     *
+     * @param entity 任意实体；非 {@link EntityMaid} 一律返回 false
+     */
+    public static boolean isUsingPhone(Entity entity) {
+        if (!(entity instanceof EntityMaid maid)) {
+            return false;
+        }
+        String stableId = (maid instanceof StableIdProvider provider) ? provider.getStableId() : null;
+        return PhoneChatSourceCache.isActive(stableId) && PhoneHelper.getPhoneTier(maid) != null;
     }
 
     /** 女仆实际佩戴的手机物品（Pro 优先）；没戴手机则不渲染。 */
