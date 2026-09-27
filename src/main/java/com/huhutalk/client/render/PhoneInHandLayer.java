@@ -108,7 +108,9 @@ public class PhoneInHandLayer<T extends Mob, R extends IGeoEntityRenderer<T>> ex
         }
         ItemStack phone = phoneOf(maid);
         if (phone.isEmpty()) {
-            diag("skip: maid has no phone tier (PhoneHelper.getPhoneTier)");
+            // 客户端看不到手机 = 服务端没把配饰同步下来。dump 出客户端这份配饰栏的内容，
+            // 一眼就能区分「客户端配饰栏是空的」和「同步了但物品不对」。
+            diag("skip: maid has no phone tier (PhoneHelper.getPhoneTier), clientBaubles=" + baubleDump(maid));
             return;
         }
         ILocationModel geoModel = getLocationModel(entity);
@@ -146,5 +148,24 @@ public class PhoneInHandLayer<T extends Mob, R extends IGeoEntityRenderer<T>> ex
             return new ItemStack(HuhuTalkItems.PHONE_WATCH.get());
         }
         return ItemStack.EMPTY;
+    }
+
+    /** 诊断用：把客户端这份配饰栏里非空的格子列出来 */
+    private static String baubleDump(EntityMaid maid) {
+        var handler = maid.getMaidBauble();
+        if (handler == null) {
+            return "handler=null";
+        }
+        StringBuilder sb = new StringBuilder("[");
+        for (int i = 0; i < handler.getSlots(); i++) {
+            ItemStack stack = handler.getStackInSlot(i);
+            if (!stack.isEmpty()) {
+                if (sb.length() > 1) {
+                    sb.append(", ");
+                }
+                sb.append(i).append('=').append(stack.getItem());
+            }
+        }
+        return sb.append(']').toString();
     }
 }

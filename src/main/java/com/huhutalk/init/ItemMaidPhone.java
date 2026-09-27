@@ -38,6 +38,27 @@ public class ItemMaidPhone extends Item implements IMaidBauble {
         return tier == MaidPhoneTier.SMART;
     }
 
+    /**
+     * 把手机同步到追踪该女仆的客户端。
+     * <p>
+     * <b>这是「手机挂手上」渲染能工作的前提。</b> {@link IMaidBauble#syncClient} 默认返回
+     * {@code false}，而女仆的配饰栏（{@code BaubleItemHandler}）只在服务端权威，客户端那份是空的；
+     * 不覆写此方法的话：
+     * <ul>
+     *   <li>服务端 {@code PhoneHelper.hasPhone} 为真（能开聊天窗口、发消息），</li>
+     *   <li>但客户端 {@code PhoneHelper.getPhoneTier} 恒为 null，</li>
+     *   <li>于是 {@code PhoneInHandLayer} 每次都早退：
+     *       {@code skip: maid has no phone tier (PhoneHelper.getPhoneTier)}。</li>
+     * </ul>
+     * 覆写后 TLM 会走 {@code SyncBaublePackage}：
+     * 玩家开始追踪女仆时全量同步（{@code MaidTrackEvent}），
+     * 戴上/取下时增量同步（{@code BaubleContainer.BaubleSlot}）。
+     */
+    @Override
+    public boolean syncClient(EntityMaid maid, ItemStack baubleItem) {
+        return true;
+    }
+
     @Override
     public void appendHoverText(@NotNull ItemStack stack, @Nullable TooltipContext context,
                                 @NotNull List<Component> tooltipComponents, @NotNull TooltipFlag tooltipFlag) {
