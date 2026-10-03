@@ -216,6 +216,38 @@ public final class ProPhoneHandRenderer {
                 itemRenderer.renderModelLists(pass, stack, packedLight, OverlayTexture.NO_OVERLAY, poseStack, consumer);
             }
         }
+
+        // ⚠ 顺序关键：必须先把机身刷掉，再排入屏幕四边形。
+        // MultiBufferSource.endBatch() 的刷新顺序是「先共享缓冲（RenderType.text 走这里）、
+        // 后固定缓冲（机身走 Sheets.solid 的固定缓冲）」。若不在此处主动 endBatch，
+        // 后刷的机身会盖住先刷的屏幕。主动 flush 之后，屏幕四边形作为新的共享批次单独排队，
+        // 在 renderHandsWithItems 结尾统一刷出，顺序才正确。
+        if (buffer instanceof MultiBufferSource.BufferSource bufferSource) {
+            bufferSource.endBatch();
+        }
+        PhoneScreenTarget.renderScreen(poseStack, buffer, packedLight);
+
         poseStack.popPose();
+    }
+
+    /**
+     * 本帧是否由本渲染器接管玩家第一人称手持。
+     * <p>
+     * 与 {@link #onRenderHand} 的早退条件保持一致 —— 离屏出图
+     * （{@link PhoneScreenTarget#update}）据此判断「这一帧到底会不会画到模型上」，
+     * 不满足时完全不跑离屏渲染，做到关屏零开销。
+     */
+    public static boolean isActive() {
+        if (!ENABLED) {
+            return false;
+        }
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player == null || mc.screen != null) {
+            return false;
+        }
+        if (!mc.options.getCameraType().isFirstPerson()) {
+            return false;
+        }
+        return mc.player.getMainHandItem().is(HuhuTalkItems.PHONE_SMART.get());
     }
 }

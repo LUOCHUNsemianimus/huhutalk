@@ -1,5 +1,7 @@
 package com.huhutalk.event;
 
+import com.huhutalk.client.render.PhoneScreenTarget;
+import com.huhutalk.client.render.ProPhoneHandRenderer;
 import com.huhutalk.phone.PhoneOverlay;
 import com.huhutalk.phone.IPhonePage;
 import com.huhutalk.phone.pages.ChatPage;
@@ -12,6 +14,7 @@ import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.client.event.RegisterGuiLayersEvent;
 import net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent;
+import net.neoforged.neoforge.client.event.RenderFrameEvent;
 import org.lwjgl.glfw.GLFW;
 
 @EventBusSubscriber(value = Dist.CLIENT)
@@ -65,6 +68,21 @@ public class ClientModEvents {
         } else if (!down && quickVoicePage != null) {
             quickVoicePage.stopVoice(false);
             quickVoicePage = null;
+        }
+    }
+
+    /**
+     * 模型屏出图：每帧最早的时刻（GL 上下文有效、主渲染靶仍绑定、世界尚未渲染），
+     * 把手机 UI 画进离屏靶，保证本帧稍后贴到 3D 模型上的纹理已是最新。
+     * <p>
+     * 主手没拿 Pro 手机（或第三人称 / 开着界面）时完全不跑离屏渲染，做到关屏零开销。
+     */
+    @SubscribeEvent
+    public static void onRenderFramePre(RenderFrameEvent.Pre event) {
+        if (ProPhoneHandRenderer.isActive()) {
+            PhoneScreenTarget.update(event.getPartialTick().getGameTimeDeltaTicks());
+        } else {
+            PhoneScreenTarget.markDirty();
         }
     }
 

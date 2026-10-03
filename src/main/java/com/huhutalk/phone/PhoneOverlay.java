@@ -1,6 +1,7 @@
 package com.huhutalk.phone;
 
 import com.huhutalk.HuhuTalk;
+import com.huhutalk.client.render.PhoneScreenTarget;
 import com.huhutalk.client.settings.HuhuTalkClientSettings;
 import com.huhutalk.client.theme.ColorScheme;
 import com.huhutalk.client.theme.PhoneCaseRenderer;
@@ -112,6 +113,20 @@ public class PhoneOverlay {
     private static final int WATERMARK_BG = 0xFF192A54;
 
     private static float scale = 1.0f;
+
+    /**
+     * 离屏（模型屏）模式的画布尺寸；{@code > 0} 表示当前这一帧是在为模型屏渲染。
+     * <p>
+     * 置位期间：尺寸直接取画布大小、位置钉在 (0,0)、不画手机壳、不做呼出/收起滑动、
+     * 亮度蒙版不外扩、拖动与拖动落盘全部跳过。除此以外与屏幕模式**完全共用**同一套绘制逻辑。
+     */
+    private static int externalW = -1;
+    private static int externalH = -1;
+
+    /** 本帧是否正在为模型屏离屏渲染 */
+    public static boolean isExternalRender() {
+        return externalH > 0;
+    }
 
     // ==================== 访问器 ====================
 
@@ -440,27 +455,39 @@ public class PhoneOverlay {
     public static void render(GuiGraphics graphics, float partialTick) {
         if (!visible) return;
 
-        // 相机拍照临时隐藏：本帧不渲染手机，让后续抓取层拿到干净的纯游戏画面
-        if (captureHidden) return;
+        boolean external = externalH > 0;
+
+        // 相机拍照临时隐藏：本帧不渲染手机，让后续抓取层拿到干净的纯游戏画面。
+        // 离屏模式不适用该流程（它只服务于屏幕截图），故不做早退。
+        if (captureHidden && !external) return;
 
         Minecraft mc = Minecraft.getInstance();
-        int screenW = mc.getWindow().getGuiScaledWidth();
-        int screenH = mc.getWindow().getGuiScaledHeight();
+        int screenW = external ? externalW : mc.getWindow().getGuiScaledWidth();
+        int screenH = external ? externalH : mc.getWindow().getGuiScaledHeight();
 
-        // 手机尺寸 = 屏幕比例（高:宽，aspectRatio 返回宽/高）× 高度比例（占实际屏幕高 0.5~1.0）
-        float size = HuhuTalkClientSettings.getPhoneSize();
-        float aspect = aspectRatio(HuhuTalkClientSettings.getPhoneAspect());
-        int totalHeight = (int)Math.round(screenH * size);
-        int width = (int)Math.round(totalHeight * aspect);
-        phoneWidth = Math.max(MIN_PHONE_W, Math.min(width, screenW - 20));
+        int totalHeight;
+        int width;
+        if (external) {
+            // 模型屏：画布由 PhoneScreenTarget 钉死，手机铺满整块画布
+            totalHeight = externalH;
+            width = externalW;
+        } else {
+            // 手机尺寸 = 屏幕比例（高:宽，aspectRatio 返回宽/高）× 高度比例（占实际屏幕高 0.5~1.0）
+            float size = HuhuTalkClientSettings.getPhoneSize();
+            float aspect = aspectRatio(HuhuTalkClientSettings.getPhoneAspect());
+            totalHeight = (int)Math.round(screenH * size);
+            width = (int)Math.round(totalHeight * aspect);
+        }
+        phoneWidth = external ? externalW : Math.max(MIN_PHONE_W, Math.min(width, screenW - 20));
         phoneHeight = Math.max(20, totalHeight - UiFont.sh(STATUSBAR_H) - UiFont.sh(WATERMARK_H));
 
-        // 默认锚点：右下角（右/下各留 10px）
-        int defX = screenW - phoneWidth - 10;
-        int defY = screenH - totalHeight - 10;
+        // 默认锚点：屏幕模式锚右下角（右/下各留 10px）；模型屏锚画布左上角
+        int defX = external ? 0 : screenW - phoneWidth - 10;
+        int defY = external ? 0 : screenH - totalHeight - 10;
 
-        // 拖动时：手机实时跟随鼠标，并把约束后的位置折算为偏移量落盘（呼出/收起动画期间禁止拖动）
-        if (dragging && containerAnim == ContainerAnim.IDLE) {
+        // 拖动时：手机实时跟随鼠标，并把约束后的位置折算为偏移量落盘（呼出/收起动画期间禁止拖动）。
+        // 模型屏没有拖动概念，跳过。
+        if (!external && dragging && containerAnim == ContainerAnim.IDLE) {
             int mx = guiMouseX(mc);
             int my = guiMouseY(mc);
             int targetX = (int)Math.round(mx - grabDX);
@@ -470,16 +497,31 @@ public class PhoneOverlay {
             HuhuTalkClientSettings.setPhoneOffsetRaw(clampedX - defX, clampedY - defY);
         }
 
-        phoneX = defX + Math.round(HuhuTalkClientSettings.getPhoneOffsetX());
-        phoneY = defY + Math.round(HuhuTalkClientSettings.getPhoneOffsetY());
-        // 约束：水平至多半个手机宽度出屏（顶部栏仍留一半可抓）；垂直保证状态栏高度完整在屏内
-        phoneX = clampPhoneX(phoneX, screenW);
-        phoneY = clampPhoneY(phoneY, screenH);
+        if (external) {
+            phoneX = 0;
+            phoneY = 0;
+        } else {
+            phoneX = defX + Math.round(HuhuTalkClientSettings.getPhoneOffsetX());
+            phoneY = defY + Math.round(HuhuTalkClientSettings.getPhoneOffsetY());
+            // 约束：水平至多半个手机宽度出屏（顶部栏仍留一半可抓）；垂直保证状态栏高度完整在屏内
+            phoneX = clampPhoneX(phoneX, screenW);
+            phoneY = clampPhoneY(phoneY, screenH);
+        }
 
         // 手机容器动画：呼出/收起沿 Y 轴滑动（唯一需要鼠标逆矩阵矫正的动画）。
         // 起点/终点统一以「屏幕下缘 ↔ 静止位置」计算，故手机无论被拖到哪个位置都从屏幕底部滑入/滑出。
+        // 模型屏不做呼出/收起滑动（那是屏幕模式的整机位移）；若正处于 EXIT，立即结算隐藏
+        if (external) {
+            if (containerAnim == ContainerAnim.EXIT) {
+                doHideNow();
+                return;
+            }
+            containerAnim = ContainerAnim.IDLE;
+            containerTween = null;
+        }
+
         float animOffsetY = 0f;
-        if (uiAnimEnabled()) {
+        if (!external && uiAnimEnabled()) {
             if (containerAnim != ContainerAnim.IDLE && containerTween != null) {
                 float raw = containerTween.raw();
                 float baseOffset = (float) (screenH - phoneY); // 静止位置到屏幕下缘的距离
@@ -513,9 +555,12 @@ public class PhoneOverlay {
         int ry = phoneY + Math.round(animOffsetY);
         renderedPhoneY = ry;
 
-        // 手机壳（纯视觉，包住整个手机）。镂空内收状态栏/水印栏高度，托住上下导航栏圆角
-        PhoneCaseRenderer.renderCase(graphics, phoneX, ry, phoneWidth, totalHeight,
-                UiFont.sh(STATUSBAR_H), UiFont.sh(WATERMARK_H));
+        // 手机壳（纯视觉，包住整个手机）。镂空内收状态栏/水印栏高度，托住上下导航栏圆角。
+        // 模型屏不画壳：3D 模型自带机身边框，再叠一层壳会糊住边缘，也违背「屏幕直接画在模型上」的初衷。
+        if (!external) {
+            PhoneCaseRenderer.renderCase(graphics, phoneX, ry, phoneWidth, totalHeight,
+                    UiFont.sh(STATUSBAR_H), UiFont.sh(WATERMARK_H));
+        }
 
         // 当前页面
         IPhonePage page = getCurrentPage();
@@ -595,13 +640,52 @@ public class PhoneOverlay {
         if (brightness < 0.999f) {
             int alpha = Math.round((1f - brightness) * 0.70f * 255); // 0~178 → 0~70%
             int dimColor = (alpha << 24) | 0x000000;
-            int caseX = phoneX - PhoneCaseRenderer.CASE_THICKNESS;
-            int caseY = ry - PhoneCaseRenderer.CASE_THICKNESS;
-            int caseW = phoneWidth + PhoneCaseRenderer.CASE_THICKNESS * 2;
-            int caseH = totalHeight + PhoneCaseRenderer.CASE_THICKNESS * 2;
-            fillRoundedRect(graphics, caseX, caseY, caseW, caseH,
-                    PhoneCaseRenderer.CORNER_RADIUS, PhoneCaseRenderer.CORNER_RADIUS, dimColor);
+            if (external) {
+                // 模型屏：不画壳，蒙版就只盖手机本体，不能按壳的厚度外扩（否则黑块比屏幕大一圈）
+                fillRoundedRect(graphics, phoneX, ry, phoneWidth, totalHeight,
+                        UiFont.sh(STATUSBAR_H), UiFont.sh(WATERMARK_H), dimColor);
+            } else {
+                int caseX = phoneX - PhoneCaseRenderer.CASE_THICKNESS;
+                int caseY = ry - PhoneCaseRenderer.CASE_THICKNESS;
+                int caseW = phoneWidth + PhoneCaseRenderer.CASE_THICKNESS * 2;
+                int caseH = totalHeight + PhoneCaseRenderer.CASE_THICKNESS * 2;
+                fillRoundedRect(graphics, caseX, caseY, caseW, caseH,
+                        PhoneCaseRenderer.CORNER_RADIUS, PhoneCaseRenderer.CORNER_RADIUS, dimColor);
+            }
         }
+    }
+
+    /**
+     * 把整块手机 UI 渲染到指定尺寸的离屏画布（模型屏模式）。
+     * <p>
+     * 与屏幕模式共用 {@link #render} 的全部绘制逻辑，只是把「屏幕尺寸/位置」换成「画布尺寸/左上角」。
+     * 调用方负责：绑定离屏帧缓冲、设置与之匹配的正交投影与模型视图。
+     */
+    public static void renderExternal(GuiGraphics graphics, float partialTick, int viewportW, int viewportH) {
+        externalW = viewportW;
+        externalH = viewportH;
+        try {
+            render(graphics, partialTick);
+        } finally {
+            externalW = -1;
+            externalH = -1;
+        }
+    }
+
+    /**
+     * 当前是否有「正在播放、需要逐帧重绘」的界面动画。
+     * <p>
+     * 模型屏离屏渲染据此决定是否必须每帧重绘（否则只按 {@code MAX_IDLE_MS} 空转刷新，
+     * 省掉绝大部分 GPU/CPU 开销）。
+     */
+    public static boolean hasActiveAnimation() {
+        if (dragging) {
+            return true;
+        }
+        if (!uiAnimEnabled()) {
+            return false;
+        }
+        return containerAnim != ContainerAnim.IDLE || transTween != null || launchActive;
     }
 
     /**
@@ -803,6 +887,8 @@ public class PhoneOverlay {
 
     public static boolean handleMouseClicked(double screenX, double screenY, int button, int action) {
         if (!visible) return false;
+        // 有输入 → 模型屏下一帧必须重绘（悬停/点击都会改变画面）
+        PhoneScreenTarget.markDirty();
 
         // 手机容器动画期间（呼出/收起）：
         // - 收起(EXIT)：吞掉一切输入（手机正在离场）；
@@ -913,6 +999,7 @@ public class PhoneOverlay {
 
     public static boolean handleMouseScroll(double screenX, double screenY, double scrollDelta) {
         if (!visible) return false;
+        PhoneScreenTarget.markDirty();
         // 容器动画期间吞掉滚轮（呼出/收起时不可滚动页面）
         if (uiAnimEnabled() && containerAnim != ContainerAnim.IDLE) {
             return true;
