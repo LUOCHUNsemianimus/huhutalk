@@ -53,14 +53,37 @@ public final class PhoneScreenTarget {
     /** 画布逻辑高（GUI 单位）；与 {@link #CANVAS_W} 的比值 = 模型屏幕面宽高比 */
     public static final int CANVAS_H = 220;
 
-    // ==================== 模型屏幕面几何（0~1 空间，已按 ItemRenderer 的 -0.5 居中） ====================
+    // ==================== 屏幕在手机正面上的位置（模型单位 0~16） ====================
+    //
+    // 这四个数直接对着 phone_3d.json / Blockbench 读，改位置就是改它们：
+    //   整块右移 n → SCREEN_LEFT 和 SCREEN_RIGHT 同时 +n
+    //   整块上移 n → SCREEN_BOTTOM 和 SCREEN_TOP 同时 +n
+    //   变窄/变宽 → 只动 SCREEN_LEFT 或 SCREEN_RIGHT
+    //   变矮/变高 → 只动 SCREEN_BOTTOM 或 SCREEN_TOP
+    // （1 个模型单位 = 1/16 模型空间；手机整体还乘了 PHONE_SCALE=3，所以屏幕上看起来是 3/16 格）
 
-    private static final float SCREEN_X0 = 6.7F / 16F - 0.5F;
-    private static final float SCREEN_X1 = 9.3F / 16F - 0.5F;
-    private static final float SCREEN_Y0 = 5.3F / 16F - 0.5F;
-    private static final float SCREEN_Y1 = 9.7F / 16F - 0.5F;
-    /** 机身正面 z=8.25/16；+0.0006 是防 z-fighting 的微量前置 */
-    private static final float SCREEN_Z = 8.25F / 16F - 0.5F + 0.0006F;
+    /** 屏幕左边界 */
+    private static final float SCREEN_LEFT = 6.7F;
+    /** 屏幕右边界 */
+    private static final float SCREEN_RIGHT = 9.3F;
+    /** 屏幕下边界 */
+    private static final float SCREEN_BOTTOM = 5.3F;
+    /** 屏幕上边界 */
+    private static final float SCREEN_TOP = 9.7F;
+    /** 贴合面 z（机身正面 = 8.25） */
+    private static final float SCREEN_DEPTH = 8.25F;
+    /** 朝玩家方向外推的微量（模型单位），只为防 z-fighting */
+    private static final float SCREEN_DEPTH_PUSH = 0.01F;
+
+    // ⚠ 下面是从上面换算出来的**原始 0~1 模型空间**坐标，不要再减 0.5。
+    // 原因：renderScreen 拿到的 PoseStack 里已经含了 ItemRenderer 的那次 translate(-0.5, -0.5, -0.5)
+    //（renderPhoneBody 逐字照抄了它）。顶点若再按"已居中的空间"给，就会把那 0.5 用两次，
+    // 整块屏幕沿手机三条轴各平移半个模型单位。
+    private static final float SCREEN_X0 = SCREEN_LEFT / 16F;
+    private static final float SCREEN_X1 = SCREEN_RIGHT / 16F;
+    private static final float SCREEN_Y0 = SCREEN_BOTTOM / 16F;
+    private static final float SCREEN_Y1 = SCREEN_TOP / 16F;
+    private static final float SCREEN_Z = (SCREEN_DEPTH + SCREEN_DEPTH_PUSH) / 16F;
 
     // ==================== 期 1a 可调开关（人工验收用） ====================
 
@@ -216,8 +239,9 @@ public final class PhoneScreenTarget {
     /**
      * 在手机模型本体的局部空间里画屏幕四边形。
      * <p>
-     * 调用者必须已经把 PoseStack 摆到「模型 0~1 空间且已 -0.5 居中」，即与
-     * {@code ProPhoneHandRenderer.renderPhoneBody} 里 {@code renderModelLists} 所处的同一坐标系。
+     * 调用者必须已经把 PoseStack 摆到与 {@code ProPhoneHandRenderer.renderPhoneBody} 里
+     * {@code renderModelLists} 所处的同一坐标系（即**已含** {@code ItemRenderer} 那次
+     * {@code translate(-0.5,-0.5,-0.5)}），因此本方法给出的顶点坐标是**原始 0~1 模型空间**，不再居中。
      * <p>
      * <b>深度顺序</b>：调用方必须先 {@code endBatch()} 把机身刷掉，否则
      * {@code MultiBufferSource.endBatch()} 会先刷共享缓冲（本四边形）再刷固定缓冲（机身 solid），
