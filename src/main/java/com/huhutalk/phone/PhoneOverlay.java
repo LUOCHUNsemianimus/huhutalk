@@ -620,6 +620,21 @@ public class PhoneOverlay {
     }
 
     /**
+     * 当前页面是否处于「相机模式」（聊天页 📷）。
+     * <p>
+     * 单独抽出来是因为它有两个<b>跨模块</b>的用途，且都必须与页面逻辑保持一致：
+     * <ul>
+     *   <li>{@link #render}：相机模式下手机体背景透明（{@code cameraTransparent}），让游戏画面从取景框透出；</li>
+     *   <li>{@link ProPhoneHandRenderer}：相机模式下换用擦除版纹理的手机模型，
+     *       让 3D 机壳在玩家侧直接透出真实场景（见 {@code ItemPhoneCamera}）。</li>
+     * </ul>
+     * 两处必须同源，否则会出现"透明屏上仍是机壳"或"机壳透了但页面还是不透明"这类半边生效的怪象。
+     */
+    public static boolean isCameraMode() {
+        return getCurrentPage() instanceof ChatPage cp && cp.isCameraMode();
+    }
+
+    /**
      * 「贴到模型上」这件事此刻是否成立。
      * <p>
      * 委托给 {@link ProPhoneHandRenderer#isActive()} —— 即「主手真的是 Pro 手机 + 第一人称」。
@@ -1035,7 +1050,7 @@ public class PhoneOverlay {
         // 当前页面
         IPhonePage page = getCurrentPage();
         // 相机模式（聊天页📷）：手机体透明化，让游戏画面从取景框透出来
-        boolean cameraTransparent = page instanceof ChatPage cp && cp.isCameraMode();
+        boolean cameraTransparent = isCameraMode();
 
         // 手机背景（圆角：上圆角=状态栏高，下圆角=水印栏高）。相机模式下透明，露出游戏画面
         fillRoundedRect(graphics, phoneX, ry, phoneWidth, totalHeight, UiFont.sh(STATUSBAR_H), UiFont.sh(WATERMARK_H),

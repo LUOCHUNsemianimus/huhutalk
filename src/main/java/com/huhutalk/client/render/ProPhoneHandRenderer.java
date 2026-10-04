@@ -1,6 +1,7 @@
 package com.huhutalk.client.render;
 
 import com.huhutalk.init.HuhuTalkItems;
+import com.huhutalk.phone.PhoneOverlay;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
 import com.mojang.math.Axis;
@@ -83,6 +84,31 @@ public final class ProPhoneHandRenderer {
     /** 手机局部 Z 轴旋转（画面内翻滚） */
     private static final float PHONE_ROT_Z = 0.0F;
 
+    // ==================== 相机模式可调常量（人工微调区） ====================
+    //
+    // 相机模式（聊天页 📷）与平时持握是两套姿态：平时手机"平行地面"（地图式持握），
+    // 相机模式要把它抬到眼前、屏幕正对玩家，作为取景框。
+    // 下面这组只影响相机模式，改错了也伤不到平时的手感。
+
+    /** 相机模式手机缩放（平时是 {@link #PHONE_SCALE}；取景框通常希望比平时更贴近脸、更大） */
+    private static final float CAM_SCALE = 3.0F;
+    /** 相机模式左右偏移（+ = 屏幕右方） */
+    private static final float CAM_OFFSET_X = 0.0F;
+    /** 相机模式上下偏移（+ = 上；抬到眼前一般取负值微调） */
+    private static final float CAM_OFFSET_Y = -0.12F;
+    /** 相机模式前后偏移（坐标系里 <b>−Z = 视线正前方</b>，所以推出取景框要取负） */
+    private static final float CAM_OFFSET_Z = -0.55F;
+    /** 相机模式俯仰（+ 让屏幕略微仰起/俯下，用于把取景框摆正对视线） */
+    private static final float CAM_ROT_X = 0.0F;
+    /**
+     * 相机模式水平旋转。<b>默认 180</b>：手机模型的屏幕在 <b>+Z 面</b>，
+     * 而此处 <b>+Z 指向玩家脸</b>，所以必须转 180° 才能让屏幕正对玩家。
+     * 若实机看到的是手机背面/镜头组，把这里改成 0。
+     */
+    private static final float CAM_ROT_Y = 180.0F;
+    /** 相机模式翻滚（画面左右镜像/颠倒时先动这个） */
+    private static final float CAM_ROT_Z = 0.0F;
+
     // ==================== 入口 ====================
 
     private ProPhoneHandRenderer() {
@@ -144,6 +170,8 @@ public final class ProPhoneHandRenderer {
         poseStack.translate(0.0F, -f1 / 2.0F, f2);
         float tilt = calculateMapTilt(pitch);
         poseStack.translate(0.0F, 0.04F + equippedProgress * -1.2F + tilt * -0.5F, -0.72F);
+        // 地图式俯仰补偿：tilt 是俯仰角的纯函数，把手机从"平行地面"一路转到"正对视线"。
+        // 相机模式必须把这一项**反算掉**，否则手机姿态会随玩家看向哪里而乱转（见 applyCameraPose）。
         poseStack.mulPose(Axis.XP.rotationDegrees(tilt * -85.0F));
 
         if (!player.isInvisible()) {
@@ -157,7 +185,47 @@ public final class ProPhoneHandRenderer {
         float f4 = Mth.sin(f * (float) Math.PI);
         poseStack.mulPose(Axis.XP.rotationDegrees(f4 * 20.0F));
 
+        if (PhoneOverlay.isCameraMode()) {
+            applyCameraPose(poseStack, tilt);
+        }
+
         renderPhoneBody(mc, player, poseStack, buffer, packedLight, stack);
+    }
+
+    /**
+     * 相机模式姿态：把手机从地图式持握搬到<b>眼前</b>，屏幕正对玩家（或说：取景框正对视线）。
+     *
+     * <h2>为什么先"反算"</h2>
+     * 调用时 PoseStack 上已经叠加了地图式持握的两件事：
+     * <ol>
+     *   <li>绕 X 转 {@code tilt * -85°} —— 这一项让手机随俯仰角从"平行地面"转到"正对视线"；</li>
+     *   <li>沿 Z 平移 {@code -0.72}（外加 {@code tilt * -0.5} 的 Y 偏移）。</li>
+     * </ol>
+     * 不加处理，"抬头看远方"时手机就是平躺的、屏幕朝上，根本拍不了照。所以这里把这两项
+     * <b>按同样的量反向施加一遍</b>，让 PoseStack 回到"手机在原点、屏幕朝上、且与视线无关"的
+     * 坐标系，再从零开始摆相机姿态。这就是本方法开头那两步平移/旋转的全部意义。
+     *
+     * <h2>轴向约定（微调时最需要知道的一条）</h2>
+     * 经玩家视线旋转后，此处坐标系的 <b>−Z = 视线正前方</b>、<b>+Y = 上</b>、
+     * <b>+Z = 玩家脸的方向</b>。而手机模型的<b>屏幕在 +Z 面</b>（{@code SCREEN_DEPTH = 8.25} 那一侧）。
+     * 因此要让屏幕正对玩家，必须绕 Y 转 <b>180°</b> —— 不是 0°。
+     *
+     * <h2>可调区</h2>
+     * 四个常量都是"凭手感"的量，实机直接改。若发现手机左右镜像/上下颠倒，
+     * 先动 {@link #CAM_ROT_Z}（翻滚）与 {@link #CAM_ROT_X}（俯仰），再考虑 {@link #CAM_ROT_Y}。
+     */
+    private static void applyCameraPose(PoseStack poseStack, float tilt) {
+        // ① 反算地图式俯仰补偿（角度精确抵消）
+        poseStack.mulPose(Axis.XP.rotationDegrees(tilt * 85.0F));
+        // ② 反算地图式位移，回到原点
+        poseStack.translate(0.0F, 0.04F + tilt * -0.5F, -0.72F);
+        // ③ 相机模式自己的位移：抬到眼前、推出到视线前方
+        poseStack.translate(CAM_OFFSET_X, CAM_OFFSET_Y, CAM_OFFSET_Z);
+        // ④ 相机模式自己的朝向
+        poseStack.mulPose(Axis.XP.rotationDegrees(CAM_ROT_X));
+        poseStack.mulPose(Axis.YP.rotationDegrees(CAM_ROT_Y));
+        poseStack.mulPose(Axis.ZP.rotationDegrees(CAM_ROT_Z));
+        poseStack.scale(CAM_SCALE, CAM_SCALE, CAM_SCALE);
     }
 
     /**
@@ -197,7 +265,7 @@ public final class ProPhoneHandRenderer {
         poseStack.translate(-0.5F, -0.5F, -0.5F);
 
         ItemRenderer itemRenderer = mc.getItemRenderer();
-        BakedModel model = itemRenderer.getModel(stack, mc.level, player, 0);
+        BakedModel model = itemRenderer.getModel(stackForMode(mc, stack), mc.level, player, 0);
         boolean foil = stack.hasFoil();
         for (BakedModel pass : model.getRenderPasses(stack, true)) {
             for (RenderType renderType : pass.getRenderTypes(stack, true)) {
@@ -217,6 +285,30 @@ public final class ProPhoneHandRenderer {
         PhoneScreenTarget.renderScreen(poseStack, buffer, packedLight);
 
         poseStack.popPose();
+    }
+
+    /**
+     * 本帧该用哪张手机模型。
+     *
+     * <h2>为什么相机模式要换模型，而不是给模型掏窟窿</h2>
+     * 相机模式需要屏幕区域能<b>看到真实游戏世界</b>。掏窟窿（把实体机壳换成四条边框）
+     * 当然能做到，但要多维护一套几何。更省的做法是<b>只换纹理</b>：
+     * {@code phone_3d_erased} 把"玩家侧可见面"擦成全透明，机壳在那些面上直接透出后面的场景。
+     * <p>
+     * 几何完全不动，因此<b>不需要第二套 cube 数据</b>——所谓"新增一个模型"实际只是
+     * 换一行纹理引用的同一份几何（{@code models/item/phone_camera.json}）。
+     * 这也是为什么 {@link HuhuTalkItems#PHONE_CAMERA} 只是个"模型名片"物品。
+     * <p>
+     * <b>为什么用临时 ItemStack 而不是直接捞 BakedModel</b>：
+     * {@code ItemRenderer.getModel(stack, ...)} 会自动处理注册名 → 模型 JSON（含 parent 继承、
+     * 缓存），而手搓 {@code ModelResourceLocation} 去 {@code ModelManager} 里取，
+     * 既依赖版本相关的构造器签名，又绕过原版缓存。多一个隐藏物品是更小的代价。
+     */
+    private static ItemStack stackForMode(Minecraft mc, ItemStack held) {
+        if (PhoneOverlay.isCameraMode()) {
+            return new ItemStack(HuhuTalkItems.PHONE_CAMERA.get());
+        }
+        return held;
     }
 
     /**
