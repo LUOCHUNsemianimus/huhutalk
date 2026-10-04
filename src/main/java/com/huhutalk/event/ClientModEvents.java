@@ -17,6 +17,7 @@ import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.client.event.RegisterGuiLayersEvent;
 import net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent;
 import net.neoforged.neoforge.client.event.RenderFrameEvent;
+import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
 import org.lwjgl.glfw.GLFW;
 
 @EventBusSubscriber(value = Dist.CLIENT)
@@ -148,10 +149,25 @@ public class ClientModEvents {
                 ResourceLocation.fromNamespaceAndPath("huhutalk", "phone_overlay"),
                 (guiGraphics, deltaTracker) -> PhoneOverlay.render(guiGraphics, deltaTracker.getGameTimeDeltaTicks())
         );
-        // 相机拍照抓取层：位于手机层之后；手机被临时隐藏的那一帧，这里抓取干净的纯游戏画面
-        event.registerAboveAll(
-                ResourceLocation.fromNamespaceAndPath("huhutalk", "phone_capture_grab"),
-                (guiGraphics, deltaTracker) -> PhoneOverlay.consumeCaptureGrab()
-        );
+    }
+
+    /**
+     * 相机拍照的抓图时机：{@code AFTER_LEVEL}。
+     * <p>
+     * 这一刻本帧的世界已经画完，而<b>手 / 手机 / HUD 都还没有画</b>：
+     * {@code GameRenderer.renderLevel} 里 hand 段排在 {@code AFTER_LEVEL} 之后
+     * （1.21.1 源：L1279 派发 AFTER_LEVEL，L1281 才是 {@code renderItemInHand}），
+     * HUD 更是在整段 {@code renderLevel} 之后由 {@code Gui.render} 画。
+     * 所以这里抓到的就是「玩家眼睛里那片干净的世界」，不需要隐藏任何东西。
+     * <p>
+     * ⚠ 早先走的是「临时隐藏手机 + 在 GUI 层抓图」，结果是整屏原版截图（含 HUD / 物品栏 / 手臂 / 手机本身）。
+     * 也<b>不能</b>靠 {@code options.hideGui} 去藏 HUD —— 它会让整个 GUI 层（含本模组的 GUI 层回调）
+     * 都不绘制，抓图回调永远不触发。详见 {@link PhoneOverlay#requestWorldCapture}。
+     */
+    @SubscribeEvent
+    public static void onRenderLevelStage(RenderLevelStageEvent event) {
+        if (event.getStage() == RenderLevelStageEvent.Stage.AFTER_LEVEL) {
+            PhoneOverlay.consumeWorldCapture();
+        }
     }
 }

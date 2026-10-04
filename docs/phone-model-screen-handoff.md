@@ -7,7 +7,7 @@
 
 ## 0. 一句话状态
 
-**期 0 / 1a / 1b / 1c / 1d 全部完成并实机验收；相机模式（期 1e）功能已通、UI 刚重排完待验收。**
+**期 0 / 1a / 1b / 1c / 1d 全部完成并实机验收；相机模式（期 1e）功能已通、UI 已按第二轮反馈重排，待验收。**
 
 当前可玩状态：
 
@@ -17,7 +17,12 @@
 - **聊天页点输入框打字时，手机仍握在手里**（不再塌回普通物品）
 - **相机模式**：手机抬到眼前、屏幕透出真实世界当取景框；鼠标只转视角，动作全交给侧键
 
-**最近一轮改动（待实机验收）**：① 相机模式姿态终于不随视角乱转（见 §5.3-16）；② 相机模式视距与常态持握对齐（§5.5-19）；③ 相机 UI 按"少提示、留预览"重排（§4 期 1e）；④ 修掉重拍导致纹理变 magenta 方块（§5.5-20）。
+**最近一轮改动（待实机验收）**：
+① **拍照拍的是「干净的世界」**（`RenderLevelStageEvent.AFTER_LEVEL` 抓图），不再是整屏原版截图（§4 期 1e / §5.5-29）；
+② **已拍成页按侧键 5 = 取消这张、留在取景中重拍**，不再直接扔回聊天页（§5.5-31）；
+③ 快门缩到 0.5 倍并**在圆内写绑定键名**；确认胶囊回到**1 倍默认字号**（§3「相机 UI 版面」）；
+④ 保存成功的反馈改为**手机屏内半透明气泡「保存成功」**，不再用原版 toast（§5.5-30）。
+
 
 ---
 
@@ -44,11 +49,11 @@
 |---|---|
 | `client/render/ProPhoneHandRenderer.java` | **新增**。订阅 `RenderHandEvent` 接管第一人称手持渲染：双手姿势 + 手机本体 + 挂屏幕四边形 + **相机模式姿态**。`ENABLED=false` 一键回退原版。判据集中在 `shouldRender(mc, stack)`，**不排除 Screen 打开**（§5.2-8） |
 | `client/render/PhoneScreenTarget.java` | **新增**。离屏帧缓冲、动态纹理注册、屏幕面矩形几何、出图驱动、dirty 判定、`DIAG` 探针。判据用 `PhoneOverlay.hasModelScreen()` |
-| `phone/PhoneOverlay.java` | 手机 UI 总控。`RenderMode` 状态机 + `phoneOpen`（`isVisible()` 由两者算出）+ `onHolderTick()` 掏出即渲染 + 独立光标全套 + `isCameraMode()` + **相机侧键状态机 `cameraSideButton` / `tickCameraHold`** |
+| `phone/PhoneOverlay.java` | 手机 UI 总控。`RenderMode` 状态机 + `phoneOpen`（`isVisible()` 由两者算出）+ `onHolderTick()` 掏出即渲染 + 独立光标全套 + `isCameraMode()` + **相机侧键状态机 `cameraSideButton` / `tickCameraHold`** + **拍照抓图请求 `requestWorldCapture` / `consumeWorldCapture`** + **屏内气泡 `showBubble`** |
 | `phone/pages/ChatPage.java` | 聊天页 + **相机界面**（`renderCameraMode` / `handleCameraClick` / `cameraBarLayout`）。相机侧键入口是三个语义方法：`cameraPrimaryAction()` / `cameraBackAction()` / `cameraSaveAction()` |
 | `init/ItemPhoneCamera.java` `init/HuhuTalkItems.java` | **新增**隐藏物品 `phone_camera`（不进创造栏、不是 `ItemMaidPhone`）。它只是"模型名片"，让 `ItemRenderer` 能按注册名查到擦除版模型，见 §4 期 1e |
-| `client/PhotoLibrary.java` | 图库 + 临时截图 + **「已保存」气泡**。纹理注册改为**每次唯一 `ResourceLocation`**（§5.5-20） |
-| `event/ClientModEvents.java` | 两个手机侧键位；`RenderFrameEvent.Pre` 出图 + 俯仰低通；`CalculatePlayerTurnEvent` 降速；每 tick `onHolderTick()` + `tickCameraHold()`。~~`RELEASE_CURSOR`~~ 已于期 1d 删除 |
+| `client/PhotoLibrary.java` | 图库 + 临时截图。纹理注册改为**每次唯一 `ResourceLocation`**（§5.5-20）。保存**不再自己弹提示**（改由 `PhoneOverlay.showBubble` 在手机屏内弹，§5.5-30） |
+| `event/ClientModEvents.java` | 两个手机侧键位；`RenderFrameEvent.Pre` 出图 + 俯仰低通；**`RenderLevelStageEvent.AFTER_LEVEL` 抓拍照帧**（§5.5-29）；`CalculatePlayerTurnEvent` 降速；每 tick `onHolderTick()` + `tickCameraHold()`。~~`RELEASE_CURSOR`~~ 已于期 1d 删除 |
 | `mixin/MouseHandlerMixin.java` | 只剩**独立光标单通路**（`turnPlayer → onMouseDelta`、`onPress → onPhoneSideButton`，**都不 cancel**） |
 | `phone/PhoneInputScreen.java` `phone/PhoneGroupNameInputScreen.java` | 透明输入屏（`render` 全空 + `isPauseScreen()==false`，只接键盘）；`onClose()` 无条件恢复 `GLFW_CURSOR_DISABLED` |
 | `client/settings/HuhuTalkClientSettings.java` | `phoneCursorSensitivity`（默认 **1.2**） |
@@ -113,9 +118,14 @@
 
 | 想调什么 | 文件 | 位置 | 当前值 |
 |---|---|---|---|
-| 快门圆直径 | `ChatPage.cameraBarLayout` | `shutterD` | `max(sh(18), w * 0.30)` |
-| 确认胶囊尺寸/位置 | `ChatPage.cameraBarLayout` | `confirmW/H/X` | `max(sh(34), w*0.30)` / `max(sh(11), barH/3)` / 贴右 |
+| **快门直径** | `ChatPage` | `SHUTTER_W_RATIO` / `SHUTTER_MIN` | `0.15`（= 手机宽 ×15%，约上一版 0.5 倍）/ `9` |
+| 快门内键名字号 | `ChatPage.renderCameraMode` | 内联算式（以粉芯 `inner` 为可用区，宽 ×0.86 / 高 ×0.52 取小，钳在 `0.20~0.70`） | 默认键名下 ≈ **0.27** |
+| 已拍成时左侧缩略图边长 | `ChatPage` | `THUMB_SHOT` | `24`（**上限**；实际取 `min(barH-8, sh(24), 胶囊左缘之前的空间)`，下限 `sh(12)`）；取景中仍是 `barH - 8` ≈ 36 |
+| 确认胶囊尺寸/位置 | `ChatPage.cameraBarLayout` | `confirmW/H/X` + `CONFIRM_PAD_X` | 先按"按<键名>确认"的 1 倍字号算出宽度（`标签宽 + 10`）→ 让缩略图让位 → 兜底再钳到剩余空间；高度 = `max(sh(18), barH*0.5)`、贴右 |
+| **确认胶囊字号** | `ChatPage.renderCameraMode` | 内联 | **1 倍默认字号**（`UiFont.sc(1.0f)`，下限 `sc(0.8f)`） |
+| 保存成功气泡时长 | `PhoneOverlay` | `BUBBLE_MS` / `BUBBLE_FADE_IN_MS` / `BUBBLE_FADE_OUT_MS` | `1400 / 120 / 380`（毫秒）；位置 = 内容区 **58% 高**、水平居中 |
 | 上一张预览尺寸 | `ChatPage.cameraBarLayout` | `thumbSize` | `max(sh(14), barH - 8)`，贴左 |
+
 
 ---
 
@@ -136,32 +146,45 @@
    - `onHolderTick()` 检测**主手举起 Pro 手机的上升沿** → 自动打开。⚠ 必须存**边沿**（§5.3-14）。
    - **不做意图门**（用户决策）：主手被手机占着没法挖矿，掏出动作本身就是足够强的意图。
 
-### 期 1e 相机模式（**功能已通，UI 刚重排待验收**）
+### 期 1e 相机模式（**功能已通，UI 按第二轮反馈重排待验收**）
 
 **取景框原理（关键，别推翻）**：不给模型掏窟窿，而是**换一张擦除纹理**。
 `phone_3d_erased.png` 把"玩家侧可见面"擦成全透明 ⇒ 机壳在那些面上**直接透出后面的真实场景**，几何零改动。
 `phone_camera.json` 就是"同一份几何 + 换一行纹理引用"，由隐藏物品 `phone_camera` 让 `ItemRenderer` 能寻址。
 
+**拍照抓图（本轮重做，别改回去）**：`PhoneOverlay.requestWorldCapture` 只登记请求，
+真正的抓取发生在 `RenderLevelStageEvent.Stage.AFTER_LEVEL` —— 那一刻**世界已画完，手/手机/HUD 都还没画**
+（1.21.1 源 `GameRenderer.renderLevel`：L1279 派发 AFTER_LEVEL，L1281 才 `renderItemInHand`；
+HUD 更在整段 `renderLevel` 之后）。所以照片 = 玩家眼里那片干净的世界，整屏 16:9，**不裁剪**（用户拍板）。
+旧版"临时隐藏手机一帧 + 在 GUI 层抓图"的通路已整体删除，原因见 §5.5-29。
+
 **侧键语义（已按用户口径定稿）**：
 
 | 状态 | 侧键 4（手机左键） | 侧键 5（手机右键/返回） |
 |---|---|---|
-| 取景中 | 拍照 | 退出相机模式 |
-| 已拍成 | 轻点 = 确认发送（选中并回聊天）<br>**长按 = 存相册**（弹气泡，留在已拍成页） | 返回取景（不丢弃这张） |
+| 取景中 | 拍照 | 退出相机模式（回聊天） |
+| 已拍成 | 轻点 = 确认发送（选中并回聊天）<br>**长按 = 存相册**（弹气泡，留在已拍成页） | **取消这张**（丢弃），留在相机里回到取景中重拍 |
 
 **UI 版面（本轮重排）**：
 - 顶栏：左 `< 返回 <键名>`（**纯文字，不做按钮底**），右「拍照」标题
-- 底栏：左**上一张预览**（取景中/拍成后**都有**）+ 中间**圆形快门**（粉芯 + 白圈）
-- 已成：中间快门消失，换成**底部偏右的小号「按<键名>确认」**
+- 底栏：左**上一张预览**（取景中/拍成后**都有**；已拍成时按需缩到 12~24 逻辑像素，给确认胶囊让宽度）
+- 取景中：中间**小圆快门**（直径 = 手机宽 ×15%，约上一版 0.5 倍；白圈 + 粉芯，**粉芯里写绑定键名**）
+- 已拍成：快门消失，换成右侧「按&lt;键名&gt;确认」胶囊，**字号 1 倍默认**
+- 保存反馈：手机屏内半透明气泡「保存成功」（1.4 秒，淡入淡出）
 - 所有键名走 `KeyMapping.getTranslatedKeyMessage()`，**与玩家绑定耦合**
+- ⚠ 相机模式**不画光标**（整条用侧键），所以界面上不存在"可点但点不到"的按钮噱头：
+  凡是写出来的动作提示，都必须是侧键动作
 
 **待验收清单**：
 - [ ] 取景中侧键 4 拍照、侧键 5 退出
-- [ ] 已成侧键 4 确认发送、侧键 5 返回取景（**不再重拍**）
-- [ ] 长按侧键 4 → 「已保存到相册」气泡，且留在已成页
-- [ ] 快门大小合适、不盖住左侧预览
+- [ ] 已成侧键 4 确认发送、侧键 5 **取消这张并回到取景中**（不是回聊天页）
+- [ ] 长按侧键 4 → 屏内气泡「保存成功」，且留在已成页；随后打开聊天页底部扩展栏的图库能看到这张
+- [ ] **拍出来的照片是干净的世界**：没有 HUD / 物品栏 / 准星 / 手臂 / 手机本体
+- [ ] 快门大小合适（约上一版一半）、键名写在圆里、不压到左侧预览
+- [ ] 已成页确认胶囊的字是 1 倍默认字号（不再是缩到 0.45 倍的小字）
 - [ ] 预览在取景中（显示上一次拍的）与已成（显示刚拍的）都出现
-- [ ] 改绑键位后，顶栏与确认胶囊里的键名跟着变
+- [ ] 改绑键位后，顶栏、快门内、确认胶囊里的键名跟着变
+
 
 ### 期 2（画质与对齐）
 
@@ -281,6 +304,34 @@
 27. **别把 `ClientHooks.guiLayers` 当成 HUD 层**（见 §5.2-9）。
 28. **Toast**：保存提示用原版 `SystemToast(SystemToast.SystemToastId.PERIODIC_NOTIFICATION, Component, null)`
     经 `mc.getToasts().addToast(...)` 弹出，并整段 try-catch —— 提示失败绝不能影响"照片已落盘"这个事实。
+    ⚠ **本条已作废（相机保存的反馈不再走 toast）**，见下面 §5.5-30。
+29. **拍照抓图必须在 `RenderLevelStageEvent.AFTER_LEVEL`；别靠"隐藏手机 + GUI 层抓图"，更别碰 `options.hideGui`。**
+    - 症状（旧版）：图库里的"照片"是一张**整屏原版截图** —— HUD、物品栏、手臂、手机本体全在里面
+      （`run/huhutalk/photos/` 里那张 1920×1009 就是物证）。
+    - ⚠ **`options.hideGui` 是陷阱**：`Gui` 的 layerManager 条件就是 `!options.hideGui`
+      （1.21.1 源 `Gui.java` L248），置真会让**整个 GUI 层**都不绘制 —— 包括本模组通过
+      `RegisterGuiLayersEvent` 注册的回调。于是"隐藏 HUD 后用 GUI 层回调抓图"这条路**永远不会触发**，
+      表现为"按下拍照后手机永久消失"（`captureHidden` 再也回不来）。
+    - **正解**：`RenderLevelStageEvent.Stage.AFTER_LEVEL`。那一刻本帧世界已画完，而
+      `GameRenderer.renderLevel` 里的 hand 段排在它之后（L1279 派发 / L1281 `renderItemInHand`），
+      HUD 更在整段 `renderLevel` 之后 —— 手、手机、HUD 全都还没进主靶，抓到的天然是干净画面。
+    - 顺带把 `captureHidden` 那一套（字段 + `render` 里的早退 + 两处动画门 + `armHolderAutoOpen` 补丁）
+      整体删掉：不再隐藏任何东西，也就没有状态需要恢复。
+30. **保存成功的反馈画在手机屏内，不要用原版 `SystemToast`。**
+    - 气泡画在 `PhoneOverlay.render` 内部 ⇒ 随 Overlay 一起进模型屏的离屏纹理，玩家是在
+      **自己手里那台手机上**看到"保存成功"的；原版 toast 挂在屏幕角落，和手里那台手机没有视觉联系。
+    - 气泡显示期间必须让 `hasActiveAnimation()` 返回 true：否则离屏出图只按 `MAX_IDLE_MS`（100ms）
+      空转刷新，淡入淡出会一顿一顿。
+    - 落盘与提示解耦：`PhotoLibrary.saveToGallery` 只写文件并返回文件名（失败返回 null），
+      弹气泡由调用方在拿到非 null 之后做 —— 提示绝不该影响"照片已落盘"这个事实。
+31. **同一个"返回"键在两个状态下不能共用一个 `exitCameraMode()`。**
+    - 症状（旧版）：拍照成功页按侧键 5，本该"取消这张、回取景中重拍"，实际直接退回了聊天页。
+    - 根因：`cameraBackAction()` 无条件 `exitCameraMode()`，同时承担了"取景中退出相机"与
+      "已拍成取消这张"两种语义 —— 两种意图在结果上不可区分。
+    - **正解**：`cameraShot != null` 时只清 `cameraShot`（留在相机里），否则才 `exitCameraMode()`。
+      丢弃的那张**仍留作左下角"上一张"缩略图**（`lastCamShotKey` 不动）—— 真机相机的缩略图正是刚拍的那张。
+    - 通用教训：**一个键位的语义必须按状态显式分支**。"两个状态都能用同一个动作收场"往往是假象。
+
 
 ---
 
@@ -292,6 +343,9 @@
   ⚠ `build/libs/huhutalk-1.0.0.jar` 可能是很久以前的、`run/mods/` 里**没有**本模组的 jar ——
   排查"改动没效果"时先确认启动方式，别在代码里空转。
 - 日志：`run/logs/latest.log`；设置：`run/huhutalk/settings.json`（原子写入 + `.corrupt` 备份）。
+- **图库产物**：`run/huhutalk/photos/*.png` —— 验收"保存照片"到底进没进 mod 图库，直接看这个目录的
+  文件时间与内容即可（判断"是不是原版整屏截图"，看图片尺寸是不是 1920×1009 就一眼明白）。
+  发送过的图另存 `run/huhutalk/chat_images/`。
 - 验收设置（当时的实机环境）：`guiScale=4`、帧缓冲高 1009（GUI 逻辑高 252）、`phoneSize≈0.97`、`uiFontScale=1.0`。
 - Blockbench：MCP 已连（5.2.1，项目 `huhutalk_phone`，`java_block`，16 cube / 5 group / 1 纹理）。
   存档在女仆资源包目录，**不是** mod 资源目录。
@@ -312,3 +366,14 @@
    强行塞只会让字号缩到看不清、还挤掉真正有用的预览。
 9. **宁可少画一个控件，也不要盖住别的控件**：`cameraBarLayout` 会算出快门右缘，
    空间不够时**不画**右侧确认胶囊（侧键 4 依然可用），而不是让预览图被压掉。
+   （⚠ 这条已随 0.5 倍快门/1 倍确认字号重排而放宽：现在已拍成页靠**缩小左侧缩略图**腾宽度，
+   不再"宁可不画"。见 §3「相机 UI 版面」。）
+10. **每一个游戏内按钮/动作提示都要写出"按&lt;键名&gt;做什么"。** 键名走
+    `KeyMapping.getTranslatedKeyMessage()`，与玩家绑定耦合。相机模式尤其不能省 ——
+    那个界面不画光标、只能按侧键，玩家没有"试试点一下"这条路。后期打算在第一次进入时
+    用整屏文字说明替代这些常驻提示，之后再简化成图形按键 + "发送"字样（**明确不在本期做**）。
+11. **"照片"= 玩家取景时看到的那片世界，不是屏幕截图。** 抓图时机（`AFTER_LEVEL`）就是这条原则的实现：
+    任何 HUD / 手臂 / 手机本体都不该出现在照片里。改动抓图时机前先读 §5.5-29。
+12. **输入意图要直接表达（重申 §5.3-18）**：侧键 → 语义方法的映射必须是显式的；
+    渲染排版可以改，逻辑正确性不能依赖它。
+

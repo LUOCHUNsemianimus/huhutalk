@@ -97,9 +97,7 @@ public class PhoneOverlay {
     private static int phoneHeight;
     private static int phoneX, phoneY;
 
-    /** 相机拍照临时隐藏手机：隐藏期间手机不渲染（让截图是干净的纯游戏画面） */
-    private static boolean captureHidden = false;
-    /** 下一帧（手机已隐藏后）是否需要抓取一次主渲染目标 */
+    /** 相机拍照：已受理一次「抓主渲染目标」的请求，等本帧 {@code AFTER_LEVEL} 去执行 */
     private static boolean grabPending = false;
     private static java.util.function.Consumer<byte[]> grabCallback = null;
 
@@ -487,9 +485,13 @@ public class PhoneOverlay {
      *   <tr><th>当前状态</th><th>侧键 4（手机左键）</th><th>侧键 5（手机右键/返回）</th></tr>
      *   <tr><td>取景中</td><td>轻点 = 拍照</td><td>退出相机模式，回聊天</td></tr>
      *   <tr><td>已拍成</td><td>轻点 = 确认选中这张（回聊天，随文字一起发送）<br>
-     *       <b>长按 = 存入相册</b>（弹「已保存」气泡，留在已拍成页）</td>
-     *       <td>取消这张，回到取景中</td></tr>
+     *       <b>长按 = 存入相册</b>（弹「保存成功」气泡，留在已拍成页）</td>
+     *       <td><b>取消这张</b>，回到取景中重拍</td></tr>
      * </table>
+     * <p>
+     * <b>为什么"取消"必须留在相机里</b>：已拍成页的侧键 5 语义与真机相机一致 ——
+     * 它是"这张不要了，重新取景"，而不是"退出相机回聊天"。退出相机是<b>取景中</b>按侧键 5 的事。
+     * 早先两个状态共用一个 {@code exitCameraMode()}，于是"重拍"直接把人扔回了聊天页（实机反馈）。
      * <p>
      * <b>为什么保存要长按、且不离开</b>：确认（发送）与保存（存档）是两种意图，
      * 但屏幕上只有一颗胶囊按钮。把"更重、更少见"的那个放到长按，既能区分意图，
@@ -500,6 +502,10 @@ public class PhoneOverlay {
      * 合成成按钮中心的坐标再走 {@link #handleMouseClicked}，按钮命中外框、动画守卫、
      * 发送/保存流程全部复用同一条通路 —— 按钮排版改了，侧键自动跟着改，
      * 不会出现"按钮挪了但侧键还点老位置"这种暗病。
+     * <p>
+     * ⚠ 这段说明是历史遗留：期 1e 已改为**直接调用 {@link ChatPage} 的语义方法**
+     * （{@code cameraPrimaryAction / cameraBackAction / cameraSaveAction}），键位映射是显式的，
+     * 与排版彻底解耦（踩坑见交接文档 §5.3-18）。
      */
     private static void cameraSideButton(boolean clickButton, int action) {
         if (action == GLFW.GLFW_PRESS) {
@@ -788,7 +794,7 @@ public class PhoneOverlay {
             return;
         }
         // 切屏动画开启：走整机下滑退场（EXIT），播完才真正隐藏
-        if (uiAnimEnabled() && !captureHidden) {
+        if (uiAnimEnabled()) {
             containerAnim = ContainerAnim.EXIT;
             containerTween = new AnimTween();
             return;
@@ -831,7 +837,7 @@ public class PhoneOverlay {
         renderMode = ProPhoneHandRenderer.isActive() ? RenderMode.MODEL : RenderMode.FLOATING;
         // 掏出手机 = 光标重新出生：回到顶栏正中（见 defaultCursorNY 的取舍说明）
         resetCursorToSpawn();
-        if (renderMode == RenderMode.FLOATING && uiAnimEnabled() && !captureHidden) {
+        if (renderMode == RenderMode.FLOATING && uiAnimEnabled()) {
             containerAnim = ContainerAnim.ENTER;
             containerTween = new AnimTween();
         } else {
@@ -987,38 +993,110 @@ public class PhoneOverlay {
         };
     }
 
-    // ==================== 相机拍照隐藏 ====================
+    // ==================== 相机拍照抓图 ====================
 
     /**
-     * 相机拍照：临时隐藏手机一帧，让下一帧的抓取层截到干净的纯游戏画面，再把 PNG 字节回调出去。
-     * 必须在渲染线程调用。
+     * 相机拍照：登记一次「抓主渲染目标」的请求，本帧稍后由
+     * {@code RenderLevelStageEvent.Stage.AFTER_LEVEL} 上的 {@link #consumeWorldCapture()} 兑现。
+     *
+     * <h2>为什么在 AFTER_LEVEL 抓</h2>
+     * 那一刻本帧的世界已经画完，而<b>手 / 手机 / HUD 都还没画</b>（见 ClientModEvents 里的说明），
+     * 抓到的就是「玩家眼睛里那片干净的世界」—— 不需要临时隐藏任何东西，
+     * 也就不会出现旧版的两种病：整屏原版截图（HUD/物品栏/手臂/手机全在里面），或抓图回调不触发。
+     *
+     * <h2>⚠ 别改用 options.hideGui</h2>
+     * {@code Gui} 的 layerManager 条件就是 {@code !options.hideGui}，置真会让<b>整个 GUI 层</b>
+     * （含本模组注册的 GUI 层回调）全部不绘制 —— 靠 GUI 层回调抓图的路会永远不触发，
+     * 表现为「按下拍照后手机永久消失」。旧版的 {@code captureHidden} 通路正是死在这里，已整体删除。
+     *
+     * @param onDone 拿到 PNG 字节（可能为 null）后的回调，在渲染线程执行
      */
-    public static void hideForCapture(java.util.function.Consumer<byte[]> onDone) {
-        captureHidden = true;
+    public static void requestWorldCapture(java.util.function.Consumer<byte[]> onDone) {
         grabPending = true;
         grabCallback = onDone;
     }
 
-    /**
-     * 由手机之后注册的 GUI 抓取层每帧调用：若处于"已隐藏待抓取"状态，抓主渲染目标转 PNG 并回调，随后恢复手机。
-     * 在渲染线程执行。
-     */
-    public static void consumeCaptureGrab() {
-        if (!grabPending || !captureHidden) {
+    /** 由 {@code RenderLevelStageEvent.AFTER_LEVEL} 每帧调用：有请求就抓一张并回调。在渲染线程执行。 */
+    public static void consumeWorldCapture() {
+        if (!grabPending) {
             return;
         }
         grabPending = false;
-        captureHidden = false;
-        // 隐藏期间 phoneOpen/renderMode 未动（只是本帧不画），但"是否举着手机"可能已经变了；
-        // 重新武装上升沿检测，避免恢复后出现一次莫名其妙的自动打开。
-        armHolderAutoOpen();
         java.util.function.Consumer<byte[]> cb = grabCallback;
         grabCallback = null;
         if (cb == null) {
             return;
         }
-        byte[] png = com.huhutalk.client.PhotoLibrary.captureMainTargetPng();
-        cb.accept(png);
+        cb.accept(com.huhutalk.client.PhotoLibrary.captureMainTargetPng());
+    }
+
+    // ==================== 屏内气泡 ====================
+
+    /** 气泡文案（null = 不显示） */
+    private static String bubbleText = null;
+    private static long bubbleStartAt = 0L;
+    private static long bubbleUntilAt = 0L;
+    /** 气泡总时长 / 淡入 / 淡出（毫秒） */
+    private static final long BUBBLE_MS = 1400L;
+    private static final long BUBBLE_FADE_IN_MS = 120L;
+    private static final long BUBBLE_FADE_OUT_MS = 380L;
+
+    /**
+     * 在手机屏内弹一个半透明气泡（"保存成功"这类结果提示）。
+     * <p>
+     * 为什么不用原版 {@code SystemToast}：气泡画在 Overlay 内部 ⇒ 会随手机 UI 一起进模型屏的离屏纹理，
+     * 玩家<b>在自己的手机屏幕上</b>看到反馈；原版 toast 挂在屏幕角落，和手里那台手机没有视觉联系。
+     */
+    public static void showBubble(String text) {
+        if (text == null || text.isEmpty()) {
+            return;
+        }
+        bubbleText = text;
+        bubbleStartAt = System.currentTimeMillis();
+        bubbleUntilAt = bubbleStartAt + BUBBLE_MS;
+        PhoneScreenTarget.markDirty();
+    }
+
+    /** 气泡是否还在显示期内（含淡出） */
+    private static boolean bubbleVisible() {
+        return bubbleText != null && System.currentTimeMillis() < bubbleUntilAt;
+    }
+
+    /** 画气泡：手机屏内容区水平居中、约 58% 高处，避免压住取景框中心的十字 */
+    private static void renderBubble(GuiGraphics graphics, int baseX, int baseY, int w, int h) {
+        if (!bubbleVisible()) {
+            if (bubbleText != null) {
+                bubbleText = null;
+            }
+            return;
+        }
+        long now = System.currentTimeMillis();
+        float a = 1f;
+        if (now - bubbleStartAt < BUBBLE_FADE_IN_MS) {
+            a = (now - bubbleStartAt) / (float) BUBBLE_FADE_IN_MS;
+        } else if (bubbleUntilAt - now < BUBBLE_FADE_OUT_MS) {
+            a = (bubbleUntilAt - now) / (float) BUBBLE_FADE_OUT_MS;
+        }
+        a = Math.max(0f, Math.min(1f, a));
+
+        Font font = Minecraft.getInstance().font;
+        float ts = UiFont.sc(1.0f);
+        FormattedCharSequence seq = Component.literal(bubbleText).getVisualOrderText();
+        int textW = (int) (font.width(seq) * ts);
+        int textH = (int) Math.ceil(font.lineHeight * ts);
+        int padX = UiFont.sh(9);
+        int padY = UiFont.sh(5);
+        int bubbleW = Math.min(w - UiFont.sh(8), textW + padX * 2);
+        int bubbleH = textH + padY * 2;
+        int bx = baseX + (w - bubbleW) / 2;
+        int by = baseY + Math.round(h * 0.58f) - bubbleH / 2;
+        int bgAlpha = Math.round(a * 0.70f * 255f);
+        UiShapes.fillRoundedRect(graphics, bx, by, bubbleW, bubbleH, bubbleH / 2, bgAlpha << 24);
+        int fgAlpha = (Math.round(a * 255f) << 24) | 0x00FFFFFF;
+        drawScaledText(graphics, font, seq,
+                bx + (bubbleW - font.width(seq) * ts) / 2f,
+                by + (bubbleH - font.lineHeight * ts) / 2f + 1,
+                fgAlpha, ts);
     }
 
     // ==================== 渲染 ====================
@@ -1039,9 +1117,8 @@ public class PhoneOverlay {
             return;
         }
 
-        // 相机拍照临时隐藏：本帧不渲染手机，让后续抓取层拿到干净的纯游戏画面。
-        // 离屏模式不适用该流程（它只服务于屏幕截图），故不做早退。
-        if (captureHidden && !external) return;
+        // 相机拍照的抓图不在这里做：它走 RenderLevelStageEvent.AFTER_LEVEL（世界已画完、手与 HUD 都还没画），
+        // 见 requestWorldCapture / consumeWorldCapture 的说明。旧版那条「本帧不画手机」的早退已删除。
 
         Minecraft mc = Minecraft.getInstance();
         int screenW = external ? externalW : mc.getWindow().getGuiScaledWidth();
@@ -1252,6 +1329,9 @@ public class PhoneOverlay {
             }
         }
 
+        // 屏内气泡（"保存成功"这类结果提示）画在光标之下、一切页面内容之上
+        renderBubble(graphics, phoneX, ry + UiFont.sh(STATUSBAR_H), phoneWidth, phoneHeight);
+
         // 独立光标画在最上层。必须在 render 内部（而不是 GUI 层），才能随 Overlay 一起进离屏纹理。
         renderCursor(graphics, phoneX, ry);
     }
@@ -1281,6 +1361,10 @@ public class PhoneOverlay {
      */
     public static boolean hasActiveAnimation() {
         if (dragging) {
+            return true;
+        }
+        // 气泡有淡入/淡出：让它期间逐帧重绘，否则只按 MAX_IDLE_MS 空转刷新（约 10fps）会显得一顿一顿
+        if (bubbleVisible()) {
             return true;
         }
         if (!uiAnimEnabled()) {

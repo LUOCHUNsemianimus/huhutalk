@@ -1515,12 +1515,13 @@ public class ChatPage implements IPhonePage {
     }
 
     /**
-     * 右键返回（全局右键回调）：相机模式下先退出拍照界面回到聊天页，不弹页。
+     * 右键返回（全局右键回调）：相机模式下的语义与侧键 5 完全一致（见 {@link #cameraBackAction()}）——
+     * 已拍成时先"取消这张、回取景中"，取景中才退出相机回聊天。
      * 返回 true 表示已消费，上层（PhoneOverlay）不应再 popPage。
      */
     public boolean onBackPressed() {
         if (cameraActive) {
-            exitCameraMode();
+            cameraBackAction();
             return true;
         }
         return false;
@@ -1531,54 +1532,80 @@ public class ChatPage implements IPhonePage {
         return phoneH() - UiFont.sh(44);
     }
 
+    /** 取景中：快门直径 = 手机宽度 × 此比例（≈ 上一版 0.30 的一半，实机反馈"太大"） */
+    private static final float SHUTTER_W_RATIO = 0.15f;
+    /** 快门直径下限（逻辑像素，随全局字体倍率缩放） */
+    private static final int SHUTTER_MIN = 9;
+    /** 已拍成时左侧缩略图边长（逻辑像素）：比取景中的小，给右侧「按<键名>确认」腾出 1 倍字号的空间 */
+    private static final int THUMB_SHOT = 24;
+    /** 确认胶囊的左右内边距 */
+    private static final int CONFIRM_PAD_X = 5;
+
     /**
      * 相机控件条的布局参数（渲染与命中共用同一份，避免两处各写一套导致脱节）。
      *
      * <h2>版面构成（自左向右）</h2>
      * <ul>
      *   <li><b>上一张预览</b>：始终存在（取景中显示上一次拍到的那张，拍成后显示刚拍的这张），
-     *       固定贴左；</li>
-     *   <li><b>快门/确认胶囊</b>：居中。取景中是快门，已拍成后换成右侧那颗更小的「确认」，
-     *       中间这颗消失 —— 这就是"拍照成功页"的区分方式（不新建页面，只换控件）；</li>
-     *   <li><b>确认胶囊</b>（仅已拍成）：底部偏右、比快门小一圈。</li>
+     *       固定贴左。已拍成时缩到 {@link #THUMB_SHOT}：腾出的宽度要给右侧那颗
+     *       「按&lt;键名&gt;确认」——那颗胶囊里的键名必须能用<b>1 倍默认字号</b>
+     *       （手机宽度下「按鼠标按键4确认」约 69 逻辑像素，不腾地方就只能缩到 0.45 倍，小到看不清）。</li>
+     *   <li><b>快门</b>（仅取景中）：居中，直径 = 手机宽 × {@link #SHUTTER_W_RATIO}
+     *       （≈ 上一版 {@code w*0.30} 的一半），圆内写玩家绑定的确认键名。</li>
+     *   <li><b>确认胶囊</b>（仅已拍成）：贴右，宽度按标签的 1 倍字号撑开。</li>
      * </ul>
      *
-     * <h2>为什么要算"快门右缘"</h2>
-     * 快门居中、预览贴左，两者会在某些手机宽度下重叠。所以这里显式算出
-     * {@code shutterRight} 供调用方判断是否还要画右侧确认键 —— 宁可少画一颗按钮，
-     * 也不能让预览图被盖住（预览被盖住正是前一版的问题）。
-     *
+     * @param shot 是否已拍成（拍照成功页）。两个状态的控件与宽度分配不同，必须显式区分，
+     *             否则命中区与渲染很容易在"缩略图让位"这件事上脱节。
      * @return {barTop, barH, thumbX, thumbY, thumbSize, shutterX, shutterY, shutterD,
-     *         confirmX, confirmY, confirmW, confirmH, navHintW}
+     *         confirmX, confirmY, confirmW, confirmH}
      */
-    private int[] cameraBarLayout(int w) {
+    private int[] cameraBarLayout(int w, boolean shot) {
         int h = phoneH();
         int barTop = cameraViewBottom();
         int barH = Math.max(UiFont.sh(24), h - barTop);
-        int rowTop = barTop + (barH - 1) / 2;
+        Font font = Minecraft.getInstance().font;
+        int edge = UiFont.sh(5);
+        int gap = UiFont.sh(6);
 
-        // 上一张预览
+        // ---- 确认胶囊（仅已拍成）：宽度按"按<键名>确认"的 1 倍默认字号撑开，贴右 ----
+        // 1 倍字号优先：先按标签的 1 倍宽度算出胶囊，再让左侧缩略图让位（而不是反向压缩字号）。
+        int confirmH = Math.max(UiFont.sh(18), Math.round(barH * 0.5f));
+        int confirmW = (int) Math.ceil(font.width(confirmLabel()) * UiFont.sc(1.0f)) + UiFont.sh(CONFIRM_PAD_X) * 2;
+        int confirmX = w - edge - confirmW;
+        int confirmY = barTop + (barH - confirmH) / 2;
+
+        // ---- 上一张预览：贴左。已拍成时先让宽度给胶囊（下限 12 逻辑像素）----
         int thumbSize = Math.max(UiFont.sh(14), barH - 8);
-        int thumbX = UiFont.sh(5);
+        if (shot) {
+            int room = confirmX - gap - edge;                     // 胶囊左缘之前能放多宽
+            thumbSize = Math.max(UiFont.sh(12),
+                    Math.min(thumbSize, Math.min(UiFont.sh(THUMB_SHOT), room)));
+        }
+        int thumbX = edge;
         int thumbY = barTop + (barH - thumbSize) / 2;
 
-        // 快门：约为原先胶囊（约 0.55w 宽）的 0.75 倍，做成圆形
-        int shutterD = Math.max(UiFont.sh(18), (int) (w * 0.30f));
+        // ---- 兜底：超大全局字体 / 超长键名时胶囊可能压到预览，此时把胶囊钳进剩余空间，
+        //      字号交给渲染端按胶囊宽度退让（宁可字小，也不能盖住预览）----
+        if (shot) {
+            confirmW = Math.min(confirmW,
+                    Math.max(UiFont.sh(34), w - edge - (thumbX + thumbSize + gap)));
+            confirmX = w - edge - confirmW;
+        }
+
+        // ---- 快门（仅取景中）----
+        int shutterD = Math.max(UiFont.sh(SHUTTER_MIN), Math.round(w * SHUTTER_W_RATIO));
         int shutterX = w / 2 - shutterD / 2;
         int shutterY = barTop + (barH - shutterD) / 2;
-        int shutterRight = shutterX + shutterD;
 
-        // 确认胶囊：更小一号，贴底部右侧
-        int confirmW = Math.max(UiFont.sh(34), (int) (w * 0.30f));
-        int confirmH = Math.max(UiFont.sh(11), barH / 3);
-        int confirmX = Math.max(shutterRight + UiFont.sh(5), w - UiFont.sh(5) - confirmW);
-        int confirmY = rowTop + Math.max(1, (barH - (rowTop - barTop) - confirmH) / 2) + 1;
-
-        // 顶栏返回提示的可用宽度（左边距 + "<" + "返回" + 键名）
-        int navHintW = Math.max(UiFont.sh(40), w - UiFont.sh(46));
         return new int[]{barTop, barH, thumbX, thumbY, thumbSize,
                 shutterX, shutterY, shutterD,
-                confirmX, confirmY, confirmW, confirmH, navHintW};
+                confirmX, confirmY, confirmW, confirmH};
+    }
+
+    /** 确认胶囊的文案：键名走玩家绑定（默认「鼠标按键 4」），所以会把"按…确认"整句写出来 */
+    private String confirmLabel() {
+        return "按" + cameraKeyHint(true) + "确认";
     }
 
     /**
@@ -1604,13 +1631,22 @@ public class ChatPage implements IPhonePage {
     /**
      * 相机模式「返回/取消」——对应玩家绑定的<b>屏幕返回键</b>（默认鼠标侧键 5）。
      * <ul>
-     *   <li>取景中 → 退出相机模式，回聊天；</li>
-     *   <li>已拍成 → 回到取景中（<b>不</b>丢弃已拍的那张）。</li>
+     *   <li><b>取景中</b> → 退出相机模式，回聊天；</li>
+     *   <li><b>已拍成</b> → <b>取消这一张</b>（丢弃），留在相机里回到取景中重拍。</li>
      * </ul>
-     * 两种状态都是"离开当前这张画面"，区别只在于要不要留着已拍的图，所以实现上同为
-     * {@link #exitCameraMode()}（它只清 {@code cameraShot}，不清已发出的内容）。
+     * <p>
+     * <b>为什么两个状态不能共用一个 {@code exitCameraMode()}</b>：已拍成页的这颗键语义是
+     * "这张不要了，重新取景"，与真机相机的取消键一致；退出相机是<b>取景中</b>才干的事。
+     * 早先两个状态都走 {@code exitCameraMode()}，于是"重拍"直接把人扔回了聊天页（实机反馈）。
+     * <p>
+     * 丢弃的那张仍会作为左侧「上一张」缩略图留着（{@code lastCamShotKey} 不动）——
+     * 真机相机的左下角缩略图显示的正是刚拍/刚删的那张，且它是"我拍到过什么"的视觉记录。
      */
     public void cameraBackAction() {
+        if (cameraShot != null) {
+            cameraShot = null;
+            return;
+        }
         exitCameraMode();
     }
 
@@ -1670,11 +1706,10 @@ public class ChatPage implements IPhonePage {
         // 底部控件条：半透明黑，衬托控件可读
         g.fill(baseX, viewBottom, baseX + w, baseY + h, 0x88000000);
 
-        int[] L = cameraBarLayout(w);
+        int[] L = cameraBarLayout(w, shot);
         int thumbX = L[2], thumbY = L[3], thumbSize = L[4];
         int shutterX = L[5], shutterY = L[6], shutterD = L[7];
         int confirmX = L[8], confirmY = L[9], confirmW = L[10], confirmH = L[11];
-        int shutterRight = shutterX + shutterD;
 
         // 左侧：上一张图片预览 —— 取景中与拍成后**都存在**。
         // 取景中显示的是"上一次拍到的那张"（cameraShot 为空时用 __camshot__ 缓存里的旧图）。
@@ -1691,30 +1726,36 @@ public class ChatPage implements IPhonePage {
         }
 
         if (!shot) {
-            // 取景中：中间圆形快门（粉芯 + 白圈，胶囊状比例）
+            // 取景中：圆形快门（白圈 + 粉芯），**圆内写玩家绑定的确认键名**。
+            // 直径只有上一版的一半，所以键名要自适应字号：以圆的内接矩形为可用区
+            // （宽 ≈ 0.86d、高 ≈ 0.52d），两个方向同时收缩取小；倍率随全局字体倍率走，
+            // 玩家用 3 倍 GUI 时这些逻辑像素会整体放大，所以这个比例是可读的（用户拍板）。
             int sx = baseX + shutterX;
             int sy = baseY + shutterY;
             int ring = Math.max(2, shutterD / 10);
             UiShapes.fillRoundedRect(g, sx, sy, shutterD, shutterD, shutterD / 2, 0xFFFFFFFF);
             int inner = shutterD - ring * 2;
             UiShapes.fillRoundedRect(g, sx + ring, sy + ring, inner, inner, inner / 2, 0xFFDE7E7E);
-        } else if (confirmX >= shutterRight) {
-            // 拍成后：中间换成底部右侧那颗更小的「按<键名>确认」；被预览挤到放不下时宁可不画，
-            // 也不能盖住预览（侧键 4 依然可用）
+
+            String key = cameraKeyHint(true);
+            int keyW = Math.max(1, font.width(key));
+            // 以**粉芯**（inner）为可用区而不是整个圆：白圈还要占 ring 像素，
+            // 键名压到白圈上会糊在一起
+            float ts = Math.min(inner * 0.86f / keyW, inner * 0.52f / Math.max(1f, font.lineHeight));
+            ts = Math.max(0.20f, Math.min(ts, 0.70f));
+            drawScaledText(g, font, key, sx + (shutterD - keyW * ts) / 2f,
+                    sy + (shutterD - font.lineHeight * ts) / 2f, 0xFFFFFFFF, ts);
+        } else {
+            // 已拍成：右侧「按<键名>确认」胶囊，**1 倍默认字号**（布局先按 1 倍字号撑开胶囊、
+    // 再让左侧缩略图让位，所以默认设置下这里恒为 1 倍；只有超大全局字体/超长键名才退让）
             int ax = baseX + confirmX;
             int ay = baseY + confirmY;
-            UiShapes.fillRoundedRect(g, ax, ay, confirmW, confirmH, confirmH / 2, 0xFFFFFFFF);
-            String label = "按" + cameraKeyHint(true) + "确认";
-            float ts = Math.min(UiFont.sc(0.9f), confirmH / (float) Math.max(1, lh()));
+            UiShapes.fillRoundedRect(g, ax, ay, confirmW, confirmH, confirmH / 2, 0xECFFFFFF);
+            String label = confirmLabel();
+            float ts = Math.min(UiFont.sc(1.0f), (confirmW - 4f) / Math.max(1f, (float) font.width(label)));
             float tw = font.width(label) * ts;
-            float cap = (confirmW - 4f) / Math.max(1f, tw);
-            if (cap < 1f) {
-                ts = Math.max(ts * cap, ts * 0.5f);
-                tw = font.width(label) * ts;
-            }
             drawScaledText(g, font, label, ax + (confirmW - tw) / 2f,
-                    ay + (confirmH - lh() * (ts / Math.max(0.01f, UiFont.sc(1.0f)))) / 2f,
-                    0xFFDE7E7E, ts);
+                    ay + (confirmH - font.lineHeight * ts) / 2f, 0xFFDE7E7E, ts);
         }
     }
 
@@ -1742,19 +1783,19 @@ public class ChatPage implements IPhonePage {
     private boolean handleCameraClick(double relX, double relY, int w) {
         // 左上角返回（含 nav 条左侧那颗"返回 <键名>"）
         if (relY >= 0 && relY <= navH() && relX >= 0 && relX <= UiFont.sh(84)) {
-            exitCameraMode();
+            cameraBackAction();
             return true;
         }
-        int[] L = cameraBarLayout(w);
+        int[] L = cameraBarLayout(w, cameraShot != null);
         int barTop = L[0];
         int thumbX = L[2], thumbY = L[3], thumbSize = L[4];
         int shutterX = L[5], shutterY = L[6], shutterD = L[7];
         int confirmX = L[8], confirmY = L[9], confirmW = L[10], confirmH = L[11];
         boolean shot = cameraShot != null;
 
-        // 左侧预览：点它 = 返回（与侧键 5 同义，鼠标用户也有出路）
+        // 左侧预览：点它 = 取消/返回（与侧键 5 同义，鼠标用户也有出路）
         if (lastCamShotKey != null && hit(relX, relY, thumbX, thumbY, thumbSize, thumbSize)) {
-            exitCameraMode();
+            cameraBackAction();
             return true;
         }
         if (relY >= barTop) {
@@ -1764,9 +1805,8 @@ public class ChatPage implements IPhonePage {
                     cameraPrimaryAction();
                     return true;
                 }
-            } else if (confirmX >= shutterX + shutterD
-                    && hit(relX, relY, confirmX, confirmY, confirmW, confirmH)) {
-                // 拍成后：右侧小「确认」
+            } else if (hit(relX, relY, confirmX, confirmY, confirmW, confirmH)) {
+                // 拍成后：右侧「按<键名>确认」
                 cameraPrimaryAction();
                 return true;
             }
@@ -1775,10 +1815,11 @@ public class ChatPage implements IPhonePage {
         return true;
     }
 
-    /** 拍照：截取主渲染目标存为 cameraShot，并注册为可渲染纹理 */
+    /** 拍照：请求在"本帧世界画完、手与 HUD 都还没画"的时机抓一张主渲染目标，存为 cameraShot 并注册为可渲染纹理 */
     private void takePhoto() {
-        // 临时隐藏手机一帧，抓取干净的纯游戏画面（增加沉浸感）
-        PhoneOverlay.hideForCapture(png -> {
+        // 抓图时机由 PhoneOverlay.requestWorldCapture 决定（RenderLevelStageEvent.AFTER_LEVEL）：
+        // 抓到的就是玩家眼里那片干净的世界 —— 没有 HUD / 物品栏 / 手臂 / 手机本体
+        PhoneOverlay.requestWorldCapture(png -> {
             if (png != null) {
                 cameraShot = png;
                 PhotoLibrary.registerCapturedBytes("__camshot__", png);
@@ -1799,15 +1840,18 @@ public class ChatPage implements IPhonePage {
     }
 
     /**
-     * 保存到相册：<b>留在已拍成页</b>，不退出相机。
+     * 保存到相册：<b>留在已拍成页</b>，不退出相机。落盘成功后弹手机屏内气泡「保存成功」。
      * <p>
      * 与 {@link #confirmPhoto()} 刻意区分：保存只是"把这张存下来"，玩家接下来仍可选择
      * 轻点侧键 4 确认发送、或点侧键 5 重拍。若保存也直接退回聊天页，玩家就失去了选择，
      * 也让"确认"与"保存"两个意图在结果上不可区分。
+     * <p>
+     * 反馈刻意用 {@link PhoneOverlay#showBubble} 而不是原版 toast：气泡画在手机 UI 内部，
+     * 会随整个 Overlay 一起进模型屏的离屏纹理，玩家是<b>在自己手里那台手机上</b>看到"保存成功"的。
      */
     private void savePhoto() {
-        if (cameraShot != null) {
-            PhotoLibrary.saveToGallery(cameraShot);
+        if (cameraShot != null && PhotoLibrary.saveToGallery(cameraShot) != null) {
+            PhoneOverlay.showBubble("保存成功");
         }
     }
 

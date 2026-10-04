@@ -4,9 +4,7 @@ import com.mojang.blaze3d.platform.NativeImage;
 import com.mojang.blaze3d.systems.RenderSystem;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.Screenshot;
-import net.minecraft.client.gui.components.toasts.SystemToast;
 import net.minecraft.client.renderer.texture.DynamicTexture;
-import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 
 import java.io.ByteArrayInputStream;
@@ -72,8 +70,11 @@ public final class PhotoLibrary {
     }
 
     /**
-     * 截取主渲染目标并转为 PNG 字节（相机"拍照"用）。
-     * 必须在渲染线程调用；截图会带上 HUD / 手机 overlay（demo 阶段可接受）。
+     * 截取主渲染目标并转为 PNG 字节（相机"拍照"用）。必须在渲染线程调用。
+     * <p>
+     * 抓到的内容取决于<b>调用时机</b>：相机走的是 {@code RenderLevelStageEvent.Stage.AFTER_LEVEL}
+     * （见 {@code PhoneOverlay.requestWorldCapture}）—— 那一刻世界已画完，而手 / 手机 / HUD 都还没画，
+     * 所以拿到的是一张"干净的世界"，不是整屏原版截图。
      */
     public static byte[] captureMainTargetPng() {
         NativeImage img = Screenshot.takeScreenshot(Minecraft.getInstance().getMainRenderTarget());
@@ -97,34 +98,23 @@ public final class PhotoLibrary {
 
     // ==================== 图库持久化 ====================
 
-    /** 保存一张图到图库，返回文件名；失败返回 null */
+    /**
+     * 保存一张图到图库，返回文件名；失败返回 null。
+     * <p>
+     * <b>这里刻意不弹提示</b>：保存成功的反馈由调用方在<b>手机屏内</b>弹气泡
+     * （{@code PhoneOverlay.showBubble("保存成功")}）—— 气泡随手机 UI 一起进模型屏的离屏纹理，
+     * 玩家在自己手里那台手机上看到反馈；原版 {@code SystemToast} 挂在屏幕角落，和手机没有视觉联系。
+     */
     public static String saveToGallery(byte[] pngBytes) {
         if (pngBytes == null || pngBytes.length == 0) return null;
         try {
             Files.createDirectories(photoDir());
             String name = "photo_" + System.currentTimeMillis() + "_" + uniqueSuffix() + ".png";
             Files.write(photoDir().resolve(name), pngBytes);
-            savedToast();
             return name;
         } catch (IOException e) {
+            LOGGER.error("[HuhuTalk] 保存照片到相册失败 dir={}", photoDir(), e);
             return null;
-        }
-    }
-
-    /**
-     * 「已保存」提示气泡。
-     * <p>
-     * 用原版 {@code SystemToast} 而不是自绘：不占手机屏幕、不依赖 FBO 出图，
-     * 也不需要玩家正看着手机 —— 保存是一次"离线"副作用，提示理应独立于手机 UI。
-     * 失败（例如提示系统不可用）时静默放弃，绝不让保存本身因为提示而失败。
-     */
-    private static void savedToast() {
-        try {
-            Minecraft mc = Minecraft.getInstance();
-            mc.getToasts().addToast(new SystemToast(SystemToast.SystemToastId.PERIODIC_NOTIFICATION,
-                    Component.translatable("huhutalk.toast.photo_saved"), null));
-        } catch (Throwable ignored) {
-            // 提示只是锦上添花，任何异常都不该影响"照片已经落盘"这个事实
         }
     }
 
