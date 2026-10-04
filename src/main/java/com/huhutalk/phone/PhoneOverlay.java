@@ -1007,20 +1007,20 @@ public class PhoneOverlay {
                     }
                 }
             }
-        } else if (!uiAnimEnabled() || renderMode != RenderMode.FLOATING) {
+        } else if (!uiAnimEnabled()) {
             // 全局总开关关闭：瞬时切换，重置动画状态。
             // ⚠ 必须是 else-if 而不是 else：离屏（模型屏）模式下第一支不成立，
             // 若落到 else 就会**每帧**把 transTween / launchActive 清掉 ——
-            // 于是「点击 App 的切屏动画」在悬浮窗和模型屏两边都会消失（曾实测踩到）。
-            // 所以这里只重置**容器**动画，不碰页面转场。
+            // 于是「点击 App 的切屏动画」在悬浮窗和模型屏两边都会消失（曾实测踩到，期 1d 又踩了一次）。
+            // 所以这里只重置**容器**动画，绝不碰 transTween / transFrom / transTo / launchActive / launchTween
+            // —— 那些是页面转场与启动动画的状态，与「整机呼出/收起」完全无关。
             containerAnim = ContainerAnim.IDLE;
             containerTween = null;
-            transTween = null;
-            transFrom = null;
-            transTo = null;
-            transIsPush = false;
-            launchActive = false;
-            launchTween = null;
+        } else if (renderMode != RenderMode.FLOATING) {
+            // 切到模型屏（或别的非悬浮窗形式）：整机滑动没有意义，丢容器动画状态即可。
+            // 同样**不碰**页面转场/启动动画 —— 模型屏里页面跳转照样要有切屏动画。
+            containerAnim = ContainerAnim.IDLE;
+            containerTween = null;
         }
         int ry = phoneY + Math.round(animOffsetY);
         renderedPhoneY = ry;

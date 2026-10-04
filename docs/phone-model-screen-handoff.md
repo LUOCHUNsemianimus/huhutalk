@@ -154,6 +154,8 @@
 ### 5.3 状态与逻辑
 
 8. **`PhoneOverlay.render` 里 `uiAnimEnabled()` 的 `else` 分支会每帧清空 `transTween/launchActive`**（这些状态是静态共享的）。离屏模式下第一支不成立 → 每帧落进 `else` → **悬浮窗和模型屏两边都没有切屏动画**。必须写成 `} else if (!uiAnimEnabled()) {`。
+    ⚠ **期 1d 又踩了一次，同一个坑的变体**：当时把那支改成 `} else if (!uiAnimEnabled() || renderMode != RenderMode.FLOATING) {`，但**没有删掉分支体里那 5 行 `transTween/transFrom/transTo/launchActive/launchTween` 的清空** —— 而 `renderMode != FLOATING` 在**离屏出图那一帧恒为真**（出图时 `renderMode == MODEL`），于是又变成每帧清空，切屏动画再次消失。
+    **教训**：这种"每帧清状态"的分支，改条件时必须同步审查**分支体**，别只看条件；条件放宽 = 副作用范围被放大。正确写法是**只重置容器动画**，并给「非悬浮窗形式」单独一支，见 §4 期 1d。
 9. **`MouseHandler.turnPlayer` 每帧都会被调用**（鼠标没动时增量为 0）。光标喂入与标脏都必须对零增量**提前返回**，否则每帧标脏、dirty 机制直接失效。
 10. **两个模式下手机逻辑尺寸不同**（模型屏画布 119×219；悬浮窗 = 屏幕逻辑高 × phoneSize ≈ 137×244）。光标若按局部像素存，会被两套矩形**交替钳制取交集** → 较大屏幕上永远够不到右边/底边。**必须归一化 0~1 存储**。
 11. **相机降速的作用域必须是硬约束**：`CalculatePlayerTurnEvent` 处理器第一行判断，不在状态内就 `return` —— 完全不碰事件，既保持原版也尊重其他模组。
