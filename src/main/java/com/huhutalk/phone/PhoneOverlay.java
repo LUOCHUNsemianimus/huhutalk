@@ -190,6 +190,12 @@ public class PhoneOverlay {
     private static float cursorNY = 0.5f;
     /** 手机整体高度（状态栏 + 内容 + 水印栏）；渲染时更新，供光标映射与钳制 */
     private static int phoneTotalHeight = 0;
+    /**
+     * 待重置标记：手机刚被掏出（或刚换世界）时置位，由下一次 {@link #render} 在算出
+     * {@link #phoneTotalHeight} 之后消费 —— 顶栏高度的换算需要手机整体高度，
+     * 而掏出那一刻布局还没算（切换模式时窗口尺寸还会变），所以不能当场换算。
+     */
+    private static boolean cursorResetPending = false;
     /** 侧键按住中 */
     private static boolean cursorPressing = false;
     private static float dragTotalX = 0f;
@@ -210,6 +216,46 @@ public class PhoneOverlay {
 
     private static float clamp01(float v) {
         return v < 0f ? 0f : (v > 1f ? 1f : v);
+    }
+
+    /**
+     * 光标的「出生点」归一化 Y —— <b>顶部状态栏的竖直中点</b>（X 一律取 0.5，即水平正中）。
+     * <p>
+     * 为什么不放在正中：光标默认停在正中时，玩家低头进入操控态的第一下鼠标移动
+     * （多半是继续往下划）会把视角继续压下去，等他反应过来屏幕已经跑出视野了。
+     * 出生点放在顶栏 = 出生即处于{@link #isCursorInTopBar() 「顶栏放行」}状态：
+     * <ul>
+     *   <li>上划 → 光标仍留在顶栏 → 视角<b>全速</b>，玩家一眼看到屏幕被"放走"，能立刻归因；</li>
+     *   <li>下划 → 光标离开顶栏、进入降速操控，这才是他真正想操作屏幕时的动作。</li>
+     * </ul>
+     * 也就是说：<b>出生点即松手出口</b>，玩家永远不需要先"学会"怎么退出。
+     * <p>
+     * 取值用比例而非固定像素，所以模型屏画布与悬浮窗两个模式各自映射、都落在自己的顶栏里。
+     * 上限 0.5 只是防呆（极端字体倍率下顶栏高到占满手机时，至少不越出手机）。
+     */
+    private static float defaultCursorNY() {
+        if (phoneTotalHeight <= 0) {
+            return 0f;
+        }
+        return clamp01(UiFont.sh(STATUSBAR_H) * 0.5f / phoneTotalHeight);
+    }
+
+    /**
+     * 把独立光标送回出生点（顶栏正中），并清掉按住/拖动残留。
+     * <p>
+     * 由 {@link #show()} 与 {@link #resetForNewWorld()} 调用；同时立刻按当前已知尺寸换算一次，
+     * 使「手机可见的同一帧」光标就已经在顶栏上（不在屏幕模式的错误尺寸下闪一帧），
+     * 并按待重置标记在下次渲染时用真实手机高度再校正一次。
+     */
+    private static void resetCursorToSpawn() {
+        cursorNX = 0.5f;
+        cursorNY = defaultCursorNY();
+        cursorPressing = false;
+        dragIsScroll = false;
+        dragTotalX = 0f;
+        dragTotalY = 0f;
+        scrollRemainder = 0.0;
+        cursorResetPending = true;
     }
 
     /**
@@ -532,6 +578,8 @@ public class PhoneOverlay {
      */
     private static void show() {
         visible = true;
+        // 掏出手机 = 光标重新出生：回到顶栏正中（见 defaultCursorNY 的取舍说明）
+        resetCursorToSpawn();
         if (uiAnimEnabled() && !captureHidden) {
             containerAnim = ContainerAnim.ENTER;
             containerTween = new AnimTween();
@@ -767,6 +815,11 @@ public class PhoneOverlay {
         phoneHeight = Math.max(20, totalHeight - UiFont.sh(STATUSBAR_H) - UiFont.sh(WATERMARK_H));
         phoneTotalHeight = totalHeight;
         // 独立光标为归一化存储，天然自钳制；两个模式各自映射到自己的矩形
+        // 待重置标记：布局尺寸此时才确定（且两个模式的手机高度不同），在这里把出生点校正到位
+        if (cursorResetPending) {
+            cursorResetPending = false;
+            cursorNY = defaultCursorNY();
+        }
 
         // 默认锚点：屏幕模式锚右下角（右/下各留 10px）；模型屏锚画布左上角
         int defX = external ? 0 : screenW - phoneWidth - 10;
@@ -1318,11 +1371,8 @@ public class PhoneOverlay {
     public static void resetForNewWorld() {
         visible = false;
         dragging = false;
-        // 新世界：光标回到手机正中
-        cursorNX = 0.5f;
-        cursorNY = 0.5f;
-        cursorPressing = false;
-        dragIsScroll = false;
+        // 新世界：光标回出生点（顶栏正中），并在下次渲染按真实手机高度校正
+        resetCursorToSpawn();
         inChatApp = false;
         containerAnim = ContainerAnim.IDLE;
         containerTween = null;
