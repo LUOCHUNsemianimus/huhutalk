@@ -63,9 +63,9 @@ public final class PhoneScreenTarget {
     // （1 个模型单位 = 1/16 模型空间；手机整体还乘了 PHONE_SCALE=3，所以屏幕上看起来是 3/16 格）
 
     /** 屏幕左边界 */
-    private static final float SCREEN_LEFT = 6.7F;
+    private static final float SCREEN_LEFT = 6.8F;
     /** 屏幕右边界 */
-    private static final float SCREEN_RIGHT = 9.3F;
+    private static final float SCREEN_RIGHT = 9.2F;
     /** 屏幕下边界 */
     private static final float SCREEN_BOTTOM = 5.3F;
     /** 屏幕上边界 */
