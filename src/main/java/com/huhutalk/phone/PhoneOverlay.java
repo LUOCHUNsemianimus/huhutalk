@@ -541,8 +541,11 @@ public class PhoneOverlay {
                     }
                 }
             }
-        } else {
-            // 全局总开关关闭：瞬时切换，重置动画状态
+        } else if (!uiAnimEnabled()) {
+            // 全局总开关关闭：瞬时切换，重置动画状态。
+            // ⚠ 必须是 else-if 而不是 else：离屏（模型屏）模式下第一支不成立，
+            // 若落到 else 就会**每帧**把 transTween / launchActive 清掉 ——
+            // 于是「点击 App 的切屏动画」在悬浮窗和模型屏两边都会消失（曾实测踩到）。
             containerAnim = ContainerAnim.IDLE;
             containerTween = null;
             transTween = null;

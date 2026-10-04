@@ -41,17 +41,31 @@ import java.util.Locale;
  * 于是：<b>1 GUI 单位 = GUI Scale 个像素</b>，与玩家在屏幕上看到的手机完全一致；
  * 手机贴图分辨率也自然随玩家的 GUI Scale 缩放（高分屏自动 GUI Scale 更大 → 更清晰）。
  *
- * <h2>画布尺寸与手机模型屏幕面的关系</h2>
- * 模型 {@code phone_3d.json} 的机身正面（{@code case_core} 南面）是
- * {@code x 6.7~9.3, y 5.3~9.7}，宽高比 {@code 2.6/4.4 = 0.5909}。
- * {@link #CANVAS_W}/{@link #CANVAS_H} 按同一比例取整，保证贴上去不变形。
+ * <h2>画布尺寸：复刻原版悬浮窗「跟随 GUI Scale」的耦合</h2>
+ * 原版悬浮窗的尺寸是 {@code 屏幕逻辑高 × phoneSize}，所以 GUI Scale 越大 → 逻辑屏幕越小 →
+ * 同一份字体（固定 GUI 单位）占手机的比例越大，也就是玩家感知的「字变大了」。
+ * <p>
+ * 模型屏必须复刻这个行为：否则玩家调 GUI Scale 只能改变贴图像素、改不了版面大小，
+ * 等于把一个缩放旋钮弄丢了。
+ * 于是画布逻辑高取 {@code 窗口 GUI 逻辑高 × CANVAS_HEIGHT_RATIO}；
+ * 画布逻辑宽由<b>屏幕面矩形的宽高比</b>导出（矩形是物理形状，不能跟着 GUI 走），
+ * 这样屏幕面在任何 GUI Scale 下都不变形。
+ * <p>
+ * 附带的良性副作用：{@code 画布逻辑高 × GUI Scale = 常数}，
+ * 即离屏靶里那块手机区域始终是同样多的像素 —— GUI Scale 只影响"字相对屏幕的大小"，
+ * 与原版悬浮窗（物理尺寸固定、字相对变大）行为一致。
  */
 public final class PhoneScreenTarget {
 
-    /** 画布逻辑宽（GUI 单位） */
-    public static final int CANVAS_W = 130;
-    /** 画布逻辑高（GUI 单位）；与 {@link #CANVAS_W} 的比值 = 模型屏幕面宽高比 */
-    public static final int CANVAS_H = 220;
+    /**
+     * 画布逻辑高 = 窗口 GUI 逻辑高 × 该系数。
+     * <p>
+     * 0.87 来自验收实测：当时的设置是 {@code guiScale=4} / 帧缓冲高 1009px（GUI 逻辑高 252），
+     * 乘出来约 219 逻辑单位，与玩家手工对齐好的观感一致。
+     */
+    private static final float CANVAS_HEIGHT_RATIO = 0.87F;
+    /** 画布逻辑高下限（极端设置下的兜底，保证状态栏/水印栏仍放得下） */
+    private static final int MIN_CANVAS_H = 120;
 
     // ==================== 屏幕在手机正面上的位置（模型单位 0~16） ====================
     //
@@ -85,6 +99,13 @@ public final class PhoneScreenTarget {
     private static final float SCREEN_Y1 = SCREEN_TOP / 16F;
     private static final float SCREEN_Z = (SCREEN_DEPTH + SCREEN_DEPTH_PUSH) / 16F;
 
+    /**
+     * 屏幕面宽高比（由矩形导出）。
+     * 画布宽度必须与它一致，否则贴上去会横向/纵向拉伸 —— 改 {@link #SCREEN_LEFT} 等边界后无需手工同步。
+     */
+    private static final float SCREEN_ASPECT =
+            (SCREEN_RIGHT - SCREEN_LEFT) / (SCREEN_TOP - SCREEN_BOTTOM);
+
     // ==================== 期 1a 可调开关（人工验收用） ====================
 
     /** 画面左右镜像时置 true */
@@ -115,11 +136,16 @@ public final class PhoneScreenTarget {
     private static RenderType renderType;
     private static int usedGuiScale = 1;
     private static int usedPixelHeight = -1;
+    /** 当前这轮离屏靶使用的画布逻辑尺寸（GUI 单位），随窗口 GUI 逻辑高变化 */
+    private static int usedCanvasW = 1;
+    private static int usedCanvasH = 1;
     private static boolean unavailable = false;
 
     private static boolean dirty = true;
     private static long lastRedrawAt = 0L;
 
+    /** 诊断日志总开关：默认关。排查模型屏问题时置 true 即可在 latest.log 看到定位信息。 */
+    private static final boolean DIAG = false;
     private static final Logger LOGGER = LogUtils.getLogger();
     private static String lastDiag = "";
     private static long lastDiagAt = 0L;
@@ -163,7 +189,7 @@ public final class PhoneScreenTarget {
         }
 
         diag("update: fbo=" + fbo.width + "x" + fbo.height + " gs=" + usedGuiScale
-                + " canvas=" + CANVAS_W + "x" + CANVAS_H
+                + " canvas=" + usedCanvasW + "x" + usedCanvasH
                 + " visible=" + PhoneOverlay.isVisible()
                 + " active=" + ProPhoneHandRenderer.isActive());
 
@@ -185,7 +211,7 @@ public final class PhoneScreenTarget {
 
         // 与缩放无关的正交：1 GUI 单位 = usedGuiScale 像素
         RenderSystem.setProjectionMatrix(
-                new Matrix4f().setOrtho(0.0F, CANVAS_W, (float) usedPixelHeight / usedGuiScale, 0.0F, 1000.0F, 21000.0F),
+                new Matrix4f().setOrtho(0.0F, usedCanvasW, (float) usedPixelHeight / usedGuiScale, 0.0F, 1000.0F, 21000.0F),
                 VertexSorting.ORTHOGRAPHIC_Z);
         Matrix4fStack modelView = RenderSystem.getModelViewStack();
         modelView.pushMatrix();
@@ -193,7 +219,7 @@ public final class PhoneScreenTarget {
         RenderSystem.applyModelViewMatrix();
 
         GuiGraphics graphics = new GuiGraphics(mc, mc.renderBuffers().bufferSource());
-        PhoneOverlay.renderExternal(graphics, partialTick, CANVAS_W, CANVAS_H);
+        PhoneOverlay.renderExternal(graphics, partialTick, usedCanvasW, usedCanvasH);
         graphics.flush();
 
         modelView.popMatrix();
@@ -207,8 +233,20 @@ public final class PhoneScreenTarget {
     /** 建/重建离屏靶；只做一次纹理注册 */
     private static boolean ensureTarget(Minecraft mc) {
         int guiScale = Math.max(1, (int) mc.getWindow().getGuiScale());
+        int guiScaledHeight = mc.getWindow().getGuiScaledHeight();
         int pixelHeight = mc.getWindow().getHeight();
-        int pixelWidth = CANVAS_W * guiScale;
+        if (guiScaledHeight <= 0 || pixelHeight <= 0) {
+            return false;
+        }
+
+        // 画布逻辑高跟随窗口 GUI 逻辑高（复刻原版悬浮窗的 GUI Scale 耦合）。
+        // 上限就是 guiScaledHeight：离屏靶像素高必须等于窗口帧缓冲高（scissor 正确性的前提），
+        // 画布作为它的子矩形，绝不能超出。
+        int canvasH = Math.min(guiScaledHeight,
+                Math.max(MIN_CANVAS_H, Math.round(guiScaledHeight * CANVAS_HEIGHT_RATIO)));
+        canvasH = Math.max(1, canvasH);
+        int canvasW = Math.max(1, Math.round(canvasH * SCREEN_ASPECT));
+        int pixelWidth = canvasW * guiScale;
         if (pixelWidth <= 0 || pixelHeight <= 0) {
             return false;
         }
@@ -222,6 +260,8 @@ public final class PhoneScreenTarget {
             usedGuiScale = guiScale;
             usedPixelHeight = pixelHeight;
         }
+        usedCanvasW = canvasW;
+        usedCanvasH = canvasH;
 
         if (location == null) {
             // 把离屏靶的颜色纹理包成 AbstractTexture（覆写 getId 指向它），注册进 TextureManager，
@@ -256,7 +296,7 @@ public final class PhoneScreenTarget {
             return;
         }
         // 画布只占离屏靶左上角一块，换算成纹理 V（GL 的 V=0 在下、=1 在上）
-        float vBottom = 1.0F - (CANVAS_H * (float) usedGuiScale) / (float) usedPixelHeight;
+        float vBottom = 1.0F - (usedCanvasH * (float) usedGuiScale) / (float) usedPixelHeight;
         float u0 = FLIP_U ? 1.0F : 0.0F;
         float u1 = FLIP_U ? 0.0F : 1.0F;
         float vTop = FLIP_V ? vBottom : 1.0F;
@@ -321,14 +361,22 @@ public final class PhoneScreenTarget {
                 (1.0F - ndcY) * 0.5F * Minecraft.getInstance().getWindow().getHeight()));
     }
 
-    /** 诊断日志：同一条消息最多每秒打一次，避免刷屏 */
+    /**
+     * 诊断日志。默认整段关闭（{@link #DIAG}）。
+     * <p>
+     * 注意只按<b>时间</b>节流、不按内容：NDC 每帧都在变，按内容判重等于没节流
+     * （上一版就是这样把日志刷到近万行）。
+     */
     private static void diag(String message) {
-        long now = System.currentTimeMillis();
-        if (message.equals(lastDiag) && now - lastDiagAt < 1000L) {
+        if (!DIAG) {
             return;
         }
-        lastDiag = message;
+        long now = System.currentTimeMillis();
+        if (now - lastDiagAt < 2000L) {
+            return;
+        }
         lastDiagAt = now;
+        lastDiag = message;
         LOGGER.info("[HuhuTalk/ModelScreen] {}", message);
     }
 
