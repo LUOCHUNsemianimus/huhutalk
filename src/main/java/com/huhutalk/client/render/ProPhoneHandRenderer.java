@@ -89,15 +89,18 @@ public final class ProPhoneHandRenderer {
     // 相机模式（聊天页 📷）与平时持握是两套姿态：平时手机"平行地面"（地图式持握），
     // 相机模式要把它抬到眼前、屏幕正对玩家，作为取景框。
     // 下面这组只影响相机模式，改错了也伤不到平时的手感。
+    //
+    // ⚠ 这里**没有**缩放常量，且刻意不设：缩放由 renderPhoneBody 统一施加 PHONE_SCALE。
+    //    曾经在这组里加过一个 CAM_SCALE，结果与 PHONE_SCALE 相乘（3.0 × 3.0 = 9 倍），
+    //    实机表现就是"相机模式的手机莫名其妙变大"。
+    //    若确实想让相机模式另用一套大小，请**把系数乘进 PHONE_SCALE**，不要在这里再 scale 一次。
 
-    /** 相机模式手机缩放（平时是 {@link #PHONE_SCALE}；取景框通常希望比平时更贴近脸、更大） */
-    private static final float CAM_SCALE = 3.0F;
-    /** 相机模式左右偏移（+ = 屏幕右方） */
+    /** 相机模式左右偏移（视线坐标系：+ = 屏幕右方） */
     private static final float CAM_OFFSET_X = 0.0F;
-    /** 相机模式上下偏移（+ = 上；抬到眼前一般取负值微调） */
-    private static final float CAM_OFFSET_Y = -0.12F;
-    /** 相机模式前后偏移（坐标系里 <b>−Z = 视线正前方</b>，所以推出取景框要取负） */
-    private static final float CAM_OFFSET_Z = -0.55F;
+    /** 相机模式上下偏移（视线坐标系：+ = 上。负值把手机压到视平线下方一点） */
+    private static final float CAM_OFFSET_Y = -0.06F;
+    /** 相机模式前后偏移（视线坐标系：− = 靠近脸；视平线在 −0.72 附近，别推太远会出视野） */
+    private static final float CAM_OFFSET_Z = -0.62F;
     /** 相机模式俯仰（+ 让屏幕略微仰起/俯下，用于把取景框摆正对视线） */
     private static final float CAM_ROT_X = 0.0F;
     /**
@@ -167,15 +170,24 @@ public final class ProPhoneHandRenderer {
     private static void renderTwoHandedPhone(Minecraft mc, AbstractClientPlayer player, PoseStack poseStack,
                                              MultiBufferSource buffer, int packedLight, float pitch,
                                              float equippedProgress, float swingProgress, ItemStack stack) {
+        boolean camera = PhoneOverlay.isCameraMode();
         float f = Mth.sqrt(swingProgress);
         float f1 = -0.2F * Mth.sin(swingProgress * (float) Math.PI);
         float f2 = -0.4F * Mth.sin(f * (float) Math.PI);
         poseStack.translate(0.0F, -f1 / 2.0F, f2);
+
         float tilt = calculateMapTilt(pitch);
-        poseStack.translate(0.0F, 0.04F + equippedProgress * -1.2F + tilt * -0.5F, -0.72F);
-        // 地图式俯仰补偿：tilt 是俯仰角的纯函数，把手机从"平行地面"一路转到"正对视线"。
-        // 相机模式必须把这一项**反算掉**，否则手机姿态会随玩家看向哪里而乱转（见 applyCameraPose）。
-        poseStack.mulPose(Axis.XP.rotationDegrees(tilt * -85.0F));
+        if (camera) {
+            // 相机模式：平移必须在**视线坐标系**里做，不能沿用地图式那套。
+            // 本方法入口处 PoseStack 还在视线坐标系（调用方已应用玩家朝向旋转），
+            // 此处是唯一一次干净的位移机会；一旦做过 tilt 旋转，后续 translate 就会
+            // 落在"手机自己的旋转轴"上，偏移方向随视角漂移（实机表现为"位置总在往下偏"）。
+            poseStack.translate(CAM_OFFSET_X, CAM_OFFSET_Y, CAM_OFFSET_Z);
+        } else {
+            poseStack.translate(0.0F, 0.04F + equippedProgress * -1.2F + tilt * -0.5F, -0.72F);
+            // 地图式俯仰补偿：tilt 是俯仰角的纯函数，把手机从"平行地面"一路转到"正对视线"
+            poseStack.mulPose(Axis.XP.rotationDegrees(tilt * -85.0F));
+        }
 
         if (!player.isInvisible()) {
             poseStack.pushPose();
@@ -188,46 +200,39 @@ public final class ProPhoneHandRenderer {
         float f4 = Mth.sin(f * (float) Math.PI);
         poseStack.mulPose(Axis.XP.rotationDegrees(f4 * 20.0F));
 
-        if (PhoneOverlay.isCameraMode()) {
-            applyCameraPose(poseStack, tilt);
+        if (camera) {
+            applyCameraPose(poseStack, player.getXRot());
         }
 
         renderPhoneBody(mc, player, poseStack, buffer, packedLight, stack);
     }
 
     /**
-     * 相机模式姿态：把手机从地图式持握搬到<b>眼前</b>，屏幕正对玩家（作为取景框）。
+     * 相机模式姿态：手机相对<b>视线</b>摆正，作为取景框。
      *
-     * <h2>为什么先"反算"</h2>
-     * 调用时 PoseStack 上已经叠加了地图式持握的两件事：
-     * <ol>
-     *   <li>绕 X 转 {@code tilt * -85°} —— 这一项让手机随俯仰角从"平行地面"转到"正对视线"；</li>
-     *   <li>沿 Z 平移 {@code -0.72}（外加 {@code tilt * -0.5} 的 Y 偏移）。</li>
-     * </ol>
-     * 不加处理，"抬头看远方"时手机就是平躺的、屏幕朝上，根本拍不了照。所以这里把这两项
-     * <b>按同样的量反向施加一遍</b>，让 PoseStack 回到"手机在原点、且姿态与视线无关"的
-     * 坐标系，再从零开始摆相机姿态。
+     * <h2>为什么需要 {@code -xRot} 这一项</h2>
+     * 默认的地图式持握里藏着 {@code tilt = calculateMapTilt(pitch)}：
+     * 平视（xRot=0）时 {@code tilt=1} → 绕 X 转 −85°（手机几乎水平）；
+     * 低头 90° 时 {@code tilt=0} → 不转（手机竖直、正对低头视线）。
+     * <p>
+     * 也就是说，手机"侧躺"的方向<b>在世界空间里随俯仰角滑动</b>：竖直的是世界 Y 轴，
+     * 而手机纵向轴在 90° 时就是世界 <b>Z 轴</b>。两个方向差 {@code 90° − xRot}。
+     * 相机模式不希望手机随"你看向哪儿"而转，所以把这一差值绕 Y <b>转回来</b>。
+     * <p>
+     * 轴选 Y 而不是 X：Y 与手机的屏幕纵向轴垂直，绕它转只改变屏幕朝向、
+     * <b>不会让画面上下颠倒</b>（绕 X 转 180° 就会翻）。
      *
-     * <h2>朝向：不需要水平翻转</h2>
-     * 反算之后模型 <b>+Z 面（屏幕侧）就是朝向玩家的</b>，所以 {@link #CAM_ROT_Y} 保持 0。
-     * 这一点有独立佐证：擦掉 +Z 面的纹理后"玩家侧那块就变透明了"，说明 +Z 面本就是玩家看到的那一面。
-     * 在这里补 180° 会把镜头组转到玩家面前（实机踩到）。
-     *
-     * <h2>可调区</h2>
-     * 若发现手机左右镜像/上下颠倒，先动 {@link #CAM_ROT_Z}（翻滚）与 {@link #CAM_ROT_X}（俯仰）。
+     * <h2>尺寸：这里绝不能 scale</h2>
+     * 缩放由 {@code renderPhoneBody} 统一施加 {@link #PHONE_SCALE}。
+     * 本方法曾在同一 PoseStack 上再乘一次缩放常量 —— 两个 3.0 相乘 = 实机 9 倍，
+     * 表现就是"相机模式下的手机明显变大"（实机踩到）。
+     * <b>任何"相机模式专属缩放"都必须先乘进 {@link #PHONE_SCALE}，不能在这里另乘一次。</b>
      */
-    private static void applyCameraPose(PoseStack poseStack, float tilt) {
-        // ① 反算地图式俯仰补偿（角度精确抵消）
-        poseStack.mulPose(Axis.XP.rotationDegrees(tilt * 85.0F));
-        // ② 反算地图式位移，回到原点
-        poseStack.translate(0.0F, 0.04F + tilt * -0.5F, -0.72F);
-        // ③ 相机模式自己的位移：抬到眼前、推出到视线前方
-        poseStack.translate(CAM_OFFSET_X, CAM_OFFSET_Y, CAM_OFFSET_Z);
-        // ④ 相机模式自己的朝向
+    private static void applyCameraPose(PoseStack poseStack, float xRot) {
+        poseStack.mulPose(Axis.YP.rotationDegrees(-xRot));
         poseStack.mulPose(Axis.XP.rotationDegrees(CAM_ROT_X));
         poseStack.mulPose(Axis.YP.rotationDegrees(CAM_ROT_Y));
         poseStack.mulPose(Axis.ZP.rotationDegrees(CAM_ROT_Z));
-        poseStack.scale(CAM_SCALE, CAM_SCALE, CAM_SCALE);
     }
 
     /**

@@ -414,6 +414,14 @@ public class PhoneOverlay {
             return;
         }
         PhoneScreenTarget.markDirty();
+        // 相机模式：整条绕开光标，直接用侧键驱动屏幕上的按钮（见 handleCameraSideButton）。
+        // 于是"抬头取景"和"按下拍照"不再抢同一个鼠标：视角照常自由转，动作交给侧键。
+        if (isCameraMode()) {
+            if (action == GLFW.GLFW_PRESS) {
+                handleCameraSideButton(clickButton);
+            }
+            return;
+        }
         if (action == GLFW.GLFW_PRESS) {
             if (clickButton) {
                 cursorPressing = true;
@@ -445,7 +453,44 @@ public class PhoneOverlay {
         if (!isVisible()) {
             return false;
         }
+        // 相机模式不吃独立光标：见 {@link onPhoneSideButton} 的说明 ——
+        // 那个界面全程用侧键操作，光标既不画也不参与命中，鼠标位移全部留给视角。
+        if (isCameraMode()) {
+            return false;
+        }
         return handleMouseClicked(relX + phoneX, relY + renderedPhoneY, button, action);
+    }
+
+    /**
+     * 相机模式的侧键操作（<b>不经光标、不经坐标命中</b>）。
+     * <p>
+     * <b>为什么相机模式要整条绕开光标</b>：拍照需要自由转动视角去取景，而视角能转的前提是
+     * 进「操控屏幕」态；可一旦进了操控态，视角就被降到 0.25 倍速、且光标要一寸寸挪过去才能点到按钮 ——
+     * 「抬头取景」和「点按钮」这两件事在同一个鼠标上直接互斥。与其去做一套光标灵敏度与视角灵敏度的
+     * 耦合（代价大、手感也未必好），不如让相机界面压根不用光标：<b>鼠标只管视角，动作全交给侧键</b>。
+     * <p>
+     * 键位语义直接对齐屏幕上那两个按钮，玩家不必把光标挪过去也能得到同样结果：
+     * <ul>
+     *   <li>侧键 4（手机左键 / 点击）→「拍照」；已拍过则→「确认」；
+     *   <li>侧键 5（手机右键 / 返回）→ 已拍过则点同位置的「重拍胶囊」丢弃这张、回到取景；
+     *       否则走右键返回语义（退出相机模式回聊天）。
+     * </ul>
+     * 实现上把点击<b>合成</b>成按钮中心的手机局部坐标再走 {@link #handleMouseClicked}，
+     * 因此按钮命中框、动画守卫、发送/保存流程全部复用同一条通路，零重复。
+     */
+    private static boolean handleCameraSideButton(boolean clickButton) {
+        IPhonePage page = getCurrentPage();
+        if (!(page instanceof ChatPage cp)) {
+            return false;
+        }
+        int[] target = cp.cameraSideButtonTarget(clickButton);
+        if (target == null) {
+            return false;
+        }
+        double screenX = target[0] + phoneX;
+        double screenY = target[1] + renderedPhoneY;
+        handleMouseClicked(screenX, screenY, GLFW.GLFW_MOUSE_BUTTON_LEFT, GLFW.GLFW_PRESS);
+        return handleMouseClicked(screenX, screenY, GLFW.GLFW_MOUSE_BUTTON_LEFT, GLFW.GLFW_RELEASE);
     }
 
     /** 手机局部坐标滚轮（独立光标拖动滚动用），守卫条件与 {@link #handleMouseScroll} 保持一致 */
@@ -473,6 +518,11 @@ public class PhoneOverlay {
      * 这正是「光标活在 Overlay 坐标系里」的关键好处：两个模式零额外适配。
      */
     private static void renderCursor(GuiGraphics graphics, int baseX, int baseY) {
+        // 相机模式不画光标：那个界面全程侧键操作（见 handleCameraSideButton），
+        // 画出来只会让玩家误以为可以挪过去点
+        if (isCameraMode()) {
+            return;
+        }
         int cx = baseX + Math.round(cursorLocalX());
         int cy = baseY + Math.round(cursorLocalY());
         // 状态可视化：操控态画亮、冻结态画暗 —— 让玩家一眼看出现在在哪个模式，

@@ -1528,6 +1528,43 @@ public class ChatPage implements IPhonePage {
         return cameraViewBottom() + (UiFont.sh(44) - btnH) / 2;
     }
 
+    /**
+     * 相机模式侧键的点击目标（<b>内容相对坐标</b>下的按钮中心），供
+     * {@code PhoneOverlay.handleCameraSideButton} 合成点击用。
+     * <p>
+     * 之所以只给出"点哪儿"而不是直接暴露 {@code takePhoto/confirmPhoto/savePhoto}：
+     * 让侧键与屏幕上那两颗按钮走<b>同一条命中通路</b>，按钮的排版改了、命中框改了，
+     * 侧键自动跟着改，不会出现"按钮挪了但侧键还点老位置"这种暗病。
+     *
+     * <h2>侧键 5：先"保存"再"返回"</h2>
+     * 拍照界面上有两个都会离开相机的按钮 ——「保存」（写入图库）与「确认」（带进聊天不落盘）。
+     * 侧键 5 原本只做"返回"，那样刚拍的照片会白白丢掉。所以已拍过时，侧键 5 = 点「保存」：
+     * 先把照片落到图库（副作用是回到聊天页），再于下一次按下时走普通返回。这是这里唯一
+     * <b>刻意叠加</b>的一层语义，理由是"拍完反悔"比"拍完自动留存"更不常见。
+     *
+     * @param clickButton true = 侧键 4（左键/点击）；false = 侧键 5（右键/返回）
+     * @return {x, y} 内容相对坐标；无可用目标时返回 null
+     */
+    public int[] cameraSideButtonTarget(boolean clickButton) {
+        int w = phoneW();
+        if (w <= 0) {
+            return null;
+        }
+        int navH = navH();
+        int btnH = UiFont.sh(28);
+        int btnY = cameraButtonY();
+        if (clickButton) {
+            // 侧键 4：「拍照」/「重拍」胶囊（居中）
+            return new int[]{w / 2, btnY + btnH / 2};
+        }
+        if (cameraShot != null) {
+            // 侧键 5（已拍过）：右上角「保存」
+            return new int[]{w - UiFont.sh(54) + UiFont.sh(44) / 2, navH + UiFont.sh(8) + UiFont.sh(22) / 2};
+        }
+        // 侧键 5（未拍）：左上角返回
+        return new int[]{UiFont.sh(20), navH / 2};
+    }
+
     /** 渲染相机界面：透明取景框（游戏透出）+ 四角边框 + 十字准星 + 底部控件 */
     private void renderCameraMode(GuiGraphics g, Font font, int baseX, int baseY, int w) {
         int h = phoneH();
