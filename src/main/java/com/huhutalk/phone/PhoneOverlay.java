@@ -7,6 +7,7 @@ import com.huhutalk.client.settings.HuhuTalkClientSettings;
 import com.huhutalk.client.theme.ColorScheme;
 import com.huhutalk.client.theme.PhoneCaseRenderer;
 import com.huhutalk.client.theme.ThemeManager;
+import com.huhutalk.init.HuhuTalkItems;
 import com.huhutalk.phone.anim.AnimEasing;
 import com.huhutalk.phone.anim.AnimTween;
 import com.huhutalk.phone.pages.ChatPage;
@@ -338,13 +339,41 @@ public class PhoneOverlay {
     }
 
     /**
-     * 当前是否处于「操控屏幕」态：手机已掏出、主手确实拿着 Pro 手机、且低头 ≥ 阈值。
+     * 主手此刻是否真的拿着 Pro 手机 —— 就是字面意义的"手里有没有这台手机"。
+     * <p>
+     * 刻意<b>只查物品、不看相机类型</b>（与 {@link ProPhoneHandRenderer#isActive()} 的区别就在这）：
+     * <ul>
+     *   <li>渲染判据 {@code isActive()} 额外要求第一人称（模型屏只在第一人称贴得上）；</li>
+     *   <li>而"手里有没有手机"是<b>状态机</b>的事：第三人称下手机照样在手里，
+     *       O 召唤的悬浮窗也照样能用，没理由把它判成"没拿手机"。</li>
+     * </ul>
+     * 两件事必须分开：拿 {@code isActive()} 当"手持"会让第三人称的悬浮窗一起失效。
+     */
+    public static boolean isHoldingPhone() {
+        Minecraft mc = Minecraft.getInstance();
+        return mc.player != null && mc.player.getMainHandItem().is(HuhuTalkItems.PHONE_SMART.get());
+    }
+
+    /**
+     * 当前是否处于「操控屏幕」态。三个条件<b>同时</b>成立才算：
+     * <ol>
+     *   <li>手机 UI 已掏出（{@link #isVisible()}）；</li>
+     *   <li><b>主手确实拿着 Pro 手机</b>（{@link #isHoldingPhone()}）；</li>
+     *   <li>低头 ≥ {@link #LOOK_DOWN_DEG} 度。</li>
+     * </ol>
+     * 另外「光标停在顶栏」由调用方 {@code ClientModEvents.onCalculatePlayerTurn} 单独放行
+     * （见 {@link #isCursorInTopBar()}）。
+     * <p>
+     * <b>⚠ 第 2 条不能省</b>（实机 bug）：曾经只判前两条，于是"空手低头"也会进这个态 ——
+     * 视角被静默降到 0.25 倍速，玩家却找不到任何理由。
+     * 可见性那条<b>不够用</b>：{@link #isVisible()} 只管"UI 该不该画"，
+     * 而这里是"玩家此刻有没有在操控一台真机"。两条判据要一起查，别只留一条。
      * <p>
      * 这是<b>纯函数</b>（除俯仰低通外无内部状态），所以随时抬头就能退出，
      * 不存在"进了出不来"的情况。
      */
     public static boolean isScreenControl() {
-        return isVisible() && filteredPitch >= LOOK_DOWN_DEG;
+        return isVisible() && isHoldingPhone() && filteredPitch >= LOOK_DOWN_DEG;
     }
 
     /**
@@ -706,9 +735,15 @@ public class PhoneOverlay {
      * <p>
      * 刻意不管"举着手机但正在开 Screen"的情形：那属于输入屏（打字）场景，
      * 手机本来就该保持可见，不需要在这里做任何事。
+     * <p>
+     * <b>手机离手 = 整台 UI 收起</b>（下面那个分支）：这是让
+     * 「{@code phoneOpen} ⇒ {@link #isHoldingPhone()}」这条不变式在每个 tick 都成立的关键。
+     * 它<b>不是</b>简单的"下降沿"判断 —— 按 O 空手开悬浮窗时压根没有下降沿（一直是 false→false），
+     * 所以必须查状态而不是查边沿。
      */
     public static void onHolderTick() {
         boolean active = ProPhoneHandRenderer.isActive();
+        boolean held = isHoldingPhone();
         boolean rising = active && !holderWasActive;
         holderWasActive = active;
         if (rising && !phoneOpen) {
@@ -724,10 +759,25 @@ public class PhoneOverlay {
             containerTween = null;
             // 掏出手机 = 光标重新出生：回到顶栏正中（见 defaultCursorNY 的取舍说明）
             resetCursorToSpawn();
+        } else if (!held && phoneOpen) {
+            // 手机离手（换物品 / 丢掉 / 被别的逻辑抽走）⇒ 整台 UI 收起。**这是必要的**：
+            //   ① MODEL 屏是"贴在手里那台手机上"的，手机不在手里它就无处可贴
+            //      —— hasModelScreen() 为假、离屏靶都不再出图，可 renderMode 与可见性却还留着，
+            //      于是 isVisible() 撒谎：低头照样进「操控屏幕」态、视角被无故降到 0.25 倍速；
+            //   ② 按 O 空手开悬浮窗同理：那颗光标根本动不了（isScreenControl 要求手持），
+            //      开出来只会是一块点不动的假屏幕。
+            // 用 doHideNow 而不是 hide()：退场动画是给"手里那台手机"看的，手机都没了没人看它。
+            doHideNow();
         }
     }
 
-    /** 相机拍照隐藏流程收尾后调用：让下次掏出重新走一遍上升沿 */
+    /**
+     * 重新武装"掏出即渲染"的上升沿检测：把 {@link #holderWasActive} 归零，
+     * 下一次举着 Pro 手机就会被当成一次新的"掏出"。
+     * <p>
+     * 由 {@link #resetForNewWorld()} 调用（进新世界时手机 UI 已被强制关闭，
+     * 若玩家进世界时本来就举着手机，应当重新亮屏）。
+     */
     public static void armHolderAutoOpen() {
         holderWasActive = false;
     }
