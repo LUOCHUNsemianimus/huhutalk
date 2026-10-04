@@ -208,19 +208,33 @@ public final class PhotoLibrary {
         return d != null ? d : new int[]{24, 24};
     }
 
+    /** 纹理名去重序号：保证每次注册都拿到一个全新的 ResourceLocation（见 registerTexture 的说明） */
+    private static int textureSeq = 0;
+
     private static ResourceLocation registerTexture(String key, byte[] pngBytes) {
         try {
             NativeImage img = NativeImage.read(new ByteArrayInputStream(pngBytes));
             DynamicTexture tex = new DynamicTexture(img);
-            ResourceLocation rl = ResourceLocation.fromNamespaceAndPath("huhutalk", "photo/" + sanitize(key));
-            // ⚠ 必须先释放同一 key 上的旧纹理再注册新的。
-            // TextureManager.register 只是覆盖映射，被换掉的那个 DynamicTexture 及其 GL 纹理
-            // 不会自动回收 —— 而相机的 __camshot__ 是**反复用同一个 key** 重拍的，
-            // 不释放就会每拍一张泄漏一张纹理。
-            release(key);
+            // 旧纹理先摘掉记录（下面用新 location 注册，不会和它撞名）
+            ResourceLocation old = TEXTURES.remove(key);
+            // ⚠ 关键：**每次注册都用全新的 ResourceLocation**，绝不复用旧名字。
+            //
+            // 为什么不能"复用名字 + 先释放旧纹理"：{@link #release} 内部走的是
+            // RenderSystem.recordRenderCall，**真正执行是在渲染线程、稍后**。
+            // 如果新纹理已经用同一个 ResourceLocation 注册进去，那次延后执行的释放
+            // 删掉的就是**刚注册的新纹理** —— 表现为"拍第二张变成黑紫相间的缺失纹理方块"
+            // （实机踩到）。用唯一名字，注册与释放就永远不会指向同一个对象。
+            //
+            // 撞名时的兜底：TextureManager.register 会先释放同 id 上的旧对象，
+            // 所以这里的 old 与 rl 不同名，互不影响。
+            ResourceLocation rl = ResourceLocation.fromNamespaceAndPath(
+                    "huhutalk", "photo/" + sanitize(key) + "_" + (++textureSeq));
             Minecraft.getInstance().getTextureManager().register(rl, tex);
             TEXTURES.put(key, rl);
             DIMS.put(key, new int[]{img.getWidth(), img.getHeight()});
+            if (old != null) {
+                scheduleRelease(old);
+            }
             return rl;
         } catch (IOException e) {
             return null;
@@ -230,9 +244,14 @@ public final class PhotoLibrary {
     private static void release(String key) {
         ResourceLocation old = TEXTURES.remove(key);
         if (old != null) {
-            RenderSystem.recordRenderCall(() -> Minecraft.getInstance().getTextureManager().release(old));
+            scheduleRelease(old);
         }
         DIMS.remove(key);
+    }
+
+    /** 纹理释放必须延后到渲染线程执行（GL 操作不能在任意线程做） */
+    private static void scheduleRelease(ResourceLocation location) {
+        RenderSystem.recordRenderCall(() -> Minecraft.getInstance().getTextureManager().release(location));
     }
 
     // ==================== 发送临时图 ====================

@@ -428,7 +428,7 @@ public class PhoneOverlay {
             return;
         }
         PhoneScreenTarget.markDirty();
-        // 相机模式：整条绕开光标，直接用侧键驱动屏幕上的按钮（见 handleCameraSideButton）。
+        // 相机模式：整条绕开光标，直接用侧键驱动 (见 cameraSideButton)。
         // 于是"抬头取景"和"按下拍照"不再抢同一个鼠标：视角照常自由转，动作交给侧键。
         if (isCameraMode()) {
             cameraSideButton(clickButton, action);
@@ -578,7 +578,7 @@ public class PhoneOverlay {
      * 这正是「光标活在 Overlay 坐标系里」的关键好处：两个模式零额外适配。
      */
     private static void renderCursor(GuiGraphics graphics, int baseX, int baseY) {
-        // 相机模式不画光标：那个界面全程侧键操作（见 handleCameraSideButton），
+        // 相机模式不画光标：那个界面全程侧键操作（见 cameraSideButton），
         // 画出来只会让玩家误以为可以挪过去点
         if (isCameraMode()) {
             return;
