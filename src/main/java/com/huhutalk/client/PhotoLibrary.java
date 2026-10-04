@@ -213,6 +213,11 @@ public final class PhotoLibrary {
             NativeImage img = NativeImage.read(new ByteArrayInputStream(pngBytes));
             DynamicTexture tex = new DynamicTexture(img);
             ResourceLocation rl = ResourceLocation.fromNamespaceAndPath("huhutalk", "photo/" + sanitize(key));
+            // ⚠ 必须先释放同一 key 上的旧纹理再注册新的。
+            // TextureManager.register 只是覆盖映射，被换掉的那个 DynamicTexture 及其 GL 纹理
+            // 不会自动回收 —— 而相机的 __camshot__ 是**反复用同一个 key** 重拍的，
+            // 不释放就会每拍一张泄漏一张纹理。
+            release(key);
             Minecraft.getInstance().getTextureManager().register(rl, tex);
             TEXTURES.put(key, rl);
             DIMS.put(key, new int[]{img.getWidth(), img.getHeight()});

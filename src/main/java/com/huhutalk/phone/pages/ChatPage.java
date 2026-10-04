@@ -6,6 +6,7 @@ import com.huhutalk.client.MaidStatusCache;
 import com.huhutalk.client.NotificationManager;
 import com.huhutalk.client.PhotoLibrary;
 import com.huhutalk.client.settings.HuhuTalkClientSettings;
+import com.huhutalk.event.ClientModEvents;
 import com.huhutalk.init.HuhuTalkSounds;
 import com.huhutalk.network.C2SMaidChatPacket;
 import com.huhutalk.network.C2SMaidChatWithItemsPacket;
@@ -1517,71 +1518,76 @@ public class ChatPage implements IPhonePage {
         return false;
     }
 
-    /** 相机取景框底（内容相对坐标，上方为取景区域，下方 44px 为控件条） */
+    /** 相机取景框底（内容相对坐标，上方为取景区域，下方为控件条） */
     private int cameraViewBottom() {
         return phoneH() - UiFont.sh(44);
     }
 
-    /** 相机控件条按钮的顶 Y（内容相对坐标，垂直居中于 44px 控件条） */
-    private int cameraButtonY() {
-        int btnH = UiFont.sh(28);
-        return cameraViewBottom() + (UiFont.sh(44) - btnH) / 2;
+    /**
+     * 相机控件条的布局参数（渲染与命中共用同一份，避免两处各写一套导致脱节）。
+     *
+     * <h2>这一版为什么是单行</h2>
+     * 早先把"保存/返回/确认"三条提示都写成带键名的长句塞进底部栏，结果每条都被迫缩到看不清，
+     * 还把缩略图挤掉了。<b>提示越长越没人看</b> —— 改成：底部栏只留
+     * 「左侧上一张缩略图 + 中间一颗写着绑定键名的胶囊」，把语义交给玩家的手机直觉。
+     *
+     * @return {barTop, capY, capH, capW, thumbX, thumbY, thumbSize, capX}
+     */
+    private int[] cameraBarLayout(int w) {
+        int h = phoneH();
+        int barTop = cameraViewBottom();
+        int barH = h - barTop;
+        int capH = Math.min(UiFont.sh(30), Math.max(UiFont.sh(18), barH - 8));
+        int capW = Math.max(UiFont.sh(64), (int) (w * 0.55f));
+        int capX = (w - capW) / 2;
+        int capY = barTop + (barH - capH) / 2;
+        int thumbSize = Math.max(UiFont.sh(16), barH - 8);
+        int thumbX = UiFont.sh(6);
+        int thumbY = barTop + (barH - thumbSize) / 2;
+        return new int[]{barTop, capY, capH, capW, thumbX, thumbY, thumbSize, capX};
     }
 
     /**
-     * 相机模式侧键的点击目标（<b>内容相对坐标</b>下的按钮中心），供
-     * {@code PhoneOverlay.cameraSideButton} 合成点击用。
+     * 相机模式「主操作」——对应玩家绑定的<b>屏幕确认键</b>（默认鼠标侧键 4）。
+     * <ul>
+     *   <li>取景中 → 拍照；</li>
+     *   <li>已拍成 → 确认发送（选中这张、回聊天，随后随文字一起发出）。</li>
+     * </ul>
      * <p>
-     * 之所以只给出"点哪儿"而不是直接暴露 {@code takePhoto/confirmPhoto/savePhoto}：
-     * 让侧键与屏幕上那几颗按钮走<b>同一条命中通路</b>，按钮的排版改了、命中框改了，
-     * 侧键自动跟着改，不会出现"按钮挪了但侧键还点老位置"这种暗病。
-     *
-     * <h2>为什么"已拍成"时侧键 4 指向右下角</h2>
-     * 中间那颗胶囊在已拍成时会变成「重拍」，而「确认」在右下角。
-     * 玩家直觉是"再按一次 4 = 确认发送"，所以侧键 4 必须指向<b>确认</b>而不是中间那颗；
-     * 想丢掉重拍则交给侧键 5（它指向中间胶囊）。
-     *
-     * @param clickButton true = 侧键 4（左键/点击）；false = 侧键 5（右键/返回）
-     * @return {x, y} 内容相对坐标；无可用目标时返回 null
+     * <b>为什么不走"合成坐标点击"</b>：早先的实现让 {@code PhoneOverlay} 把侧键翻译成一个屏幕坐标，
+     * 再由页面做命中判定。那等于把"键位 → 意图"的映射埋进坐标算术里 ——
+     * 排版一改，命中区就可能挪位或与邻区重叠，表现为"按了这个键却触发了那个动作"或"根本没反应"。
+     * 现在改为**直接调用语义方法**：键位映射是显式的，与渲染排版彻底解耦。
      */
-    public int[] cameraSideButtonTarget(boolean clickButton) {
-        int w = phoneW();
-        if (w <= 0) {
-            return null;
+    public void cameraPrimaryAction() {
+        if (cameraShot != null) {
+            confirmPhoto();
+        } else {
+            takePhoto();
         }
-        int navH = navH();
-        int btnH = UiFont.sh(28);
-        int btnY = cameraButtonY();
-        boolean shot = cameraShot != null;
-        if (clickButton) {
-            if (shot) {
-                // 已拍成：右下角「确认」→ 选中这张并回聊天（随后随文字一起发送）
-                return new int[]{w - UiFont.sh(54) + UiFont.sh(44) / 2, btnY + btnH / 2};
-            }
-            // 取景中：中间「拍照」胶囊
-            return new int[]{w / 2, btnY + btnH / 2};
-        }
-        if (shot) {
-            // 已拍成：中间「重拍」胶囊（丢弃这张，回到取景中）
-            return new int[]{w / 2, btnY + btnH / 2};
-        }
-        // 取景中：左上角返回
-        return new int[]{UiFont.sh(20), navH / 2};
     }
 
     /**
-     * 相机「保存到相册」按钮的中心（内容相对坐标），供侧键<b>长按</b>合成点击用。
-     * <p>
-     * 与 {@link #cameraSideButtonTarget} 分开，是因为"保存"是长按触发的独立动作，
-     * 且按钮只在已拍成时存在；没有照片时返回 null，长按自然什么都不做。
+     * 相机模式「返回/取消」——对应玩家绑定的<b>屏幕返回键</b>（默认鼠标侧键 5）。
+     * <ul>
+     *   <li>取景中 → 退出相机模式，回聊天；</li>
+     *   <li>已拍成 → 回到取景中（<b>不</b>丢弃已拍的那张）。</li>
+     * </ul>
+     * 两种状态都是"离开当前这张画面"，区别只在于要不要留着已拍的图，所以实现上同为
+     * {@link #exitCameraMode()}（它只清 {@code cameraShot}，不清已发出的内容）。
      */
-    public int[] cameraSaveButtonTarget() {
-        int w = phoneW();
-        if (w <= 0 || cameraShot == null) {
-            return null;
-        }
-        // 右上角「保存」胶囊
-        return new int[]{w - UiFont.sh(54) + UiFont.sh(44) / 2, navH() + UiFont.sh(8) + UiFont.sh(22) / 2};
+    public void cameraBackAction() {
+        exitCameraMode();
+    }
+
+    /**
+     * 相机模式「保存到相册」——对应<b>长按</b>屏幕确认键。
+     * <p>
+     * 只在已拍成时有效（没有照片就无事发生），且保存后<b>留在已拍成页</b>：
+     * 玩家接着可以确认发送，或返回重来，两个方向都还留着。
+     */
+    public void cameraSaveAction() {
+        savePhoto();
     }
 
     /** 渲染相机界面：透明取景框（游戏透出）+ 四角边框 + 十字准星 + 底部控件 */
@@ -1589,10 +1595,12 @@ public class ChatPage implements IPhonePage {
         int h = phoneH();
         // 顶部导航（不透明，保证返回/标题可读）
         g.fill(baseX, baseY, baseX + w, baseY + navH(), 0xFFDE7E7E);
-        drawScaledText(g, font, "←", baseX + UiFont.sh(6), baseY + navH() / 2 - lh() / 2,
-                0xFFFFFFFF, UiFont.sc(1.0f));
-        drawScaledText(g, font, "拍照", baseX + UiFont.sh(22), baseY + navH() / 2 - lh() / 2,
-                0xFFFFFFFF, UiFont.sc(1.0f));
+        // 左侧：返回（含玩家绑定的返回键名）；右侧：标题
+        keyHint(g, font, baseX + UiFont.sh(4), baseY + 2, UiFont.sh(76), Math.max(UiFont.sh(12), navH() - 4),
+                "返回 " + cameraKeyHint(false));
+        String title = "拍照";
+        drawScaledText(g, font, title, baseX + w - UiFont.sh(8) - font.width(title) * UiFont.sc(1.0f),
+                baseY + navH() / 2 - lh() / 2, 0xFFFFFFFF, UiFont.sc(1.0f));
 
         int viewTop = baseY + navH() + UiFont.sh(8);
         int viewBottom = baseY + cameraViewBottom();
@@ -1617,67 +1625,111 @@ public class ChatPage implements IPhonePage {
         // 底部控件条：半透明黑，衬托按钮可读
         g.fill(baseX, viewBottom, baseX + w, baseY + h, 0x88000000);
 
-        int btnW = UiFont.sh(88);
-        int btnH = UiFont.sh(28);
-        int btnY = baseY + cameraButtonY();
-        // 拍照 / 重拍 胶囊（居中）
-        UiShapes.fillRoundedRect(g, cx - btnW / 2, btnY, btnW, btnH, btnH / 2, 0xFFFFFFFF);
-        String shotLabel = cameraShot != null ? "重拍" : "拍照";
-        drawScaledText(g, font, shotLabel, cx - font.width(shotLabel) * UiFont.sc(1.0f) / 2,
-                btnY + (btnH - lh()) / 2, 0xFFDE7E7E, UiFont.sc(1.0f));
+        // 单行布局：左侧上一张缩略图 + 中间一颗写着绑定键名的胶囊。
+        // 语义交给玩家的手机直觉（中间那颗就是快门/确认），不再堆长句提示。
+        int[] L = cameraBarLayout(w);
+        int capY = L[1], capH = L[2], capW = L[3], thumbX = L[4], thumbY = L[5], thumbSize = L[6];
+        int capX = L[7];
+        boolean shot = cameraShot != null;
 
-        if (cameraShot != null) {
-            // 右上角：保存
-            drawCameraButton(g, font, baseX + w - UiFont.sh(54), baseY + navH() + UiFont.sh(8),
-                    UiFont.sh(44), UiFont.sh(22), "保存");
-            // 右下角：确认
-            drawCameraButton(g, font, baseX + w - UiFont.sh(54), btnY, UiFont.sh(44), btnH, "确认");
-            // 左下角：已拍缩略图
+        // 左侧：上一张图片预览（已拍成时显示刚拍的那张）
+        if (shot) {
             ResourceLocation tex = PhotoLibrary.getOrLoadTexture("__camshot__");
-            int t = UiFont.sh(36);
-            int ty = btnY + (btnH - t) / 2;
-            UiShapes.fillRoundedRect(g, baseX + UiFont.sh(12), ty, t, t, UiFont.sh(4), 0xFFFFFFFF);
+            int tx = baseX + thumbX;
+            int ty = baseY + thumbY;
+            UiShapes.fillRoundedRect(g, tx, ty, thumbSize, thumbSize, UiFont.sh(3), 0xFFFFFFFF);
             if (tex != null) {
                 int[] d = PhotoLibrary.getTextureSize("__camshot__");
-                g.blit(tex, baseX + UiFont.sh(12), ty, t, t, 0.0f, 0.0f, d[0], d[1], d[0], d[1]);
+                g.blit(tex, tx, ty, thumbSize, thumbSize, 0.0f, 0.0f, d[0], d[1], d[0], d[1]);
             }
         }
+
+        // 中间：主操作胶囊，标签 = 玩家绑定的确认键名
+        int capAbsX = baseX + capX;
+        int capAbsY = baseY + capY;
+        UiShapes.fillRoundedRect(g, capAbsX, capAbsY, capW, capH, capH / 2,
+                shot ? 0xFFFFFFFF : 0xFFDE7E7E);
+        String capLabel = cameraKeyHint(true);
+        float ts = Math.min(UiFont.sc(1.0f), capH / (float) Math.max(1, lh()));
+        float tw = font.width(capLabel) * ts;
+        float cap = (capW - 6f) / Math.max(1f, tw);
+        if (cap < 1f) {
+            ts = Math.max(ts * cap, ts * 0.5f);
+            tw = font.width(capLabel) * ts;
+        }
+        drawScaledText(g, font, capLabel, capAbsX + (capW - tw) / 2f,
+                capAbsY + (capH - lh() * (ts / Math.max(0.01f, UiFont.sc(1.0f)))) / 2f,
+                shot ? 0xFFDE7E7E : 0xFFFFFFFF, ts);
     }
 
-    /** 绘制相机界面里的小胶囊按钮 */
-    private void drawCameraButton(GuiGraphics g, Font font, int x, int y, int w, int h, String text) {
-        UiShapes.fillRoundedRect(g, x, y, w, h, h / 2, 0xFFDE7E7E);
-        drawScaledText(g, font, text, x + (w - font.width(text) * UiFont.sc(1.0f)) / 2f,
-                y + (h - lh()) / 2, 0xFFFFFFFF, UiFont.sc(1.0f));
+    /**
+     * 相机界面里"按哪个键做什么"的提示胶囊。
+     * <p>
+     * 与普通按钮绘制的区别是它<b>按文字宽度自适应收缩字号</b>：
+     * 标签里含玩家绑定的键名，可能是"鼠标侧键 4"这种长串，硬套固定字号会溢出。
+     * 下限 {@code 0.55} 倍，再挤就宁可截断也不缩到看不清。
+     */
+    private void keyHint(GuiGraphics g, Font font, int x, int y, int w, int h, String text) {
+        if (w <= 4 || h <= 2) {
+            return;
+        }
+        UiShapes.fillRoundedRect(g, x, y, w, h, h / 2, 0xE6FFFFFF);
+        float ts = Math.min(UiFont.sc(1.0f), h / (float) Math.max(1, lh()));
+        float tw = font.width(text) * ts;
+        float cap = (w - 4f) / Math.max(1f, tw);
+        if (cap < 1f) {
+            ts = Math.max(ts * cap, ts * 0.55f);
+            tw = font.width(text) * ts;
+        }
+        drawScaledText(g, font, text, x + (w - tw) / 2f, y + (h - lh() * (ts / Math.max(0.01f, UiFont.sc(1.0f)))) / 2f,
+                0xFFDE7E7E, ts);
     }
 
-    /** 相机模式的鼠标点击处理 */
+    /**
+     * 取当前玩家绑定键位的显示名（例如 {@code 鼠标侧键 4} 或 {@code N}）。
+     * <p>
+     * 必须走 {@code getTranslatedKeyMessage()} 而不是硬编码字符串：玩家把键改绑到 N 之后，
+     * 界面上的提示要立刻跟着变成"按 N 确认"，而不是继续写着侧键 4。
+     * 这也正是"界面即文档"这层意思 —— 提示与实际手感永远一致。
+     */
+    private String cameraKeyHint(boolean confirmButton) {
+        var mapping = confirmButton
+                ? ClientModEvents.PHONE_CLICK
+                : ClientModEvents.PHONE_BACK;
+        return mapping.getTranslatedKeyMessage().getString();
+    }
+
+    /**
+     * 相机模式的鼠标点击处理。
+     * <p>
+     * <b>命中区必须与 {@link #renderCameraMode} 的排版一致</b>：侧键是"合成点击"到按钮中心的，
+     * 两者一旦脱节就会出现"侧键点了个空"或"点到了隔壁按钮"。
+     * 所以这里复用与渲染完全相同的两行布局参数。
+     */
     private boolean handleCameraClick(double relX, double relY, int w) {
-        // 左上角返回
-        if (relX >= 0 && relX <= 60 && relY >= 0 && relY <= navH()) {
+        // 左上角返回（含 nav 条左侧那颗"返回 <键名>"）
+        if (relY >= 0 && relY <= navH() && relX >= 0 && relX <= UiFont.sh(84)) {
             exitCameraMode();
             return true;
         }
-        int cx = w / 2;
-        int btnW = UiFont.sh(88);
-        int btnH = UiFont.sh(28);
-        int btnY = cameraButtonY();
+        int[] L = cameraBarLayout(w);
+        int barTop = L[0], capY = L[1], capH = L[2], capW = L[3];
+        int thumbX = L[4], thumbY = L[5], thumbSize = L[6], capX = L[7];
+        boolean shot = cameraShot != null;
 
-        if (cameraShot != null) {
-            // 右上角保存
-            if (hit(relX, relY, w - UiFont.sh(54), navH() + UiFont.sh(8), UiFont.sh(44), UiFont.sh(22))) {
-                savePhoto();
-                return true;
-            }
-            // 右下角确认
-            if (hit(relX, relY, w - UiFont.sh(54), btnY, UiFont.sh(44), btnH)) {
-                confirmPhoto();
-                return true;
-            }
+        // 左侧缩略图：已拍成时点它 = 取景框全屏预览（目前与"确认"同一动作的轻量版：
+        // 直接回取景查看，不丢失这张）
+        if (shot && hit(relX, relY, thumbX, thumbY, thumbSize, thumbSize)) {
+            exitCameraMode();
+            return true;
         }
-        // 中下部拍照/重拍胶囊
-        if (hit(relX, relY, cx - btnW / 2, btnY, btnW, btnH)) {
-            takePhoto();
+        // 底部栏其它空白：吞掉，避免误触
+        if (relY >= barTop) {
+            // 中间主操作胶囊
+            if (hit(relX, relY, capX, capY, capW, capH)) {
+                cameraPrimaryAction();
+                return true;
+            }
             return true;
         }
         return true;

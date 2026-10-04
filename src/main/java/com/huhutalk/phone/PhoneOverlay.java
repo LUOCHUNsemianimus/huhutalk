@@ -522,13 +522,14 @@ public class PhoneOverlay {
             return;
         }
         cameraHoldFired = false;
-        boolean click = which == 1;
         IPhonePage page = getCurrentPage();
-        if (page instanceof ChatPage cp) {
-            int[] target = cp.cameraSideButtonTarget(click);
-            if (target != null) {
-                synthClick(target[0], target[1]);
-            }
+        if (!(page instanceof ChatPage cp)) {
+            return;
+        }
+        if (which == 1) {
+            cp.cameraPrimaryAction();
+        } else {
+            cp.cameraBackAction();
         }
     }
 
@@ -536,7 +537,7 @@ public class PhoneOverlay {
      * 相机模式长按检测：按住侧键 4 到阈值即"存相册"，不必等松开。
      * <p>
      * 由 {@code ClientModEvents.onClientTick} 每 tick 调用（见 {@link #CAM_HOLD_SAVE_MS}）。
-     * 只对侧键 4 且"已拍成"页生效 —— 取景中长按没有可保存的对象。
+     * 只对侧键 4 生效；没有照片时 {@code cameraSaveAction()} 内部自然无事发生。
      */
     public static void tickCameraHold() {
         if (!isCameraMode() || cameraHoldButton != 1 || cameraHoldFired) {
@@ -548,19 +549,8 @@ public class PhoneOverlay {
         cameraHoldFired = true;
         IPhonePage page = getCurrentPage();
         if (page instanceof ChatPage cp) {
-            int[] target = cp.cameraSaveButtonTarget();
-            if (target != null) {
-                synthClick(target[0], target[1]);
-            }
+            cp.cameraSaveAction();
         }
-    }
-
-    /** 把手机局部坐标合成一次完整的左键按下+松开 */
-    private static void synthClick(int relX, int relY) {
-        double screenX = relX + phoneX;
-        double screenY = relY + renderedPhoneY;
-        handleMouseClicked(screenX, screenY, GLFW.GLFW_MOUSE_BUTTON_LEFT, GLFW.GLFW_PRESS);
-        handleMouseClicked(screenX, screenY, GLFW.GLFW_MOUSE_BUTTON_LEFT, GLFW.GLFW_RELEASE);
     }
 
     /** 手机局部坐标滚轮（独立光标拖动滚动用），守卫条件与 {@link #handleMouseScroll} 保持一致 */
