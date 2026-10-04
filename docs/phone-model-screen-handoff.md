@@ -9,6 +9,7 @@
 
 **期 0 / 1a / 1b / 1c 全部完成并已实机验收；期 1 收尾（拆旧输入通路 + 两种屏幕互斥）尚未开工。**
 当前可玩状态：主手拿 Pro 手机 + 按 O → 手机模型屏上显示真实 Overlay，低头 ≥40° 后可用鼠标侧键操控，视角在其他任何情况下都不受影响。
+最新改动（待实机验收）：**光标出生点改为顶栏正中**；**点输入框不再把手持模型踢回普通物品**（透明 `Screen` 与模型屏现在可共存）。
 
 ---
 
@@ -21,6 +22,7 @@
 | 1b | 独立光标 + 侧键点击/返回 + 按住拖动滚动 + 灵敏度设置 | 通过；修掉光标归一化（两屏偏移/够不到边） |
 | 1c | 「操控屏幕」状态机：低头阈值 + 相机降速 + 状态可视化 | 通过；阈值由 30° 调整为 **40°**，补上**顶栏放行** |
 | 1c+ | 独立光标**出生点 = 顶栏正中**（掏出手机即重置） | 待实机验收（见 §5.3-11） |
+| 1c++ | **修掉「点输入框手机就没」**：手持渲染不再因 `Screen` 打开而让位 | 已编译通过，待实机验收（见 §5.2-8） |
 
 ---
 
@@ -30,7 +32,7 @@
 
 | 文件 | 职责 |
 |---|---|
-| `client/render/ProPhoneHandRenderer.java` | **新增**。订阅 `RenderHandEvent` 接管第一人称手持渲染：双手姿势 + 手机本体 + 挂屏幕四边形。`ENABLED=false` 一键回到原版手持 |
+| `client/render/ProPhoneHandRenderer.java` | **新增**。订阅 `RenderHandEvent` 接管第一人称手持渲染：双手姿势 + 手机本体 + 挂屏幕四边形。`ENABLED=false` 一键回到原版手持。接管判据集中在 `shouldRender(mc, stack)`，**不排除 Screen 打开**（见 §5.2-8） |
 | `client/render/PhoneScreenTarget.java` | **新增**。离屏帧缓冲、动态纹理注册、屏幕面矩形几何、出图驱动、dirty 判定、`DIAG` 探针 |
 | `phone/PhoneOverlay.java` | 手机 UI 总控。新增：`renderExternal`（离屏视口）、独立光标全套、`isScreenControl` 状态机、`LOOK_DOWN_DEG` |
 | `event/ClientModEvents.java` | 新增两个手机侧键位；`RenderFrameEvent.Pre` 出图 + 俯仰低通；`CalculatePlayerTurnEvent` 降速 |
@@ -107,6 +109,27 @@
 5. **屏幕四边形必须立即 `endBatch(renderType)` 刷出**。若留在共享缓冲等后续统一 flush，一旦时机落到 GUI 段（那里投影是**正交**的），屏幕就会脱离手机、钉死在屏幕某个角上。把这个坑的特征记下来：**"位置固定不随视角动" ≈ 投影/时机问题，不是坐标问题**。
 6. **离屏靶尺寸与 scissor 的强耦合**：`GuiGraphics.applyScissor` 只从 `window.getHeight()`（帧缓冲像素高）+ `window.getGuiScale()` 取数 ⇒ 离屏靶**像素高必须 = 窗口帧缓冲高**、正交换算系数**必须 = GUI Scale**。满足后页面里满地的 `enableScissor` 自动正确，**一个原版方法都不用碰**（这是整个方案能"页面零改动"的根本原因）。
 7. **GUI pass 的投影是 `ortho(...,1000,21000)` + 模型视图 `translate(0,0,-11000)`**，照抄；否则 z≈0 的内容被裁掉。
+8. **第一人称手持渲染与 `Screen` 完全无关**（"点输入框手机就没了"的根因）。
+   `GameRenderer.renderLevel` 里那段是：
+   ```java
+   if (this.renderHand) {
+       RenderSystem.clear(256, Minecraft.ON_OSX);
+       this.renderItemInHand(camera, f, matrix4f1);
+   }
+   ```
+   而 `renderItemInHand` 的唯一门是 `isFirstPerson && !isSleeping && !options.hideGui && 非旁观`（原版 GameRenderer L951-954）——
+   **没有一句和 `mc.screen` 有关**。透明输入屏（`PhoneInputScreen`：`render` 全空 + `isPauseScreen()==false`）
+   既不停世界也不停手持。
+   所以 `ProPhoneHandRenderer` 里那句 `if (mc.screen != null) return;` 是**自己主动让位**：
+   一弹输入屏就走原版 `renderArmWithItem`，手机从"双手持握 + 模型屏"瞬间塌回普通手持物品。
+   修法是删掉该早退，并把它与 `isActive()` 合成**唯一判据** `shouldRender(mc, stack)`（只判第一人称 + 主手是 Pro 手机），
+   保证"离屏出图判定"与"真正接管"永远同步。**副作用是独立光标在输入屏期间冻结 —— 这是对的**：
+   `MouseHandler.handleAccumulatedMovement` 只在 `isMouseGrabbed()` 时调 `turnPlayer`，而 `setScreen` 会释放鼠标，
+   此时玩家的鼠标本来就该归真实 GUI 光标用。
+   补充事实（别搞混）：`ClientHooks.guiLayers` 是**父级 Screen 栈**，不是 HUD 层；HUD 层是
+   `GuiLayerManager`（`RegisterGuiLayersEvent` 的注册目标），只由 `Gui.render()` 驱动 —— 所以
+   `PhoneOverlay.render` 在开着 Screen 时**不会**被调用，模型屏这张纹理此时完全由
+   `PhoneScreenTarget.update`（`RenderFrameEvent.Pre`，与 GUI pass 无关）喂，照常逐帧更新。
 
 ### 5.3 状态与逻辑
 

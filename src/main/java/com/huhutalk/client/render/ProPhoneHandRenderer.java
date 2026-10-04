@@ -90,9 +90,6 @@ public final class ProPhoneHandRenderer {
 
     @SubscribeEvent
     public static void onRenderHand(RenderHandEvent event) {
-        if (!ENABLED) {
-            return;
-        }
         if (event.getHand() != InteractionHand.MAIN_HAND) {
             return;
         }
@@ -101,16 +98,8 @@ public final class ProPhoneHandRenderer {
         if (player == null) {
             return;
         }
-        // 只做第一人称：第三人称由原版手持层负责（模型本体照常显示）
-        if (!mc.options.getCameraType().isFirstPerson()) {
-            return;
-        }
-        // 打开界面（含文本输入屏）时不接管，避免和 Screen 的渲染/输入打架
-        if (mc.screen != null) {
-            return;
-        }
         ItemStack stack = event.getItemStack();
-        if (!stack.is(HuhuTalkItems.PHONE_SMART.get())) {
+        if (!shouldRender(mc, player, stack)) {
             return;
         }
 
@@ -233,21 +222,54 @@ public final class ProPhoneHandRenderer {
     /**
      * 本帧是否由本渲染器接管玩家第一人称手持。
      * <p>
-     * 与 {@link #onRenderHand} 的早退条件保持一致 —— 离屏出图
-     * （{@link PhoneScreenTarget#update}）据此判断「这一帧到底会不会画到模型上」，
-     * 不满足时完全不跑离屏渲染，做到关屏零开销。
+     * 与 {@link #onRenderHand} 共用同一个判据（{@link #shouldRender}），因此离屏出图
+     * （{@link PhoneScreenTarget#update}）与真正的接管**永远同步**：
+     * 判据为真就一定画得出来，为假就完全不跑离屏渲染（关屏零开销）。
      */
     public static boolean isActive() {
         if (!ENABLED) {
             return false;
         }
         Minecraft mc = Minecraft.getInstance();
-        if (mc.player == null || mc.screen != null) {
+        AbstractClientPlayer player = mc.player;
+        if (player == null) {
             return false;
         }
+        return shouldRender(mc, player, mc.player.getMainHandItem());
+    }
+
+    /**
+     * 接管判据（{@code onRenderHand} 与 {@link #isActive} 的<b>唯一</b>真相来源）。
+     *
+     * <h2>为什么不再排除「有 Screen 打开」</h2>
+     * 早期这里有一句 {@code if (mc.screen != null) return;}，理由写的是"避免和 Screen 打架"。
+     * 那是个误判：第一人称手持渲染走的是 {@code GameRenderer.renderLevel → renderItemInHand}，
+     * 而 {@code renderItemInHand} 里判断的是 {@code isFirstPerson && !hideGui}，
+     * <b>跟有没有 Screen 毫无关系</b>（见原版 GameRenderer L951-954）。
+     * <p>
+     * 于是那段早退的真实后果是：手机输入屏（{@link com.huhutalk.phone.PhoneInputScreen}，
+     * 一个完全透明的 {@code Screen}，只用来接键盘）一弹出来，我们就主动让位给原版
+     * {@code renderArmWithItem} —— 手机瞬间从"双手持握 + 模型屏"塌回普通手持物品，
+     * 玩家点一下输入框，手机就"没了"。而 Screen 那边其实什么都没抢。
+     * <p>
+     * 更关键的是：{@code PhoneInputScreen.render} 是空的、且 {@code isPauseScreen()==false}，
+     * 世界与手持照常渲染，所以现在"透明输入屏 + 模型屏"是可以共存的 —— 这正是想要的观感：
+     * 打字时手机仍在手里，屏幕上的输入光标由 ChatPage 照常自己画。
+     * <p>
+     * 唯一的实际影响是<b>那只独立光标会冻结</b>：{@code MouseHandler.handleAccumulatedMovement}
+     * 只在 {@code isMouseGrabbed()} 时才调 {@code turnPlayer}，而 {@code setScreen} 会释放鼠标。
+     * 这也是对的 —— 输入屏期间玩家的鼠标属于真实 GUI 光标，手机上那只应当停住。
+     */
+    private static boolean shouldRender(Minecraft mc, AbstractClientPlayer player, ItemStack stack) {
+        // ⚠ 两个调用点必须严格同步：这里若比 onRenderHand 更宽松，就会出现
+        // 「离屏靶每帧都在出图，却没有任何模型去采样它」的纯浪费。
+        if (player != mc.player) {
+            return false;
+        }
+        // 只做第一人称：第三人称由原版手持层负责（模型本体照常显示）
         if (!mc.options.getCameraType().isFirstPerson()) {
             return false;
         }
-        return mc.player.getMainHandItem().is(HuhuTalkItems.PHONE_SMART.get());
+        return stack.is(HuhuTalkItems.PHONE_SMART.get());
     }
 }
