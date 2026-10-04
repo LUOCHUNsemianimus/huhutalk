@@ -12,6 +12,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -118,7 +119,13 @@ public final class PhotoLibrary {
         }
     }
 
-    /** 列出图库中所有 png 文件名（按名字排序） */
+    /**
+     * 列出图库中所有 png 文件名，<b>最新的排在最前</b>。
+     * <p>
+     * 文件名是 {@code photo_<毫秒时间戳>_<随机后缀>.png}，与时间同序，所以按名字<b>倒序</b>排就是
+     * "新 → 旧"。聊天页底部扩展栏的画廊是横向的，从左往右读，第一张必须是刚拍的这张
+     * （早先按名字正序 = 最早的在最左，方向正好反了）。
+     */
     public static List<String> listGallery() {
         List<String> out = new ArrayList<>();
         try {
@@ -130,7 +137,7 @@ public final class PhotoLibrary {
             }
         } catch (IOException ignored) {
         }
-        out.sort(String::compareTo);
+        out.sort(Comparator.reverseOrder());
         return out;
     }
 

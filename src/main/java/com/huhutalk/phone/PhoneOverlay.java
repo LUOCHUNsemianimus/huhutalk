@@ -248,6 +248,14 @@ public class PhoneOverlay {
     private static float dragTotalX = 0f;
     private static float dragTotalY = 0f;
     private static boolean dragIsScroll = false;
+    /**
+     * 本次拖动滚动的<b>主轴是否为横向</b>。
+     * <p>
+     * 在"升级为滚动"的那一刻锁定，之后整个手势不再换轴 —— 否则鼠标一抖动，
+     * 横向画廊会突然改用纵向分量，手感直接碎掉。
+     * 由页面的 {@link IPhonePage#dragAxisHorizontal} 提供（默认纵向）。
+     */
+    private static boolean dragHorizontal = false;
     /** 拖动滚动的未消费余量（像素），避免小幅拖动被取整丢掉 */
     private static double scrollRemainder = 0.0;
 
@@ -389,19 +397,32 @@ public class PhoneOverlay {
         if (cursorPressing) {
             dragTotalX += dx;
             dragTotalY += dy;
-            // 方向判定：纵向位移占优才升级为滚动（横向拖动不滚页面）
-            if (!dragIsScroll
-                    && Math.abs(dragTotalY) > DRAG_SCROLL_THRESHOLD
-                    && Math.abs(dragTotalY) > Math.abs(dragTotalX)) {
-                dragIsScroll = true;
+            // 主轴由页面决定：图库是横向画廊，其余（消息列表、表情网格）都是纵向列表。
+            // 坐标与 mouseClicked/mouseScrolled 一致：内容区相对坐标（扣掉顶部状态栏）。
+            boolean horizontal = false;
+            IPhonePage curPage = getCurrentPage();
+            if (curPage != null) {
+                horizontal = curPage.dragAxisHorizontal(cursorLocalX(), cursorLocalY() - UiFont.sh(STATUSBAR_H));
+            }
+            // 方向判定：主轴位移占优才升级为滚动（横向面板比较 X，纵向面板比较 Y）
+            if (!dragIsScroll) {
+                float primary = horizontal ? dragTotalX : dragTotalY;
+                float cross = horizontal ? dragTotalY : dragTotalX;
+                if (Math.abs(primary) > DRAG_SCROLL_THRESHOLD && Math.abs(primary) > Math.abs(cross)) {
+                    dragIsScroll = true;
+                    dragHorizontal = horizontal;
+                }
             }
             if (dragIsScroll) {
-                scrollRemainder += dy;
+                // 只喂**主轴**的增量：手势跟手（往下拖 = 看更早的内容；往右拖 = 看更前的内容）。
+                // 页面按自己的渲染约定换算成内容位移（见 IPhonePage#mouseScrolled 的说明）。
+                scrollRemainder += dragHorizontal ? dx : dy;
                 double units = scrollRemainder / DRAG_PIXELS_PER_SCROLL_UNIT;
                 double whole = units >= 0 ? Math.floor(units) : Math.ceil(units);
                 if (whole != 0.0) {
                     scrollRemainder -= whole * DRAG_PIXELS_PER_SCROLL_UNIT;
-                    // 内容跟手：往下拖（dy>0）= 看更早的内容 = scrollDelta 取正
+                    // 交出去的是**手势方向**（往下/往右为正），不是"内容往哪跑"：
+                    // 各面板按自己的渲染约定换算（消息列表加、表情网格与图库减），见 §5.6-32。
                     handlePhoneLocalScroll(cursorLocalX(), cursorLocalY(), whole);
                 }
             }
@@ -418,7 +439,8 @@ public class PhoneOverlay {
     /**
      * 独立光标：侧键事件（由 {@code MouseHandlerMixin} 转发，只有玩家绑定的侧键会走到这里）。
      * <p>
-     * 手势：轻点 = 一次完整左键；按住纵向拖动 = 滚动（松开不再触发点击）；
+     * 手势：轻点 = 一次完整左键；按住拖动 = 滚动（主轴纵向，横向面板由
+     * {@link IPhonePage#dragAxisHorizontal} 改成横向；松开不再触发点击）；
      * 另一颗侧键 = 一次完整右键（返回）。
      */
     public static void onPhoneSideButton(boolean clickButton, int action) {

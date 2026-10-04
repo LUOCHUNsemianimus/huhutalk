@@ -122,12 +122,14 @@ public class ChatPage implements IPhonePage {
     private String pendingImageKey = null;
     /** 图片栏横向滚动偏移（像素） */
     private int galleryScrollOffset = 0;
-    /** 图片栏是否正在长按拖动翻页 */
-    private boolean galleryDragging = false;
-    /** 拖动手势起始 GUI X */
-    private double galleryDragStartX = 0;
-    /** 拖动起始时的滚动偏移 */
-    private int galleryDragStartOffset = 0;
+    /**
+     * 画廊拖动时「一个滚动单位」折算成几像素内容位移。
+     * <p>
+     * ⚠ 拖动侧的单位是 {@code PhoneOverlay.DRAG_PIXELS_PER_SCROLL_UNIT = 10} 像素手势 = 1 个单位，
+     * 所以这里必须填 <b>10</b> 才是严格跟手（拖 10 像素内容走 10 像素）；填 1 会慢 10 倍。
+     * 调小则更"黏"、调大则更"滑"。
+     */
+    private static final int GALLERY_DRAG_SPEED = 10;
     /** 图片缩略图画廊的绘制边长 */
     private static final int GALLERY_ITEM = 56;
     /** 玩家图片消息气泡里图片的绘制边长 */
@@ -1668,20 +1670,23 @@ public class ChatPage implements IPhonePage {
 
         // 顶部导航（不透明，保证返回/标题可读）
         g.fill(baseX, baseY, baseX + w, baseY + navH, 0xFFDE7E7E);
-        // 左侧「< 返回 <键名>」：纯文字，不做按钮底 —— 顶栏本来就是个条，
-        // 再套一圈胶囊只会显得碎。
+        // 顶栏左右两段文字：左「< 返回 <返回键名>」，右「拍照」；
+        // **已拍成时右段改成「长按<确认键名>保存」**（保存只有长按这一个入口，
+        // 相机界面又不画光标、放不了可点的按钮，所以只能把这条手势写在标题位上）。
+        // 键名是玩家绑定的、可能很长，所以两段**共用同一个缩放**：宁可一起缩，也不让它们撞在一起。
         String backHint = "< 返回 " + cameraKeyHint(false);
-        float backTs = UiFont.sc(0.85f);
-        int backCapW = w - UiFont.sh(46);
-        float bhW = font.width(backHint) * backTs;
-        if (bhW > backCapW && bhW > 0) {
-            backTs *= Math.max(0.6f, backCapW / bhW);
+        String title = shot ? ("长按" + cameraKeyHint(true) + "保存") : "拍照";
+        float barTs = UiFont.sc(0.85f);
+        int barAvail = w - UiFont.sh(10) - UiFont.sh(6);      // 左右边距 + 两段之间的间隔
+        int barRaw = font.width(backHint) + font.width(title);
+        if (barRaw > 0) {
+            barTs = Math.min(barTs, barAvail / (float) barRaw);
         }
-        drawScaledText(g, font, backHint, baseX + UiFont.sh(4), baseY + navH / 2 - lh() / 2,
-                0xFFFFFFFF, backTs);
-        String title = "拍照";
-        drawScaledText(g, font, title, baseX + w - UiFont.sh(6) - font.width(title) * UiFont.sc(1.0f),
-                baseY + navH / 2 - lh() / 2, 0xFFFFFFFF, UiFont.sc(1.0f));
+        barTs = Math.max(barTs, 0.40f);
+        float barTextY = baseY + navH / 2f - font.lineHeight * barTs / 2f;
+        drawScaledText(g, font, backHint, baseX + UiFont.sh(4), barTextY, 0xFFFFFFFF, barTs);
+        drawScaledText(g, font, title, baseX + w - UiFont.sh(6) - font.width(title) * barTs,
+                barTextY, 0xFFFFFFFF, barTs);
 
         int viewTop = baseY + navH + UiFont.sh(8);
         int viewBottom = baseY + cameraViewBottom();
@@ -1888,12 +1893,8 @@ public class ChatPage implements IPhonePage {
         return Math.max(0, Math.min(offset, galleryMaxScroll()));
     }
 
-    /** 渲染图片面板：横向画廊，每张右上角选中圆标（灰/粉） */
+    /** 渲染图片面板：横向画廊（**最新的一张在最左**），每张右上角选中圆标（灰/粉） */
     private void renderGalleryPanel(GuiGraphics g, Font font, int baseX, int pTop, int pBottom, int w) {
-        // 拖动更新（长按拖动翻页）
-        if (galleryDragging) {
-            updateGalleryDrag();
-        }
         List<String> items = galleryDisplayItems();
         int viewH = Math.max(0, pBottom - pTop);
         galleryScrollOffset = clampGalleryScroll(galleryScrollOffset);
@@ -2051,19 +2052,6 @@ public class ChatPage implements IPhonePage {
             selectedImageKey = key;
             selectedImageBytes = PhotoLibrary.readBytes(key);
         }
-    }
-
-    /** 长按拖动翻页：用当前鼠标 X 更新横向偏移 */
-    private void updateGalleryDrag() {
-        Minecraft mc = Minecraft.getInstance();
-        double guiX = mc.mouseHandler.xpos() * mc.getWindow().getGuiScaledWidth() / mc.getWindow().getScreenWidth();
-        double relX = guiX - PhoneOverlay.getPhoneX();
-        double delta = relX - galleryDragStartX;
-        if (!isLeftMouseDown()) {
-            galleryDragging = false;
-            return;
-        }
-        galleryScrollOffset = clampGalleryScroll(galleryDragStartOffset - (int) delta);
     }
 
     // ==================== 发送联动 ====================
@@ -2517,9 +2505,8 @@ public class ChatPage implements IPhonePage {
                     toggleGallerySelect(body);
                     return true;
                 }
-                galleryDragging = true;
-                galleryDragStartX = relX;
-                galleryDragStartOffset = galleryScrollOffset;
+                // 空白处按下：吞掉。横向翻页由 PhoneOverlay 的手势状态机喂进 mouseScrolled
+                // （主轴已由 dragAxisHorizontal 切成横向），这里不再自持一套拖动状态。
                 return true;
             }
         }
@@ -2588,6 +2575,21 @@ public class ChatPage implements IPhonePage {
         return false;
     }
 
+    /**
+     * 图库扩展栏是<b>横向画廊</b>：主轴取横向。
+     * <p>
+     * 不重写这个方法的话，Overlay 会按默认的纵向判据把"左右拖"当"上下滚" ——
+     * 玩家横着拖半天，画廊纹丝不动，纵向的数字图标却被判定成滚动（实机反馈）。
+     * 坐标相对手机内容区左上角（不含状态栏），与 {@link #mouseClicked} 一致。
+     */
+    @Override
+    public boolean dragAxisHorizontal(double relX, double relY) {
+        if (cameraActive || !bottomPanelOpen || extPanelIcon != 2) {
+            return false;
+        }
+        return relY >= panelTop(0) && relY < extBarTop(0);
+    }
+
     @Override
     public boolean mouseScrolled(double relX, double relY, double scrollDelta) {
         // 表情面板打开且鼠标在面板内：滚动表情网格，而非消息区
@@ -2596,17 +2598,22 @@ public class ChatPage implements IPhonePage {
             if (relY >= pTop && relY <= pBottom) {
                 int viewH = Math.max(0, pBottom - pTop);
                 int maxScroll = Math.max(0, emoteContentHeight() - viewH);
+                // 内容跟手：网格用「上边距 - offset」定位，所以 offset 要**减**手势增量
+                // （往下拖 = 内容跟着往下走 = 看到更早的表情）。原来写成加，方向正好反了。
                 emojiScrollOffset = Math.max(0,
-                        Math.min(emojiScrollOffset + (int)(scrollDelta * SCROLL_SPEED), maxScroll));
+                        Math.min(emojiScrollOffset - (int)(scrollDelta * SCROLL_SPEED), maxScroll));
                 return true;
             }
         }
 
-        // 图片面板打开且鼠标在面板内：滚轮左右翻页（scrollDeltaY 正=下滚 → 右翻）
+        // 图片面板打开且鼠标在面板内：横向翻页（主轴已在 dragAxisHorizontal 里切成横向，
+        // 喂进来的 scrollDelta 就是横向增量）
         if (bottomPanelOpen && extPanelIcon == 2) {
             int pTop = panelTop(0), pBottom = extBarTop(0);
             if (relY >= pTop && relY <= pBottom) {
-                galleryScrollOffset = clampGalleryScroll(galleryScrollOffset + (int)(scrollDelta * 20));
+                // 内容跟手：画廊用「左边距 - offset」定位，所以 offset 同样**减**手势增量
+                // （往右拖 = 内容跟着往右走 = 看到更早的照片）
+                galleryScrollOffset = clampGalleryScroll(galleryScrollOffset - (int)(scrollDelta * GALLERY_DRAG_SPEED));
                 return true;
             }
         }
