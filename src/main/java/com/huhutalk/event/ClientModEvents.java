@@ -23,9 +23,6 @@ import org.lwjgl.glfw.GLFW;
 public class ClientModEvents {
     public static final KeyMapping TOGGLE_PHONE = new KeyMapping(
             "key.huhutalk.toggle_phone", GLFW.GLFW_KEY_O, "key.category.huhutalk");
-    /** 按住释放鼠标（进入狐狐手机鼠标操控模式）。默认为 Alt，可在按键设置中更改 */
-    public static final KeyMapping RELEASE_CURSOR = new KeyMapping(
-            "key.huhutalk.release_cursor", GLFW.GLFW_KEY_LEFT_ALT, "key.category.huhutalk");
     public static final KeyMapping QUICK_VOICE = new KeyMapping(
             "key.huhutalk.quick_voice", GLFW.GLFW_KEY_H, "key.category.huhutalk");
     /**
@@ -46,7 +43,6 @@ public class ClientModEvents {
     @SubscribeEvent
     public static void registerKeys(RegisterKeyMappingsEvent event) {
         event.register(TOGGLE_PHONE);
-        event.register(RELEASE_CURSOR);
         event.register(QUICK_VOICE);
         event.register(PHONE_CLICK);
         event.register(PHONE_BACK);
@@ -73,7 +69,8 @@ public class ClientModEvents {
      * 在「操控屏幕」态下压低视角转速。
      * <p>
      * <b>硬约束</b>：不处于该状态时<b>完全不碰</b>这个事件 —— 既保持原版行为，也不覆盖其他模组的修改。
-     * 而该状态本身要求「手机已掏出 + 主手确实拿着 Pro 手机 + 低头 ≥ 阈值」，
+     * 而该状态本身（{@link PhoneOverlay#isScreenControl()}）要求「UI 可见 + 低头 ≥ 阈值」，
+     * 可见性又由 {@code renderMode} 保证只可能是「主手 Pro 手机的模型屏」或「O 召唤的悬浮窗」，
      * 因此绝不可能污染徒手 / 拿着别的物品 / 第三人称 / 开着界面等任何其他状态。
      * <p>
      * <b>顶栏放行</b>：光标被推到顶部状态栏时<b>也</b>不降速 —— 给玩家一条快速松手的出路
@@ -101,10 +98,9 @@ public class ClientModEvents {
         while (TOGGLE_PHONE.consumeClick()) {
             PhoneOverlay.toggle();
         }
+        // 掏出即渲染：主手开始举着 Pro 手机的那一刻自动打开手机 UI
+        PhoneOverlay.onHolderTick();
         handleQuickVoice(mc);
-
-        // 按住释放鼠标：通过可改键 RELEASE_CURSOR 检测按住状态（默认 Alt，可在按键设置更改）
-        PhoneOverlay.setAltDown(RELEASE_CURSOR.isDown());
     }
 
     /**

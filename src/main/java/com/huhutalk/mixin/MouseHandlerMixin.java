@@ -2,9 +2,7 @@ package com.huhutalk.mixin;
 
 import com.huhutalk.event.ClientModEvents;
 import com.huhutalk.phone.PhoneOverlay;
-import net.minecraft.client.Minecraft;
 import net.minecraft.client.MouseHandler;
-import org.spongepowered.asm.mixin.Final;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
@@ -14,21 +12,20 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 /**
  * 鼠标输入分流：手机是<b>旁路</b>，不是接管。
  *
- * <h2>两条通路</h2>
- * <ol>
- *   <li><b>旧通路（Alt 释放鼠标）</b>：{@link ClientModEvents#RELEASE_CURSOR} 按住时系统光标可见、
- *       手机按<b>屏幕坐标</b>做命中判定。为保持该通路可用，此模式下锁视角（cancel turnPlayer）。</li>
- *   <li><b>新通路（独立光标）</b>：鼠标保持抓取、<b>视角照常转动</b>，
- *       同一份鼠标增量额外喂给手机独立光标；只有玩家绑定的「手机侧键」才被手机接收，
- *       鼠标左右键的原版行为（攻击/放置）完全不受影响。</li>
- * </ol>
- * 两条通路天然互斥：旧通路下鼠标已释放，{@code turnPlayer} 根本不会被调用。
+ * <h2>唯一通路：独立光标（旧 Alt 通路已于期 1 拆除）</h2>
+ * 鼠标保持抓取、<b>视角照常转动</b>，同一份鼠标增量额外喂给手机独立光标；
+ * 只有玩家绑定的「手机侧键」才被手机接收，鼠标左右键的原版行为（攻击/放置）完全不受影响。
+ * <p>
+ * 被拆掉的旧通路是「按住 Alt 释放系统鼠标、用真实光标点手机」那一套。它有两个致命代价：
+ * <ul>
+ *   <li>必须 {@code grabMouse/releaseMouse}，于是真实光标与手机光标两套坐标系并存；</li>
+ *   <li>释放鼠标期间 {@code turnPlayer} 根本不被调用，所以旧通路<b>天生无法与"视角照常转"共存</b>，
+ *       一旦屏幕上出现透明输入屏（{@code setScreen} 必然释放鼠标）就会和输入屏抢鼠标。</li>
+ * </ul>
+ * 独立光标把这两件事一起解决了：它活在 Overlay 自己的坐标系里，因此模型屏与悬浮窗零额外适配。
  */
 @Mixin(MouseHandler.class)
 public abstract class MouseHandlerMixin {
-    @Shadow @Final private Minecraft minecraft;
-    @Shadow private double xpos;
-    @Shadow private double ypos;
     @Shadow private double accumulatedDX;
     @Shadow private double accumulatedDY;
 
@@ -38,49 +35,29 @@ public abstract class MouseHandlerMixin {
      * 累积量 {@code accumulatedDX/DY} 由调用方 {@code handleAccumulatedMovement}
      * 在 {@code turnPlayer} <b>返回之后</b>才清零，所以这里读到的是本帧全部增量；
      * 即使取消调用也不会漏清零。
+     * <p>
+     * 注意 {@code turnPlayer} 只在 {@code isMouseGrabbed()} 时被调用（原版 MouseHandler），
+     * 所以开着 Screen（含透明输入屏）时本方法不会被触发 —— 手机上那只光标随之冻结，
+     * 这正是想要的：此刻玩家真实的鼠标已经交还给 GUI 了。
      */
-    @Inject(method = "turnPlayer", at = @At("HEAD"), cancellable = true)
+    @Inject(method = "turnPlayer", at = @At("HEAD"))
     private void onTurnPlayer(double movementTime, CallbackInfo ci) {
-        if (PhoneOverlay.shouldCaptureMouse()) {
-            // 旧通路：系统光标在点屏幕，必须锁视角，否则命中判定会飘
-            ci.cancel();
-            return;
-        }
         PhoneOverlay.onMouseDelta(this.accumulatedDX, this.accumulatedDY);
     }
 
     /**
-     * 鼠标按键。
-     * <ul>
-     *   <li>旧通路：把屏幕坐标转发给手机并吞掉事件（原有行为）；</li>
-     *   <li>新通路：只有手机侧键额外转发给手机，<b>不 cancel</b>。</li>
-     * </ul>
+     * 鼠标按键：只有玩家绑定的手机侧键额外转发给手机，<b>一律不 cancel</b>，
+     * 因此左右键的攻击/放置、滚轮切快捷栏全部保持原版。
+     * <p>
+     * 刻意的分工：{@code PhoneOverlay.onMouseDelta} 负责"光标动"，这里负责"点下去"，
+     * 两者都只在 {@link PhoneOverlay#isScreenControl()} 成立时才真正生效（内部各自把关）。
      */
-    @Inject(method = "onPress", at = @At("HEAD"), cancellable = true)
+    @Inject(method = "onPress", at = @At("HEAD"))
     private void onMousePress(long window, int button, int action, int mods, CallbackInfo ci) {
-        if (PhoneOverlay.shouldCaptureMouse()) {
-            double guiX = this.xpos * minecraft.getWindow().getGuiScaledWidth() / minecraft.getWindow().getScreenWidth();
-            double guiY = this.ypos * minecraft.getWindow().getGuiScaledHeight() / minecraft.getWindow().getScreenHeight();
-            PhoneOverlay.handleMouseClicked(guiX, guiY, button, action);
-            ci.cancel();
-            return;
-        }
         if (ClientModEvents.isPhoneClickButton(button)) {
             PhoneOverlay.onPhoneSideButton(true, action);
         } else if (ClientModEvents.isPhoneBackButton(button)) {
             PhoneOverlay.onPhoneSideButton(false, action);
         }
-    }
-
-    /** 滚轮：仅旧通路转发给手机；新通路下滚轮仍然切快捷栏（滚轮已按设计让出给手机之外的原生行为） */
-    @Inject(method = "onScroll", at = @At("HEAD"), cancellable = true)
-    private void onMouseScroll(long window, double scrollDeltaX, double scrollDeltaY, CallbackInfo ci) {
-        if (!PhoneOverlay.shouldCaptureMouse()) return;
-
-        double guiX = this.xpos * minecraft.getWindow().getGuiScaledWidth() / minecraft.getWindow().getScreenWidth();
-        double guiY = this.ypos * minecraft.getWindow().getGuiScaledHeight() / minecraft.getWindow().getScreenHeight();
-
-        PhoneOverlay.handleMouseScroll(guiX, guiY, scrollDeltaY);
-        ci.cancel();
     }
 }

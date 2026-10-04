@@ -49,8 +49,43 @@ public class PhoneOverlay {
         MESSAGE, CONTACT, SETTINGS
     }
 
-    private static boolean visible = false;
-    private static boolean altDown = false;
+    /**
+     * 手机 UI 的<b>渲染形式</b>（期 1：两种屏幕互斥）。
+     * <p>
+     * 与「开/关」（{@link #phoneOpen}）正交：{@code phoneOpen} 说的是"手机的页面栈开没开、
+     * 停留在哪一页"，{@link #renderMode} 说的是"这开着的 UI 画到哪里去"。
+     * <p>
+     * 拆开之后「掏出即渲染」才成立：玩家把手伸进主手 = 掏手机，
+     * 不需要再按一次 O 才算"打开"，也<b>不再需要低头到阈值才亮屏</b> ——
+     * 低头阈值从此只管「操控」（光标能动 + 相机降速），不管「显示」。
+     */
+    public enum RenderMode {
+        /** 不画任何东西（但 {@link #phoneOpen} 可以仍是 true，页面栈保留） */
+        NONE,
+        /**
+         * 贴到玩家主手那台 3D 手机的屏幕面上（离屏纹理）。
+         * 判据见 {@link #hasModelScreen()}：主手真的是 Pro 手机 + 第一人称。
+         */
+        MODEL,
+        /**
+         * 原版悬浮窗（屏幕空间）。由 O 键<b>显式</b>召唤 —— 这是刻意保留的"特殊手段"：
+         * 玩家不想用模型屏可以不用，但查看消息这类场景不能没有它。
+         */
+        FLOATING
+    }
+
+    /** 页面栈是否开着（手机的"逻辑开/关"）；真正的可见性见 {@link #isVisible()} */
+    private static boolean phoneOpen = false;
+    /** 这一开着的 UI 画到哪里去；与 {@link #phoneOpen} 正交 */
+    private static RenderMode renderMode = RenderMode.NONE;
+    /**
+     * 上一 tick 主手是否<b>真的</b>在举着 Pro 手机（{@link ProPhoneHandRenderer#isActive()}）。
+     * <p>
+     * 只用于「掏出即渲染」的<b>上升沿</b>检测：从"没举着"变成"举着"的那一刻自动打开手机。
+     * 必须存边沿而不是存状态 —— 否则玩家按 O 收起手机后，下一 tick 又会被无条件打开，
+     * 形成"关不掉"的循环。
+     */
+    private static boolean holderWasActive = false;
     /** 是否处于 HuhuTalk App 内容区（显示底部导航）；false = 桌面模式 */
     private static boolean inChatApp = false;
 
@@ -289,9 +324,7 @@ public class PhoneOverlay {
      * 不存在"进了出不来"的情况。
      */
     public static boolean isScreenControl() {
-        return visible
-                && ProPhoneHandRenderer.isActive()
-                && filteredPitch >= LOOK_DOWN_DEG;
+        return isVisible() && filteredPitch >= LOOK_DOWN_DEG;
     }
 
     /**
@@ -316,7 +349,7 @@ public class PhoneOverlay {
      * 光标走自己的 {@code 原始增量 ÷ GUI Scale × 手机光标灵敏度}，两者互不干扰。
      */
     public static void onMouseDelta(double rawDx, double rawDy) {
-        if (!visible || phoneTotalHeight <= 0 || phoneWidth <= 0) {
+        if (!isVisible() || phoneTotalHeight <= 0 || phoneWidth <= 0) {
             return;
         }
         // turnPlayer 每帧都会被调用（鼠标没动时增量为 0）。
@@ -377,7 +410,7 @@ public class PhoneOverlay {
      * 另一颗侧键 = 一次完整右键（返回）。
      */
     public static void onPhoneSideButton(boolean clickButton, int action) {
-        if (!visible) {
+        if (!isVisible()) {
             return;
         }
         PhoneScreenTarget.markDirty();
@@ -409,7 +442,7 @@ public class PhoneOverlay {
      * 因此动画守卫、状态栏/底部导航命中、页面转发等逻辑<b>零重复</b>。
      */
     public static boolean handlePhoneLocalMouse(double relX, double relY, int button, int action) {
-        if (!visible) {
+        if (!isVisible()) {
             return false;
         }
         return handleMouseClicked(relX + phoneX, relY + renderedPhoneY, button, action);
@@ -440,10 +473,6 @@ public class PhoneOverlay {
      * 这正是「光标活在 Overlay 坐标系里」的关键好处：两个模式零额外适配。
      */
     private static void renderCursor(GuiGraphics graphics, int baseX, int baseY) {
-        // 旧通路（Alt）下系统光标可见，不重复画
-        if (shouldCaptureMouse()) {
-            return;
-        }
         int cx = baseX + Math.round(cursorLocalX());
         int cy = baseY + Math.round(cursorLocalY());
         // 状态可视化：操控态画亮、冻结态画暗 —— 让玩家一眼看出现在在哪个模式，
@@ -525,18 +554,107 @@ public class PhoneOverlay {
 
     // ==================== 状态控制 ====================
 
-    public static boolean shouldCaptureMouse() {
-        return visible && altDown && Minecraft.getInstance().screen == null;
+    /**
+     * 「掏出即渲染」：主手开始举着 Pro 手机的那一 tick，自动把手机 UI 打开。
+     * <p>
+     * 由 {@code ClientModEvents.onClientTick} 调用（不需要渲染上下文，只改状态）。
+     * <p>
+     * <b>为什么可以不做意图门</b>：主手被手机占着时玩家根本没法挖矿/攻击，
+     * "把手机拿在手里"本身就是一个足够强的意图。等到将来做副手持有时才需要重新评估 ——
+     * 副手的地图式持握始终垂直于视角，那时低头阈值这套判据会被彻底绕开。
+     * <p>
+     * <b>为什么只认上升沿</b>：见 {@link #holderWasActive}。
+     * 收起（O）之后只要不放下手机就不再自动打开，玩家说了算。
+     * <p>
+     * 刻意不管"举着手机但正在开 Screen"的情形：那属于输入屏（打字）场景，
+     * 手机本来就该保持可见，不需要在这里做任何事。
+     */
+    public static void onHolderTick() {
+        boolean active = ProPhoneHandRenderer.isActive();
+        boolean rising = active && !holderWasActive;
+        holderWasActive = active;
+        if (rising && !phoneOpen) {
+            // 掏出即渲染：走与 show() 同一套页面初始化规则（保留上次关闭时的页面）
+            if (pageStack.isEmpty()) {
+                inChatApp = false;
+                activeTab = Tab.MESSAGE;
+                pageStack.push(new MainPage());
+            }
+            phoneOpen = true;
+            renderMode = RenderMode.MODEL;
+            containerAnim = ContainerAnim.IDLE;
+            containerTween = null;
+            // 掏出手机 = 光标重新出生：回到顶栏正中（见 defaultCursorNY 的取舍说明）
+            resetCursorToSpawn();
+        }
     }
 
-    /** 打开/关闭手机（关闭时不清空页面栈） */
+    /** 相机拍照隐藏流程收尾后调用：让下次掏出重新走一遍上升沿 */
+    public static void armHolderAutoOpen() {
+        holderWasActive = false;
+    }
+
+    /** 当前渲染形式（不会返回 null） */
+    public static RenderMode getRenderMode() {
+        return renderMode;
+    }
+
+    /**
+     * 手机 UI 此刻是否要画出来。
+     * <p>
+     * <b>这是唯一的可见性判据</b>：{@code render}、光标、输入转发全部以它为准，
+     * 所以「两种屏幕互斥」是结构上成立的，而不是靠在各个分支里手动 if。
+     */
+    public static boolean isVisible() {
+        return phoneOpen && renderMode != RenderMode.NONE;
+    }
+
+    /** 是否正在把 UI 贴到主手那台 3D 手机上 */
+    public static boolean isModelScreen() {
+        return isVisible() && renderMode == RenderMode.MODEL;
+    }
+
+    /** 是否正在画原版悬浮窗 */
+    public static boolean isFloatingScreen() {
+        return isVisible() && renderMode == RenderMode.FLOATING;
+    }
+
+    /**
+     * 「贴到模型上」这件事此刻是否成立。
+     * <p>
+     * 委托给 {@link ProPhoneHandRenderer#isActive()} —— 即「主手真的是 Pro 手机 + 第一人称」。
+     * 刻意<b>不</b>包含低头阈值：掏出来就该亮屏，阈值只管操控（见 {@link #isScreenControl()}）。
+     * <p>
+     * 之所以必须复用这一个判据：离屏出图（{@link PhoneScreenTarget#update}）与贴图
+     * （{@link ProPhoneHandRenderer}）只要有一边判据不一致，就会出现
+     * "FBO 每帧出图却没人采样"或"采样到一张没人更新的纹理"这两类哑故障。
+     */
+    public static boolean hasModelScreen() {
+        return phoneOpen && ProPhoneHandRenderer.isActive();
+    }
+
+    /**
+     * O 键：唯一的显式通道。
+     * <ul>
+     *   <li>没掏出手机 → 掏出。主手有 Pro 手机则直接贴模型屏，否则退回悬浮窗（特殊手段）；</li>
+     *   <li>已掏出且<b>正在模型屏</b> → 切到悬浮窗（"O = 我就是要那块悬浮窗"）；</li>
+     *   <li>已掏出且正在悬浮窗 → 收起。</li>
+     * </ul>
+     */
     public static void toggle() {
-        if (visible) {
-            hide();
-        } else {
+        if (!phoneOpen) {
             show();
+            return;
         }
-        updateCursorMode();
+        if (renderMode == RenderMode.MODEL) {
+            // 模型屏优先，但 O 是玩家按下的显式意图 —— 让位给悬浮窗，手机仍拿在手里
+            renderMode = RenderMode.FLOATING;
+            containerAnim = ContainerAnim.IDLE;
+            containerTween = null;
+            PhoneScreenTarget.markDirty();
+            return;
+        }
+        hide();
     }
 
     private static void hide() {
@@ -553,9 +671,10 @@ public class PhoneOverlay {
         doHideNow();
     }
 
-    /** 立即隐藏手机（无动画）：清空拖动与容器动画状态，关闭输入屏，恢复鼠标 */
+    /** 立即隐藏手机（无动画）：清空拖动与容器动画状态，关闭输入屏 */
     private static void doHideNow() {
-        visible = false;
+        phoneOpen = false;
+        renderMode = RenderMode.NONE;
         dragging = false;
         // 收屏时清掉侧键按住状态，避免下次打开残留「按住中」
         cursorPressing = false;
@@ -567,20 +686,24 @@ public class PhoneOverlay {
         if (Minecraft.getInstance().screen instanceof PhoneInputScreen) {
             Minecraft.getInstance().setScreen(null);
         }
-        updateCursorMode();
     }
 
     /**
-     * 显示手机：保留上次关闭时的页面（页面栈不重置）。
+     * 掏出手机：保留上次关闭时的页面（页面栈不重置）。
      * 仅当栈为空（首次打开 / 新世界重置后）才进入手机桌面 MainPage；
      * 否则回到关闭前所在的页面（含 HuhuTalk 内容区顶层页与内部页）。
-     * 切屏动画开启时整机自屏幕底部向上滑入（ENTER），关闭时瞬时出现。
+     * <p>
+     * 显示形式按「手里有没有手机」自动选：主手 Pro 手机 + 第一人称 → 模型屏（即掏即用，
+     * 不需要按 O）；否则退回悬浮窗 —— 这就是 O 作为特殊手段的价值所在。
+     * 切屏动画（整机自屏幕底部上滑）只属于悬浮窗：模型屏是贴在手里那台模型上的，
+     * 走整机位移动画会连模型一起推走，没有意义。
      */
     private static void show() {
-        visible = true;
+        phoneOpen = true;
+        renderMode = ProPhoneHandRenderer.isActive() ? RenderMode.MODEL : RenderMode.FLOATING;
         // 掏出手机 = 光标重新出生：回到顶栏正中（见 defaultCursorNY 的取舍说明）
         resetCursorToSpawn();
-        if (uiAnimEnabled() && !captureHidden) {
+        if (renderMode == RenderMode.FLOATING && uiAnimEnabled() && !captureHidden) {
             containerAnim = ContainerAnim.ENTER;
             containerTween = new AnimTween();
         } else {
@@ -613,7 +736,7 @@ public class PhoneOverlay {
      * 播放期间普通点击屏蔽，右键可强制打断并出栈返回。
      */
     public static void launchApp(IPhonePage target, String appName) {
-        if (!visible) return;
+        if (!isVisible()) return;
         inChatApp = true;
         activeTab = Tab.MESSAGE;
         pageStack.clear();
@@ -636,8 +759,6 @@ public class PhoneOverlay {
         launchActive = false;
         launchTween = null;
     }
-
-    public static boolean isVisible() { return visible; }
 
     public static IPhonePage getCurrentPage() {
         return pageStack.isEmpty() ? null : pageStack.peek();
@@ -673,7 +794,7 @@ public class PhoneOverlay {
      * push 转场：新页从右侧伸出盖住当前页（当前页不动、被盖住）。
      */
     public static void pushPage(IPhonePage page) {
-        if (!visible) return;
+        if (!isVisible()) return;
         IPhonePage from = null;
         if (!pageStack.isEmpty()) {
             from = pageStack.peek();
@@ -729,20 +850,6 @@ public class PhoneOverlay {
         transIsPush = false;
     }
 
-    public static void setAltDown(boolean down) {
-        altDown = down;
-        updateCursorMode();
-    }
-
-    private static void updateCursorMode() {
-        Minecraft mc = Minecraft.getInstance();
-        if (shouldCaptureMouse()) {
-            mc.mouseHandler.releaseMouse();
-        } else if (mc.screen == null) {
-            mc.mouseHandler.grabMouse();
-        }
-    }
-
     /** 创建某个 tab 的顶层页 */
     private static IPhonePage createTopPage(Tab tab) {
         return switch (tab) {
@@ -774,6 +881,9 @@ public class PhoneOverlay {
         }
         grabPending = false;
         captureHidden = false;
+        // 隐藏期间 phoneOpen/renderMode 未动（只是本帧不画），但"是否举着手机"可能已经变了；
+        // 重新武装上升沿检测，避免恢复后出现一次莫名其妙的自动打开。
+        armHolderAutoOpen();
         java.util.function.Consumer<byte[]> cb = grabCallback;
         grabCallback = null;
         if (cb == null) {
@@ -786,9 +896,20 @@ public class PhoneOverlay {
     // ==================== 渲染 ====================
 
     public static void render(GuiGraphics graphics, float partialTick) {
-        if (!visible) return;
-
         boolean external = externalH > 0;
+
+        // ⚠ 两种屏幕互斥的**执行点**（顺序有意义）：
+        //   · 离屏出图（external）：只有「该贴到模型上」时才画。若此刻 renderMode 已被 O 切成
+        //     FLOATING，这里必须让位 —— 否则会把悬浮窗（带机壳、带屏幕空间坐标）画进纹理，
+        //     而模型屏那张四边形已经不再采样它，纯属浪费且会污染下次切回的残留画面。
+        //   · GUI 层：只有「正在画悬浮窗」时才画。renderMode == MODEL 时手机 UI 走的是
+        //     ProPhoneHandRenderer → PhoneScreenTarget.renderExternal 那条路，GUI 层插不上手，
+        //     所以这里必须退让，否则悬浮窗会和模型屏同时出现在屏幕上。
+        if (external) {
+            if (!hasModelScreen()) return;
+        } else if (!isFloatingScreen()) {
+            return;
+        }
 
         // 相机拍照临时隐藏：本帧不渲染手机，让后续抓取层拿到干净的纯游戏画面。
         // 离屏模式不适用该流程（它只服务于屏幕截图），故不做早退。
@@ -861,7 +982,12 @@ public class PhoneOverlay {
         }
 
         float animOffsetY = 0f;
-        if (!external && uiAnimEnabled()) {
+        // 呼出/收起（整机滑动）只属于悬浮窗：模型屏是贴在手里那台模型上的，
+        // 走整机位移动画没有意义（会把"贴在模型上的屏幕"一起推走）。
+        // 刻意用外部模式的判据而不是 renderMode：出图时 renderMode 可能是 MODEL 而
+        // external 为真，此时也不该有整机位移。
+        boolean containerAnimEligible = !external && renderMode == RenderMode.FLOATING;
+        if (containerAnimEligible && uiAnimEnabled()) {
             if (containerAnim != ContainerAnim.IDLE && containerTween != null) {
                 float raw = containerTween.raw();
                 float baseOffset = (float) (screenH - phoneY); // 静止位置到屏幕下缘的距离
@@ -881,11 +1007,12 @@ public class PhoneOverlay {
                     }
                 }
             }
-        } else if (!uiAnimEnabled()) {
+        } else if (!uiAnimEnabled() || renderMode != RenderMode.FLOATING) {
             // 全局总开关关闭：瞬时切换，重置动画状态。
             // ⚠ 必须是 else-if 而不是 else：离屏（模型屏）模式下第一支不成立，
             // 若落到 else 就会**每帧**把 transTween / launchActive 清掉 ——
             // 于是「点击 App 的切屏动画」在悬浮窗和模型屏两边都会消失（曾实测踩到）。
+            // 所以这里只重置**容器**动画，不碰页面转场。
             containerAnim = ContainerAnim.IDLE;
             containerTween = null;
             transTween = null;
@@ -1232,7 +1359,7 @@ public class PhoneOverlay {
     // ==================== 鼠标事件转发 ====================
 
     public static boolean handleMouseClicked(double screenX, double screenY, int button, int action) {
-        if (!visible) return false;
+        if (!isVisible()) return false;
         // 有输入 → 模型屏下一帧必须重绘（悬停/点击都会改变画面）
         PhoneScreenTarget.markDirty();
 
@@ -1244,7 +1371,6 @@ public class PhoneOverlay {
                     && button == GLFW.GLFW_MOUSE_BUTTON_RIGHT
                     && containerAnim == ContainerAnim.ENTER) {
                 hide();          // 紧急强制收起
-                updateCursorMode();
             }
             return true;
         }
@@ -1256,7 +1382,6 @@ public class PhoneOverlay {
                 forceFinishTransition();
                 forceFinishLaunch();
                 popPage();
-                updateCursorMode();
             }
             return true;
         }
@@ -1281,7 +1406,6 @@ public class PhoneOverlay {
             if (relY < UiFont.sh(STATUSBAR_H)) {
                 if (relX >= phoneWidth - 14 && relX <= phoneWidth) {
                     hide();
-                    updateCursorMode();
                 } else if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
                     dragging = true;
                     grabDX = (float) (screenX - phoneX);
@@ -1331,7 +1455,6 @@ public class PhoneOverlay {
                     popPage(); // 顶层页 → 返回桌面
                 } else {
                     hide();
-                    updateCursorMode();
                 }
                 return true;
             }
@@ -1344,7 +1467,7 @@ public class PhoneOverlay {
     }
 
     public static boolean handleMouseScroll(double screenX, double screenY, double scrollDelta) {
-        if (!visible) return false;
+        if (!isVisible()) return false;
         PhoneScreenTarget.markDirty();
         // 容器动画期间吞掉滚轮（呼出/收起时不可滚动页面）
         if (uiAnimEnabled() && containerAnim != ContainerAnim.IDLE) {
@@ -1369,7 +1492,9 @@ public class PhoneOverlay {
 
     /** 进入新世界时调用：关闭手机、清空页面栈（无动画，强制瞬时） */
     public static void resetForNewWorld() {
-        visible = false;
+        phoneOpen = false;
+        renderMode = RenderMode.NONE;
+        armHolderAutoOpen();
         dragging = false;
         // 新世界：光标回出生点（顶栏正中），并在下次渲染按真实手机高度校正
         resetCursorToSpawn();
@@ -1383,6 +1508,5 @@ public class PhoneOverlay {
         if (Minecraft.getInstance().screen instanceof PhoneInputScreen) {
             Minecraft.getInstance().setScreen(null);
         }
-        updateCursorMode();
     }
 }

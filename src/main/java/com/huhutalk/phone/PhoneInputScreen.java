@@ -155,13 +155,11 @@ public class PhoneInputScreen extends Screen {
     public void onClose() {
         super.onClose();
         chatPage.onInputClosed();
+        // 键盘交还给游戏：恢复鼠标抓取。
+        // （期 1 已拆除「按住 Alt 释放鼠标」那条旧通路，不存在需要保留正常光标的情形。）
         if (Minecraft.getInstance().screen == null) {
             long window = Minecraft.getInstance().getWindow().getWindow();
-            if (PhoneOverlay.shouldCaptureMouse()) {
-                GLFW.glfwSetInputMode(window, GLFW.GLFW_CURSOR, GLFW.GLFW_CURSOR_NORMAL);
-            } else {
-                GLFW.glfwSetInputMode(window, GLFW.GLFW_CURSOR, GLFW.GLFW_CURSOR_DISABLED);
-            }
+            GLFW.glfwSetInputMode(window, GLFW.GLFW_CURSOR, GLFW.GLFW_CURSOR_DISABLED);
         }
     }
 }

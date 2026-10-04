@@ -7,9 +7,9 @@
 
 ## 0. 一句话状态
 
-**期 0 / 1a / 1b / 1c 全部完成并已实机验收；期 1 收尾（拆旧输入通路 + 两种屏幕互斥）尚未开工。**
-当前可玩状态：主手拿 Pro 手机 + 按 O → 手机模型屏上显示真实 Overlay，低头 ≥40° 后可用鼠标侧键操控，视角在其他任何情况下都不受影响。
-最新改动（待实机验收）：**光标出生点改为顶栏正中**；**点输入框不再把手持模型踢回普通物品**（透明 `Screen` 与模型屏现在可共存）。
+**期 0 / 1a / 1b / 1c 全部完成并已实机验收；期 1 收尾（1d）已实现、待实机验收。**
+当前可玩状态：**主手拿出 Pro 手机 → 模型屏自动亮起**（不再需要按 O、也不再需要低头到阈值才显示）；低头 ≥40° 后可用鼠标侧键操控，视角在其他任何情况下都不受影响；按 O 可随时把 UI 切成悬浮窗。
+最新改动（待实机验收）：**光标出生点改为顶栏正中**；**点输入框不再把手持模型踢回普通物品**；**期 1 收尾三件套**（拆旧 Alt 通路 / 两种屏幕互斥 / 掏出即渲染）。
 
 ---
 
@@ -23,6 +23,7 @@
 | 1c | 「操控屏幕」状态机：低头阈值 + 相机降速 + 状态可视化 | 通过；阈值由 30° 调整为 **40°**，补上**顶栏放行** |
 | 1c+ | 独立光标**出生点 = 顶栏正中**（掏出手机即重置） | 待实机验收（见 §5.3-11） |
 | 1c++ | **修掉「点输入框手机就没」**：手持渲染不再因 `Screen` 打开而让位 | 已编译通过，待实机验收（见 §5.2-8） |
+| 1d | **期 1 收尾**：拆旧 Alt 通路 + `renderMode` 两种屏幕互斥 + 掏出即渲染 | 已编译通过，待实机验收（见 §4） |
 
 ---
 
@@ -34,11 +35,12 @@
 |---|---|
 | `client/render/ProPhoneHandRenderer.java` | **新增**。订阅 `RenderHandEvent` 接管第一人称手持渲染：双手姿势 + 手机本体 + 挂屏幕四边形。`ENABLED=false` 一键回到原版手持。接管判据集中在 `shouldRender(mc, stack)`，**不排除 Screen 打开**（见 §5.2-8） |
 | `client/render/PhoneScreenTarget.java` | **新增**。离屏帧缓冲、动态纹理注册、屏幕面矩形几何、出图驱动、dirty 判定、`DIAG` 探针 |
-| `phone/PhoneOverlay.java` | 手机 UI 总控。新增：`renderExternal`（离屏视口）、独立光标全套、`isScreenControl` 状态机、`LOOK_DOWN_DEG` |
-| `event/ClientModEvents.java` | 新增两个手机侧键位；`RenderFrameEvent.Pre` 出图 + 俯仰低通；`CalculatePlayerTurnEvent` 降速 |
-| `mixin/MouseHandlerMixin.java` | 鼠标输入**双通路分流**（旧 Alt 通路 + 新独立光标通路） |
+| `phone/PhoneOverlay.java` | 手机 UI 总控。新增：`renderExternal`（离屏视口）、独立光标全套、`isScreenControl` 状态机、`LOOK_DOWN_DEG`；**`RenderMode` 状态机 + `phoneOpen`（`isVisible()` 由两者算出）+ `onHolderTick()` 掏出即渲染** |
+| `event/ClientModEvents.java` | 新增两个手机侧键位；`RenderFrameEvent.Pre` 出图 + 俯仰低通；`CalculatePlayerTurnEvent` 降速；每 tick `PhoneOverlay.onHolderTick()`。~~`RELEASE_CURSOR` 键位~~ 已于期 1 删除 |
+| `mixin/MouseHandlerMixin.java` | 鼠标输入分流。期 1 后只剩**独立光标单通路**（`turnPlayer → onMouseDelta`、`onPress → onPhoneSideButton`，**都不 cancel**）；旧 Alt 的双分支已删 |
+| `phone/PhoneInputScreen.java` `phone/PhoneGroupNameInputScreen.java` | 透明输入屏（`render` 全空 + `isPauseScreen()==false`，只接键盘）。期 1 改了 `onClose()`：无条件恢复 `GLFW_CURSOR_DISABLED` |
 | `client/settings/HuhuTalkClientSettings.java` | 新增 `phoneCursorSensitivity`（默认 **1.2**） |
-| `lang/zh_cn.json` `lang/en_us.json` | 两个新键位的显示名 |
+| `lang/zh_cn.json` `lang/en_us.json` | 手机键位显示名（`release_cursor` 两条随旧通路一并删除） |
 
 ### 相邻但**本任务未改动**（别混淆）
 
@@ -53,7 +55,7 @@
 
 | 想调什么 | 文件 | 常量 / 键 | 当前值 |
 |---|---|---|---|
-| **低头进入阈值** | `PhoneOverlay` | `LOOK_DOWN_DEG` | **40f** |
+| **低头进入「操控」的阈值**（只管操控，**不管亮不亮屏**） | `PhoneOverlay` | `LOOK_DOWN_DEG` | **40f** |
 | 俯仰低通（消边界抖动） | `PhoneOverlay` | `PITCH_FILTER_MS` | `120f` |
 | **视角降速倍率** | `ClientModEvents` | `CAMERA_TURN_SCALE` | `0.25` |
 | 光标灵敏度 | `run/huhutalk/settings.json` | `phoneCursorSensitivity` | `1.2` |
@@ -70,12 +72,22 @@
 
 ## 4. 目标与剩余执行计划
 
-### 期 1 收尾（下一步）
+### 期 1 收尾（**已完成，待实机验收**）
 
-1. **拆除旧输入通路**：`ClientModEvents.RELEASE_CURSOR` 键位、`PhoneOverlay.updateCursorMode()` 的 `grabMouse/releaseMouse`、`shouldCaptureMouse()` 相关分支、`MouseHandlerMixin` 里两条旧分支。**前提：独立光标已验收（已完成）**
-2. **两种屏幕互斥**：手持 Pro 手机时**模型屏优先**，O 不再召唤悬浮窗（加一个"允许同时显示"的设置项，默认关）
-3. **掏出即渲染**：把 `PhoneOverlay.visible` 拆成 `appOpen` + `renderMode(FLOATING|MODEL|NONE)`，使"掏出手机"本身就等于打开
-   - ⚠ 注意：当前状态机要求 `visible`，所以**必须按 O 才会触发降速**（这其实是天然的意图门）。改成"掏出即渲染"后这个门会消失，误触发率会上升 —— 需要重新评估是否加显式意图（如侧键按下才进入操控态）
+1. **拆除旧输入通路** ✅
+   - 删 `ClientModEvents.RELEASE_CURSOR` 键位（含 `RegisterKeyMappingsEvent` 注册、`lang` 两条显示名）、`PhoneOverlay.setAltDown()`、`PhoneOverlay.updateCursorMode()`（`grabMouse/releaseMouse`）、`shouldCaptureMouse()`，以及 `MouseHandlerMixin` 里旧通路对 `turnPlayer`/`onPress`/`onScroll` 的 cancel 分支。
+   - `MouseHandlerMixin` 现在只剩两条**不 cancel** 的注入：`turnPlayer → onMouseDelta`（光标动）、`onPress → onPhoneSideButton`（侧键点）。
+   - `PhoneInputScreen` / `PhoneGroupNameInputScreen` 的 `onClose()` 改为无条件恢复 `GLFW_CURSOR_DISABLED`（原先按 `shouldCaptureMouse()` 分流）。
+2. **两种屏幕互斥** ✅ —— 由 `renderMode` 结构性保证，不是靠各分支手写 if：
+   - `render()` 里 `external ? !hasModelScreen() : !isFloatingScreen()` 是唯一分流点；
+   - `PhoneScreenTarget.update` / `renderScreen` 都改判 `hasModelScreen()`；
+   - **`MODEL` → `FLOATING` 的切换由 O 完成**（"O = 我就是要那块悬浮窗"，用户拍板）。不需要"允许同时显示"设置项 —— 结构上已经不可能同屏。
+3. **掏出即渲染** ✅
+   - `visible` 拆成 `phoneOpen`（页面栈开没开）+ `renderMode`（`MODEL` / `FLOATING` / `NONE`），`isVisible()` 由两者算出。
+   - `PhoneOverlay.onHolderTick()` 检测 **主手举起 Pro 手机的上升沿** → 自动 `phoneOpen = true; renderMode = MODEL`。由 `ClientModEvents.onClientTick` 每 tick 调用。
+   - ⚠ **必须存边沿**（`holderWasActive`）：若存状态，玩家按 O 收起后下一 tick 又被无条件打开，形成"关不掉"。`armHolderAutoOpen()` 供新世界/拍照恢复时重新武装。
+   - **不做意图门**（用户决策）：主手被手机占着时根本没法挖矿，掏出动作本身就是足够强的意图；误触发担忧不成立。等将来做**副手持有时再重新评估** —— 副手地图式持握始终垂直于视角，低头阈值那套判据会被彻底绕开。
+   - 连带：低头阈值**不再参与"亮不亮屏"**，只管「操控」（光标能动 + 相机降速）。整机呼出/收起滑动（`containerAnim`）现在只在 `FLOATING` 生效 —— 模型屏贴在手里那台模型上，整机位移没有意义。
 
 ### 期 2（画质与对齐）
 
@@ -89,9 +101,17 @@
 - **清理 `DIAG` 探针**（目前默认关，代码还在）
 - `PhoneInHandLayer` 里遗留的女仆侧诊断日志（历史遗留，见 `phone-model-notes.md` §9）
 
-### 预留
+### 预留 / 待办（用户提出，**明确不在本期做**）
 
+- **锁屏（防误触的替代方案）**：一段时间不操作手机 → 屏幕上贴一层黑色底色 + 时间，表示"已锁屏"。
+  - 这是**取代意图门**的方案：即拿即用不牺牲，误触由"静置后自动锁"挡住，而不是由"用之前先点一下"挡住。
+  - 用户判断：大部分玩家想要即拿即用，所以这是**后期优化，先不做**。
+- **副手持有手机**：副手拿着时手机始终垂直于视角（同副手地图），因此
+  - 低头/抬头那套**意图与朝向判据会整体失效**（不需要再关心低头阈值）；
+  - `shouldRender` / `hasModelScreen` / `LOOK_DOWN_DEG` 三者都需要重新设计，别直接复用主手这套。
 - 按 O 自动把主手物品换成手机 Item（用户提过，只加一个类即可）
+- **独立光标在"透明输入屏"期间冻结**（期 1 已知行为）：`turnPlayer` 只在鼠标被抓取时调用，输入屏必然释放鼠标。
+  目前判定为正确行为；若将来希望打字时也能用侧键移动光标，需要另开一条不依赖 `turnPlayer` 的喂入路径。
 
 ---
 
@@ -140,16 +160,22 @@
 12. **光标出生点必须在顶栏，不能在正中**：正中出生时，玩家低头进入操控态后的第一下鼠标移动（多半是继续下划）会把视角继续压下去，等他意识到屏幕已滑出视野，第一反应是上划 —— 而这一划又被 0.25 倍速拖住，体验上是"低头就完蛋"。放在顶栏正中则**出生即处于「顶栏放行」态**：上划视角全速（玩家立刻明白屏幕被放走了），下划才进入降速操控。**把出口放在默认状态上，玩家不需要先学会怎么退出。**
     实现有两个坑：① 顶栏高度是**手机局部像素**，得知道 `phoneTotalHeight` 才能换算成归一化值，而掏出手机那一刻布局还没算、两个模式的手机高度又不同 ⇒ 必须用 `cursorResetPending` 标记，推迟到 `render()` 里 `phoneTotalHeight = totalHeight` 之后再消费（`resetCursorToSpawn()` 会先按已知尺寸算一次，避免可见首帧错位）；② 出生点用**比例**表达，两个模式各自映射，别写成固定像素。
 
+13. **`isVisible()` 必须是**算出来的**，不能是字段**。期 1 把 `visible` 拆成 `phoneOpen`（页面栈开没开）+ `renderMode`（`MODEL`/`FLOATING`/`NONE`）之后，可见性 = `phoneOpen && renderMode != NONE`。这样「两种屏幕互斥」是**结构上成立**的：任何一处只要问 `isVisible()` 就自动正确，不需要在 20 多个早退点里手写 `&& renderMode == ...`。反过来，若保留一个 `visible` 字段再由各处手工维护，迟早会出现"悬浮窗和模型屏同时画"或"关不掉"。
+14. **「掏出即渲染」必须检测上升沿，不能检测状态**。`onHolderTick()` 里比对 `holderWasActive`（上一 tick 主手是否真举着手机）：只在**从没举着变成举着**的那一刻自动打开。若写成"只要举着就 `phoneOpen = true`"，玩家按 O 收起后下一 tick 立刻被重新打开 —— 表现为**手机永远关不掉**。`armHolderAutoOpen()` 供新世界/拍照流程恢复时重新武装，否则那些流程里状态翻转会被漏掉。
+15. **`Screen` 打开时 `turnPlayer` 根本不调用**（原版 `MouseHandler.handleAccumulatedMovement` 只在 `isMouseGrabbed()` 时调）。所以拆掉旧 Alt 通路之后，透明输入屏期间那只手机光标必然冻结 —— 这不是 bug，是"鼠标已交还 GUI"的正确表现。**别为此去加一条 `setScreen` 之外的喂入路径**，那会让真实光标和手机光标同时活着（旧通路的病根）。
+
 ### 5.4 API 与工具
 
-12. **真源码 jar**：`build/moddev/artifacts/neoforge-21.1.243-sources.jar`，用 `jar!/net/minecraft/.../Foo.java` 路径读，**带行号的真源码**。
+16. **真源码 jar**：`build/moddev/artifacts/neoforge-21.1.243-sources.jar`，用 `jar!/net/minecraft/.../Foo.java` 路径读，**带行号的真源码**。
     用 `neoforge-21.1.243-merged.jar!/...class` 读反编译版会被 `… N lines truncated …` 吃掉中间段，白花好几次查询。
-13. **`AbstractTexture.load(ResourceManager)` 是抽象方法**，必须实现（可空实现）；**`TextureManager.register(ResourceLocation, AbstractTexture)` 返回 `void`**（`String` 重载才是返回 `ResourceLocation` 的那个，但那是给 `DynamicTexture` 用的）。
-14. **日志节流必须按时间、不能按内容**：NDC 每帧都在变，按"内容相同才跳过"等于没节流 —— 上一版把 `latest.log` 刷到了近万行。
-15. 两个**免 mixin** 的官方钩子（优先用它们，别急着写 mixin）：
+    - ⚠ 补充（本次踩到）：`mcp__IDEA__read_file` 对**大文件**会在 110 行左右就 `… N lines truncated …`。可靠做法是把 jar 里的单个 `.java` 抽到 `build/tmpsrc/` 再用 `grep` / `read` 看（`Expand-Archive` 不认 `.jar` 后缀，先 `Copy-Item` 成 `.zip`，再用 `System.IO.Compression.ZipFile`）。
+17. **`AbstractTexture.load(ResourceManager)` 是抽象方法**，必须实现（可空实现）；**`TextureManager.register(ResourceLocation, AbstractTexture)` 返回 `void`**（`String` 重载才是返回 `ResourceLocation` 的那个，但那是给 `DynamicTexture` 用的）。
+18. **日志节流必须按时间、不能按内容**：NDC 每帧都在变，按"内容相同才跳过"等于没节流 —— 上一版把 `latest.log` 刷到了近万行。
+19. 两个**免 mixin** 的官方钩子（优先用它们，别急着写 mixin）：
     - `RenderHandEvent`（`ICancellableEvent`）—— 接管第一人称手持渲染
     - `CalculatePlayerTurnEvent.setMouseSensitivity` —— 改视角灵敏度
-16. **原版地图的双手持握是第一人称专属**：`ItemInHandRenderer.renderArmWithItem` 里 `stack.getItem() instanceof MapItem` 是硬编码特判；`HumanoidModel.ArmPose` 里**没有** MAP，第三人称不存在对应姿势（要做得自己扩展 `ArmPose` + mixin `PlayerRenderer`）。
+20. **原版地图的双手持握是第一人称专属**：`ItemInHandRenderer.renderArmWithItem` 里 `stack.getItem() instanceof MapItem` 是硬编码特判；`HumanoidModel.ArmPose` 里**没有** MAP，第三人称不存在对应姿势（要做得自己扩展 `ArmPose` + mixin `PlayerRenderer`）。
+21. **别把 `ClientHooks.guiLayers` 当成 HUD 层**：它是 NeoForge 的**父级 Screen 栈**（`pushGuiLayer/popGuiLayer` 用的），`drawScreen` 遍历它只是为了把下层 Screen 当背景画。真正的 HUD 层是 `GuiLayerManager`（`RegisterGuiLayersEvent` 的注册目标），只由 `Gui.render()` 驱动 —— 所以 `PhoneOverlay.render` 在开着 Screen 时不会被调用。
 
 ---
 

@@ -169,8 +169,8 @@ public final class PhoneScreenTarget {
             return;
         }
         Minecraft mc = Minecraft.getInstance();
-        if (!PhoneOverlay.isVisible()) {
-            // 收屏：下次打开一定重绘
+        if (!PhoneOverlay.hasModelScreen()) {
+            // 不贴模型（手机没掏出 / 已切到 O 的悬浮窗 / 第三人称）：下次贴上一定重绘
             dirty = true;
             return;
         }
@@ -288,8 +288,9 @@ public final class PhoneScreenTarget {
      * 结果机身盖住屏幕。
      */
     public static void renderScreen(PoseStack poseStack, MultiBufferSource buffer, int packedLight) {
-        // 手机 UI 没打开时不画屏幕（模型自带的屏幕贴图照常显示），避免残留上一帧画面
-        if (!PhoneOverlay.isVisible()) {
+        // 手机 UI 没打开时不画屏幕（模型自带的屏幕贴图照常显示），避免残留上一帧画面；
+        // 已切到 O 的悬浮窗时同样不画 —— 两种屏幕互斥，贴模型这条路整体让位
+        if (!PhoneOverlay.hasModelScreen()) {
             return;
         }
         if (renderType == null || fbo == null || usedPixelHeight <= 0) {
