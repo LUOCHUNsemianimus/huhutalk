@@ -67,7 +67,7 @@ public final class HuhuTalkClientSettings {
      * 视角走原版那条 {@code sensitivity³×8} 曲线 —— 两者同源、互不干扰，
      * 所以玩家可以一边转视角一边操作屏幕。
      */
-    private static float phoneCursorSensitivity = 0.45f;
+    private static float phoneCursorSensitivity = 1.2f;
     /** 女仆手动分组：stableId -> 分组名 */
     private static final Map<String, String> maidGroups = new HashMap<>();
     /** 玩家自定义的分组名列表（持久化；联系人页会把其中的分组（含空组）也展示出来） */
@@ -359,7 +359,7 @@ public final class HuhuTalkClientSettings {
             screenBrightness = data.screenBrightness == null
                     ? 1f : Math.max(0f, Math.min(1f, data.screenBrightness));
             phoneCursorSensitivity = data.phoneCursorSensitivity == null
-                    ? 0.45f : Math.max(0.05f, Math.min(2.0f, data.phoneCursorSensitivity));
+                    ? 1.2f : Math.max(0.05f, Math.min(2.0f, data.phoneCursorSensitivity));
             if (data.huhutalkIconStyle != null) setHuhutalkIconStyle(data.huhutalkIconStyle);
             maidGroups.clear();
             if (data.maidGroups != null) {
@@ -443,7 +443,7 @@ public final class HuhuTalkClientSettings {
         long maxTypingMs;
         float uiFontScale;
         Float screenBrightness; // 可空：缺失时默认满亮度 1.0
-        Float phoneCursorSensitivity; // 可空：缺失时默认 0.45
+        Float phoneCursorSensitivity; // 可空：缺失时默认 1.2
         String huhutalkIconStyle; // 可空：缺失时默认 symbol2
         Map<String, String> maidGroups;
         List<String> customGroupNames;

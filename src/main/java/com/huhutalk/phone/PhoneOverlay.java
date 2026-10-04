@@ -2,6 +2,7 @@ package com.huhutalk.phone;
 
 import com.huhutalk.HuhuTalk;
 import com.huhutalk.client.render.PhoneScreenTarget;
+import com.huhutalk.client.render.ProPhoneHandRenderer;
 import com.huhutalk.client.settings.HuhuTalkClientSettings;
 import com.huhutalk.client.theme.ColorScheme;
 import com.huhutalk.client.theme.PhoneCaseRenderer;
@@ -140,12 +141,55 @@ public class PhoneOverlay {
     /** 拖动多少 GUI 单位折算 1 个单位滚轮（各页 mouseScrolled 按 scrollDelta×10 像素滚动） */
     private static final double DRAG_PIXELS_PER_SCROLL_UNIT = 10.0;
 
-    /** 光标位置（手机局部坐标：相对手机左上角，含状态栏） */
-    private static float cursorX = 0f;
-    private static float cursorY = 0f;
-    /** 手机整体高度（状态栏 + 内容 + 水印栏）；渲染时更新，供光标钳制 */
+    // -------------------- 「操控屏幕」状态机 --------------------
+    //
+    // 目的：鼠标同时驱动视角与光标时，玩家想把光标移到屏幕上沿，视角却先抬起来看不到屏幕了。
+    // 量化过：光标走完全屏需要约 1950 鼠标像素，同样的位移会让俯仰变化约 292° —— 两个速度差 5~20 倍，
+    // 所以只能压低视角转速（或改手机倾角），单纯调光标灵敏度在数学上不可能成立。
+    //
+    // 判定：持有 Pro 手机 + 掏出手机（Overlay 已开）+ 低头 >= LOOK_DOWN_DEG。
+    //   · 在内：光标可动、视角转速 ×CAMERA_TURN_SCALE
+    //   · 在外：光标冻结、视角完全原版
+    //
+    // ⚠ 进入与退出**共用同一个阈值**（无滞回带）。这是刻意的取舍：
+    //   状态是俯仰角的纯函数 → 玩家随时抬头越过阈值就能退出，绝不会"进了出不来"，
+    //   而且他感到变慢的那一刻必然正低头看着手机屏幕，能自然归因。
+
+    /**
+     * 进入/退出「操控屏幕」的低头阈值（度）。MC 约定：xRot <b>正值</b> 代表低头。
+     * <p>
+     * 取 40 而不是 30 的原因（实机结论）：从 0° 低头到 30° 的过程正是<b>手机模型从前倾转到正对视线</b>
+     * 的过程 —— 30° 时屏幕虽然能操作，但还没回正、读着别扭。40° 基本就是"屏幕正对你"的姿态。
+     * <p>
+     * <b>人工微调入口</b>：改这一个常量即可（没有别处硬编码 30/40）。
+     */
+    private static final float LOOK_DOWN_DEG = 40f;
+    /**
+     * 俯仰低通时间常数（毫秒）。
+     * <p>
+     * 单阈值 + 「光标能动/不能动」是硬状态，若玩家俯仰恰好停在阈值附近，
+     * 鼠标微动会让光标在能动与冻结之间高频来回跳。对俯仰做低通再比较阈值即可消掉，
+     * 阈值本身仍是单值、仍随时可退出 —— 这不是滞回带。
+     */
+    private static final float PITCH_FILTER_MS = 120f;
+
+    /** 低通后的俯仰角（度） */
+    private static float filteredPitch = 0f;
+    private static long lastPitchSampleAt = 0L;
+
+    /**
+     * 光标位置，<b>归一化</b>到手机矩形的 0~1（而不是手机局部像素）。
+     * <p>
+     * 必须归一化：手机逻辑尺寸在两个模式下并不相同 —— 模型屏画布由 PhoneScreenTarget 定
+     * （例如 119×219），悬浮窗由「屏幕逻辑高 × phoneSize」定（例如 142×252）。
+     * 若按局部像素存储，光标会被两套矩形<b>交替钳制</b>、最终取到两者的交集，
+     * 于是较大那个屏幕上永远够不到右边和底边（实测踩到）。
+     * 归一化后两个模式看到的是同一个「相对位置」，各自映射到自己的矩形即可。
+     */
+    private static float cursorNX = 0.5f;
+    private static float cursorNY = 0.5f;
+    /** 手机整体高度（状态栏 + 内容 + 水印栏）；渲染时更新，供光标映射与钳制 */
     private static int phoneTotalHeight = 0;
-    private static boolean cursorInitialized = false;
     /** 侧键按住中 */
     private static boolean cursorPressing = false;
     private static float dragTotalX = 0f;
@@ -153,6 +197,70 @@ public class PhoneOverlay {
     private static boolean dragIsScroll = false;
     /** 拖动滚动的未消费余量（像素），避免小幅拖动被取整丢掉 */
     private static double scrollRemainder = 0.0;
+
+    /** 光标在手机局部像素坐标下的 X */
+    private static float cursorLocalX() {
+        return cursorNX * phoneWidth;
+    }
+
+    /** 光标在手机局部像素坐标下的 Y */
+    private static float cursorLocalY() {
+        return cursorNY * phoneTotalHeight;
+    }
+
+    private static float clamp01(float v) {
+        return v < 0f ? 0f : (v > 1f ? 1f : v);
+    }
+
+    /**
+     * 每帧更新俯仰低通（由 {@code ClientModEvents.onRenderFramePre} 调用）。
+     * 用真实时间做指数平滑，与帧率无关。
+     */
+    public static void updateLookFilter() {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.player == null) {
+            filteredPitch = 0f;
+            lastPitchSampleAt = 0L;
+            return;
+        }
+        float pitch = mc.player.getXRot();
+        long now = System.nanoTime();
+        if (lastPitchSampleAt == 0L) {
+            filteredPitch = pitch;
+            lastPitchSampleAt = now;
+            return;
+        }
+        float dtMs = (now - lastPitchSampleAt) / 1_000_000f;
+        lastPitchSampleAt = now;
+        float alpha = Math.min(1f, dtMs / PITCH_FILTER_MS);
+        filteredPitch += (pitch - filteredPitch) * alpha;
+    }
+
+    /**
+     * 当前是否处于「操控屏幕」态：手机已掏出、主手确实拿着 Pro 手机、且低头 ≥ 阈值。
+     * <p>
+     * 这是<b>纯函数</b>（除俯仰低通外无内部状态），所以随时抬头就能退出，
+     * 不存在"进了出不来"的情况。
+     */
+    public static boolean isScreenControl() {
+        return visible
+                && ProPhoneHandRenderer.isActive()
+                && filteredPitch >= LOOK_DOWN_DEG;
+    }
+
+    /**
+     * 独立光标是否停在顶部状态栏里。
+     * <p>
+     * 用途：作为「顶栏放行相机」的判据 —— 光标被推到顶栏时，视角转速<b>恢复正常</b>
+     * （但光标仍可动，可以再拉下来重新进入限速）。
+     * <p>
+     * 为什么必须有这条：玩家若在低头 90° 时掏出手机，退出操控态要靠抬头越过
+     * {@link #LOOK_DOWN_DEG} —— 而在 0.25 倍转速下爬完这 50° 要四倍的鼠标位移，很难受。
+     * 把光标推到顶栏就是那条"快速松手"的出路（实机反馈补上）。
+     */
+    public static boolean isCursorInTopBar() {
+        return cursorLocalY() < UiFont.sh(STATUSBAR_H);
+    }
 
     /**
      * 独立光标：接收鼠标原始增量。
@@ -170,6 +278,11 @@ public class PhoneOverlay {
         if (rawDx == 0.0 && rawDy == 0.0) {
             return;
         }
+        // 不在「操控屏幕」态（没低头看屏幕）时光标冻结 ——
+        // 这是「手机只做加法」原则的唯一例外，且严格限定在持有 Pro 手机 + 掏出手机时。
+        if (!isScreenControl()) {
+            return;
+        }
         double guiScale = Math.max(1.0, Minecraft.getInstance().getWindow().getGuiScale());
         float sensitivity = HuhuTalkClientSettings.getPhoneCursorSensitivity();
         moveCursor((float) (rawDx / guiScale * sensitivity), (float) (rawDy / guiScale * sensitivity));
@@ -177,9 +290,10 @@ public class PhoneOverlay {
 
     /** 按手机局部坐标移动光标，并处理「按住拖动 = 滚动」手势 */
     private static void moveCursor(float dx, float dy) {
-        cursorX = Math.max(0f, Math.min(phoneWidth, cursorX + dx));
-        cursorY = Math.max(0f, Math.min(phoneTotalHeight, cursorY + dy));
-        cursorInitialized = true;
+        // dx/dy 是手机局部像素增量，按当前矩形折算成归一化增量 ——
+        // 这样两个模式下「划同样距离 = 走同样比例」，且两边都能走到四边。
+        cursorNX = clamp01(cursorNX + dx / Math.max(1f, phoneWidth));
+        cursorNY = clamp01(cursorNY + dy / Math.max(1f, phoneTotalHeight));
 
         if (cursorPressing) {
             dragTotalX += dx;
@@ -197,14 +311,14 @@ public class PhoneOverlay {
                 if (whole != 0.0) {
                     scrollRemainder -= whole * DRAG_PIXELS_PER_SCROLL_UNIT;
                     // 内容跟手：往下拖（dy>0）= 看更早的内容 = scrollDelta 取正
-                    handlePhoneLocalScroll(cursorX, cursorY, whole);
+                    handlePhoneLocalScroll(cursorLocalX(), cursorLocalY(), whole);
                 }
             }
         } else {
             // 悬停高亮：把移动转发给页面（坐标与点击完全一致）
             IPhonePage page = getCurrentPage();
-            if (page != null && cursorY >= UiFont.sh(STATUSBAR_H)) {
-                page.mouseMoved(cursorX, cursorY - UiFont.sh(STATUSBAR_H));
+            if (page != null && cursorLocalY() >= UiFont.sh(STATUSBAR_H)) {
+                page.mouseMoved(cursorLocalX(), cursorLocalY() - UiFont.sh(STATUSBAR_H));
             }
         }
         PhoneScreenTarget.markDirty();
@@ -229,16 +343,16 @@ public class PhoneOverlay {
                 dragTotalY = 0f;
                 scrollRemainder = 0.0;
             } else {
-                handlePhoneLocalMouse(cursorX, cursorY, GLFW.GLFW_MOUSE_BUTTON_RIGHT, GLFW.GLFW_PRESS);
-                handlePhoneLocalMouse(cursorX, cursorY, GLFW.GLFW_MOUSE_BUTTON_RIGHT, GLFW.GLFW_RELEASE);
+                handlePhoneLocalMouse(cursorLocalX(), cursorLocalY(), GLFW.GLFW_MOUSE_BUTTON_RIGHT, GLFW.GLFW_PRESS);
+                handlePhoneLocalMouse(cursorLocalX(), cursorLocalY(), GLFW.GLFW_MOUSE_BUTTON_RIGHT, GLFW.GLFW_RELEASE);
             }
             return;
         }
         if (action == GLFW.GLFW_RELEASE && clickButton && cursorPressing) {
             cursorPressing = false;
             if (!dragIsScroll) {
-                handlePhoneLocalMouse(cursorX, cursorY, GLFW.GLFW_MOUSE_BUTTON_LEFT, GLFW.GLFW_PRESS);
-                handlePhoneLocalMouse(cursorX, cursorY, GLFW.GLFW_MOUSE_BUTTON_LEFT, GLFW.GLFW_RELEASE);
+                handlePhoneLocalMouse(cursorLocalX(), cursorLocalY(), GLFW.GLFW_MOUSE_BUTTON_LEFT, GLFW.GLFW_PRESS);
+                handlePhoneLocalMouse(cursorLocalX(), cursorLocalY(), GLFW.GLFW_MOUSE_BUTTON_LEFT, GLFW.GLFW_RELEASE);
             }
             dragIsScroll = false;
         }
@@ -284,15 +398,16 @@ public class PhoneOverlay {
         if (shouldCaptureMouse()) {
             return;
         }
-        if (cursorX < 0f || cursorY < 0f || cursorX > phoneWidth || cursorY > phoneTotalHeight) {
-            return;
-        }
-        int cx = baseX + Math.round(cursorX);
-        int cy = baseY + Math.round(cursorY);
-        int outer = cursorPressing && !dragIsScroll ? 15 : 11;
-        UiShapes.fillRoundedRect(graphics, cx - outer / 2, cy - outer / 2, outer, outer, outer / 2, 0x55FFFFFF);
-        UiShapes.fillRoundedRect(graphics, cx - 3, cy - 3, 6, 6, 3, 0xFFFFFFFF);
-        UiShapes.fillRoundedRect(graphics, cx - 1, cy - 1, 2, 2, 1, 0xFFDE7E7E);
+        int cx = baseX + Math.round(cursorLocalX());
+        int cy = baseY + Math.round(cursorLocalY());
+        // 状态可视化：操控态画亮、冻结态画暗 —— 让玩家一眼看出现在在哪个模式，
+        // 永远不需要猜"为什么光标不动了 / 为什么视角变慢了"。
+        boolean active = isScreenControl();
+        int outer = active && cursorPressing && !dragIsScroll ? 15 : 11;
+        UiShapes.fillRoundedRect(graphics, cx - outer / 2, cy - outer / 2, outer, outer, outer / 2,
+                active ? 0x55FFFFFF : 0x22FFFFFF);
+        UiShapes.fillRoundedRect(graphics, cx - 3, cy - 3, 6, 6, 3, active ? 0xFFFFFFFF : 0x88FFFFFF);
+        UiShapes.fillRoundedRect(graphics, cx - 1, cy - 1, 2, 2, 1, active ? 0xFFDE7E7E : 0x66DE7E7E);
     }
 
     // ==================== 访问器 ====================
@@ -651,14 +766,7 @@ public class PhoneOverlay {
         phoneWidth = external ? externalW : Math.max(MIN_PHONE_W, Math.min(width, screenW - 20));
         phoneHeight = Math.max(20, totalHeight - UiFont.sh(STATUSBAR_H) - UiFont.sh(WATERMARK_H));
         phoneTotalHeight = totalHeight;
-        // 独立光标：首次打开置于正中，之后沿用上次位置；每次都按当前矩形钳制
-        if (!cursorInitialized) {
-            cursorX = phoneWidth / 2f;
-            cursorY = totalHeight / 2f;
-            cursorInitialized = true;
-        }
-        cursorX = Math.max(0f, Math.min(phoneWidth, cursorX));
-        cursorY = Math.max(0f, Math.min(phoneTotalHeight, cursorY));
+        // 独立光标为归一化存储，天然自钳制；两个模式各自映射到自己的矩形
 
         // 默认锚点：屏幕模式锚右下角（右/下各留 10px）；模型屏锚画布左上角
         int defX = external ? 0 : screenW - phoneWidth - 10;
@@ -1210,8 +1318,9 @@ public class PhoneOverlay {
     public static void resetForNewWorld() {
         visible = false;
         dragging = false;
-        // 新世界：光标回到「未初始化」，下次打开置于手机正中
-        cursorInitialized = false;
+        // 新世界：光标回到手机正中
+        cursorNX = 0.5f;
+        cursorNY = 0.5f;
         cursorPressing = false;
         dragIsScroll = false;
         inChatApp = false;

@@ -12,6 +12,7 @@ import net.minecraft.resources.ResourceLocation;
 import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
+import net.neoforged.neoforge.client.event.CalculatePlayerTurnEvent;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.client.event.RegisterGuiLayersEvent;
 import net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent;
@@ -65,6 +66,33 @@ public class ClientModEvents {
         return mapping.getKey().getType() == InputConstants.Type.MOUSE && mapping.getKey().getValue() == button;
     }
 
+    /** 「操控屏幕」态下视角转动速度倍率（1.0 = 原版） */
+    private static final double CAMERA_TURN_SCALE = 0.25;
+
+    /**
+     * 在「操控屏幕」态下压低视角转速。
+     * <p>
+     * <b>硬约束</b>：不处于该状态时<b>完全不碰</b>这个事件 —— 既保持原版行为，也不覆盖其他模组的修改。
+     * 而该状态本身要求「手机已掏出 + 主手确实拿着 Pro 手机 + 低头 ≥ 阈值」，
+     * 因此绝不可能污染徒手 / 拿着别的物品 / 第三人称 / 开着界面等任何其他状态。
+     * <p>
+     * <b>顶栏放行</b>：光标被推到顶部状态栏时<b>也</b>不降速 —— 给玩家一条快速松手的出路
+     * （低头 90° 掏出手机时，靠 0.25 倍速抬头爬回阈值以上太难受）。此时光标仍可动，
+     * 拉下来就重新进入降速。
+     * <p>
+     * 原版曲线：{@code d2 = sens*0.6+0.2}、{@code d3 = d2³}、{@code d4 = d3*8}，最终转动量 ∝ d4。
+     * 想让转动变成 k 倍，需要 {@code d2' = d2 · k^(1/3)}，反解得 {@code sens' = (d2'−0.2)/0.6}。
+     */
+    @SubscribeEvent
+    public static void onCalculatePlayerTurn(CalculatePlayerTurnEvent event) {
+        if (!PhoneOverlay.isScreenControl() || PhoneOverlay.isCursorInTopBar()) {
+            return;
+        }
+        double d2 = event.getMouseSensitivity() * 0.6 + 0.2;
+        double scaled = d2 * Math.cbrt(CAMERA_TURN_SCALE);
+        event.setMouseSensitivity(Math.max(0.0, (scaled - 0.2) / 0.6));
+    }
+
     @SubscribeEvent
     public static void onClientTick(ClientTickEvent.Post event) {
         Minecraft mc = Minecraft.getInstance();
@@ -107,6 +135,8 @@ public class ClientModEvents {
      */
     @SubscribeEvent
     public static void onRenderFramePre(RenderFrameEvent.Pre event) {
+        // 俯仰低通：供「操控屏幕」状态机判定，须在离屏出图之前更新
+        PhoneOverlay.updateLookFilter();
         if (ProPhoneHandRenderer.isActive()) {
             PhoneScreenTarget.update(event.getPartialTick().getGameTimeDeltaTicks());
         } else {
