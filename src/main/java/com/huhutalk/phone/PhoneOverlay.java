@@ -233,6 +233,20 @@ public class PhoneOverlay {
     private static boolean cursorResetPending = false;
     /** 侧键按住中 */
     private static boolean cursorPressing = false;
+
+    /**
+     * 相机模式长按「保存到相册」的阈值（毫秒）。
+     * <p>
+     * 取 350：短于常见"手抖"时长（约 100ms）不会误触；又短到玩家按住时能立刻看到气泡，
+     * 不需要刻意"按久一点"。要改手感就改这一个数。
+     */
+    private static final long CAM_HOLD_SAVE_MS = 350L;
+    /** 相机模式当前按住的侧键：0=无，1=侧键4（左键），2=侧键5（右键） */
+    private static int cameraHoldButton = 0;
+    /** 该次按住开始的时间戳（毫秒） */
+    private static long cameraHoldStartAt = 0L;
+    /** 本次按住是否已经触发过"长按保存"，用于松开时不再补一次轻点动作 */
+    private static boolean cameraHoldFired = false;
     private static float dragTotalX = 0f;
     private static float dragTotalY = 0f;
     private static boolean dragIsScroll = false;
@@ -417,9 +431,7 @@ public class PhoneOverlay {
         // 相机模式：整条绕开光标，直接用侧键驱动屏幕上的按钮（见 handleCameraSideButton）。
         // 于是"抬头取景"和"按下拍照"不再抢同一个鼠标：视角照常自由转，动作交给侧键。
         if (isCameraMode()) {
-            if (action == GLFW.GLFW_PRESS) {
-                handleCameraSideButton(clickButton);
-            }
+            cameraSideButton(clickButton, action);
             return;
         }
         if (action == GLFW.GLFW_PRESS) {
@@ -462,35 +474,93 @@ public class PhoneOverlay {
     }
 
     /**
-     * 相机模式的侧键操作（<b>不经光标、不经坐标命中</b>）。
+     * 相机模式的侧键状态机（<b>不经光标、不经坐标命中</b>）。
+     *
+     * <h2>为什么相机模式要整条绕开光标</h2>
+     * 拍照需要自由转动视角去取景，而视角能转的前提是进「操控屏幕」态；可一旦进了操控态，
+     * 视角就被降到 0.25 倍速、且光标要一寸寸挪过去才能点到按钮 ——「抬头取景」和「点按钮」
+     * 这两件事在同一个鼠标上直接互斥。与其做一套光标灵敏度与视角灵敏度的耦合
+     * （代价大、手感也未必好），不如让相机界面压根不用光标：<b>鼠标只管视角，动作全交给侧键</b>。
+     *
+     * <h2>完整语义</h2>
+     * <table border="1">
+     *   <tr><th>当前状态</th><th>侧键 4（手机左键）</th><th>侧键 5（手机右键/返回）</th></tr>
+     *   <tr><td>取景中</td><td>轻点 = 拍照</td><td>退出相机模式，回聊天</td></tr>
+     *   <tr><td>已拍成</td><td>轻点 = 确认选中这张（回聊天，随文字一起发送）<br>
+     *       <b>长按 = 存入相册</b>（弹「已保存」气泡，留在已拍成页）</td>
+     *       <td>取消这张，回到取景中</td></tr>
+     * </table>
      * <p>
-     * <b>为什么相机模式要整条绕开光标</b>：拍照需要自由转动视角去取景，而视角能转的前提是
-     * 进「操控屏幕」态；可一旦进了操控态，视角就被降到 0.25 倍速、且光标要一寸寸挪过去才能点到按钮 ——
-     * 「抬头取景」和「点按钮」这两件事在同一个鼠标上直接互斥。与其去做一套光标灵敏度与视角灵敏度的
-     * 耦合（代价大、手感也未必好），不如让相机界面压根不用光标：<b>鼠标只管视角，动作全交给侧键</b>。
-     * <p>
-     * 键位语义直接对齐屏幕上那两个按钮，玩家不必把光标挪过去也能得到同样结果：
-     * <ul>
-     *   <li>侧键 4（手机左键 / 点击）→「拍照」；已拍过则→「确认」；
-     *   <li>侧键 5（手机右键 / 返回）→ 已拍过则点同位置的「重拍胶囊」丢弃这张、回到取景；
-     *       否则走右键返回语义（退出相机模式回聊天）。
-     * </ul>
-     * 实现上把点击<b>合成</b>成按钮中心的手机局部坐标再走 {@link #handleMouseClicked}，
-     * 因此按钮命中框、动画守卫、发送/保存流程全部复用同一条通路，零重复。
+     * <b>为什么保存要长按、且不离开</b>：确认（发送）与保存（存档）是两种意图，
+     * 但屏幕上只有一颗胶囊按钮。把"更重、更少见"的那个放到长按，既能区分意图，
+     * 又不需要给窄手机再加一颗按钮。保存后<b>刻意留在已拍成页</b>：玩家接着轻点 4 确认发送，
+     * 或点 5 重拍，两个方向都还留着选择。
+     *
+     * <h2>为什么动作要"合成点击"而不是直接调 ChatPage 的私有方法</h2>
+     * 合成成按钮中心的坐标再走 {@link #handleMouseClicked}，按钮命中外框、动画守卫、
+     * 发送/保存流程全部复用同一条通路 —— 按钮排版改了，侧键自动跟着改，
+     * 不会出现"按钮挪了但侧键还点老位置"这种暗病。
      */
-    private static boolean handleCameraSideButton(boolean clickButton) {
+    private static void cameraSideButton(boolean clickButton, int action) {
+        if (action == GLFW.GLFW_PRESS) {
+            cameraHoldButton = clickButton ? 1 : 2;
+            cameraHoldStartAt = System.currentTimeMillis();
+            cameraHoldFired = false;
+            return;
+        }
+        if (action != GLFW.GLFW_RELEASE) {
+            return;
+        }
+        int which = cameraHoldButton;
+        cameraHoldButton = 0;
+        if (which == 0) {
+            return;
+        }
+        // 长按已触发过（保存）：松开时不再补一次轻点动作
+        if (cameraHoldFired) {
+            cameraHoldFired = false;
+            return;
+        }
+        cameraHoldFired = false;
+        boolean click = which == 1;
         IPhonePage page = getCurrentPage();
-        if (!(page instanceof ChatPage cp)) {
-            return false;
+        if (page instanceof ChatPage cp) {
+            int[] target = cp.cameraSideButtonTarget(click);
+            if (target != null) {
+                synthClick(target[0], target[1]);
+            }
         }
-        int[] target = cp.cameraSideButtonTarget(clickButton);
-        if (target == null) {
-            return false;
+    }
+
+    /**
+     * 相机模式长按检测：按住侧键 4 到阈值即"存相册"，不必等松开。
+     * <p>
+     * 由 {@code ClientModEvents.onClientTick} 每 tick 调用（见 {@link #CAM_HOLD_SAVE_MS}）。
+     * 只对侧键 4 且"已拍成"页生效 —— 取景中长按没有可保存的对象。
+     */
+    public static void tickCameraHold() {
+        if (!isCameraMode() || cameraHoldButton != 1 || cameraHoldFired) {
+            return;
         }
-        double screenX = target[0] + phoneX;
-        double screenY = target[1] + renderedPhoneY;
+        if (System.currentTimeMillis() - cameraHoldStartAt < CAM_HOLD_SAVE_MS) {
+            return;
+        }
+        cameraHoldFired = true;
+        IPhonePage page = getCurrentPage();
+        if (page instanceof ChatPage cp) {
+            int[] target = cp.cameraSaveButtonTarget();
+            if (target != null) {
+                synthClick(target[0], target[1]);
+            }
+        }
+    }
+
+    /** 把手机局部坐标合成一次完整的左键按下+松开 */
+    private static void synthClick(int relX, int relY) {
+        double screenX = relX + phoneX;
+        double screenY = relY + renderedPhoneY;
         handleMouseClicked(screenX, screenY, GLFW.GLFW_MOUSE_BUTTON_LEFT, GLFW.GLFW_PRESS);
-        return handleMouseClicked(screenX, screenY, GLFW.GLFW_MOUSE_BUTTON_LEFT, GLFW.GLFW_RELEASE);
+        handleMouseClicked(screenX, screenY, GLFW.GLFW_MOUSE_BUTTON_LEFT, GLFW.GLFW_RELEASE);
     }
 
     /** 手机局部坐标滚轮（独立光标拖动滚动用），守卫条件与 {@link #handleMouseScroll} 保持一致 */
@@ -743,6 +813,9 @@ public class PhoneOverlay {
         dragging = false;
         // 收屏时清掉侧键按住状态，避免下次打开残留「按住中」
         cursorPressing = false;
+        // 相机长按同理：若在"按住侧键4"期间手机被收起，不能让状态悬挂到下次打开
+        cameraHoldButton = 0;
+        cameraHoldFired = false;
         dragIsScroll = false;
         containerAnim = ContainerAnim.IDLE;
         containerTween = null;

@@ -21,6 +21,7 @@ import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.client.event.RenderHandEvent;
+import org.slf4j.Logger;
 
 /**
  * 玩家「主手持 Pro 手机」的第一人称手持渲染（地图式双手持握）。
@@ -69,6 +70,8 @@ public final class ProPhoneHandRenderer {
     /** 总开关：false = 完全走原版手持渲染（期 0 的一键回退）。 */
     public static boolean ENABLED = true;
 
+    private static final Logger LOGGER = com.mojang.logging.LogUtils.getLogger();
+
     // ==================== 可调常量（期 0 人工微调区） ====================
 
     /** 手机整体缩放（0~1 空间；1.0 = 原尺寸，约 0.175 宽） */
@@ -95,12 +98,46 @@ public final class ProPhoneHandRenderer {
     //    实机表现就是"相机模式的手机莫名其妙变大"。
     //    若确实想让相机模式另用一套大小，请**把系数乘进 PHONE_SCALE**，不要在这里再 scale 一次。
 
+    /**
+     * 相机模式下加在俯仰角上的偏移（度），用来把 {@code tilt} 的判定点挪走。
+     *
+     * <h2>它解决的是什么</h2>
+     * {@code tilt = 1 − xRot/45 + 0.1}（再 clamp 到 0..1）的原始语义是：
+     * 平视 {@code tilt=1} → 手机转 −85°（几乎平躺）；低头 90° 时 {@code tilt=0} → 竖直正对视线。
+     * 这个"从平行地面滑到垂直视线"的过程<b>就是</b>手机随俯仰打转的唯一来源。
+     * <p>
+     * 关键：{@code tilt} 对 {@code xRot} 是<b>非线性</b>的，它引入的不是常数旋转量，
+     * <b>事后补任何常数角度都补不干净</b>（前两版就是死在这）。
+     * 正解是让它<b>不要产生</b>：把判定点挪到"抬头看天"，于是正常俯仰范围内 {@code tilt} 恒为 0，
+     * 手机先天垂直于视线。
+     *
+     * <h2>为什么是 +90 而不是 −90</h2>
+     * {@code xRot} 的约定是<b>低头为正</b>。代入要算给 {@link #calculateMapTilt} 的实参：
+     * <ul>
+     *   <li>平视 {@code xRot=0} → 实参 {@code +90} → {@code 1 − 90/45 + 0.1 = −0.9} → clamp <b>0</b> ✓</li>
+     *   <li>低头 {@code xRot=+90} → 实参 {@code +180} → 更负 → clamp <b>0</b> ✓</li>
+     *   <li>抬头 {@code xRot=−90} → 实参 {@code 0} → {@code 1.1} → clamp 1（此时才趋近平行，正是"判定点在看天"）</li>
+     * </ul>
+     * 反过来取 −90 会让平视和低头都算成 1，等于没挪。<b>改这个值前务必按上述三点验算一遍。</b>
+     */
+    private static final float CAM_TILT_REF_PITCH = 90.0F;
+
     /** 相机模式左右偏移（视线坐标系：+ = 屏幕右方） */
     private static final float CAM_OFFSET_X = 0.0F;
-    /** 相机模式上下偏移（视线坐标系：+ = 上。负值把手机压到视平线下方一点） */
-    private static final float CAM_OFFSET_Y = -0.06F;
-    /** 相机模式前后偏移（视线坐标系：− = 靠近脸；视平线在 −0.72 附近，别推太远会出视野） */
-    private static final float CAM_OFFSET_Z = -0.62F;
+    /**
+     * 相机模式上下偏移（视线坐标系：+ = 上）。
+     * <p>
+     * 取 {@code 0.04} = <b>与常态势握完全一致</b>。
+     * 常态势握的基准位移是 {@code translate(0, 0.04 + equippedProgress*-1.2 + tilt*-0.5, -0.72)}，
+     * 相机模式把 {@code tilt} 项去掉之后，只要 X/Y/Z 取 {@code 0 / 0.04 / -0.72}，
+     * 手机的<b>视距与高度</b>就和平时持握在同一处 —— 不会忽大忽小、也不会忽远忽近。
+     * <p>
+     * ⚠ 曾经写成 {@code -0.06 / -0.62}（比常态近 0.1 单位），实机表现就是
+     * "相机模式手机更靠近玩家、看起来更大" —— 那不是缩放问题，是<b>距离</b>问题（近大远小）。
+     */
+    private static final float CAM_OFFSET_Y = 0.04F;
+    /** 相机模式前后偏移（视线坐标系：− = 远离玩家。−0.72 = 常态势握的基准视距） */
+    private static final float CAM_OFFSET_Z = -0.72F;
     /** 相机模式俯仰（+ 让屏幕略微仰起/俯下，用于把取景框摆正对视线） */
     private static final float CAM_ROT_X = 0.0F;
     /**
@@ -114,6 +151,25 @@ public final class ProPhoneHandRenderer {
     private static final float CAM_ROT_Y = 0.0F;
     /** 相机模式翻滚（画面左右镜像/颠倒时先动这个） */
     private static final float CAM_ROT_Z = 0.0F;
+
+    /**
+     * 相机模式诊断探针（默认关）。
+     * <p>
+     * 置 {@code true} 后，只要处于相机模式就每 2 秒往 {@code latest.log} 打一行
+     * {@code [HuhuTalk/CamPose]}，内容是实时的 {@code xRot / tilt / 各相机常量}。
+     * <p>
+     * <b>它能一眼区分两类失败</b>，不再靠猜：
+     * <ul>
+     *   <li><b>日志根本没出现</b> → {@link PhoneOverlay#isCameraMode()} 没返回 true，
+     *       相机分支压根没执行（那旋转就来自别处，或页面状态没设上）；</li>
+     *   <li><b>日志出现且 {@code tilt≈0}</b> → 姿态计算是对的，
+     *       旋转来自别的地方（臂部动画、{@code swingProgress}、或 FBO 屏幕四边形）。</li>
+     * </ul>
+     * 与 {@code PhoneScreenTarget.DIAG} 同一个套路：<b>只按时间节流，不按内容</b>
+     * （内容每帧都变，按内容判重等于没节流）。
+     */
+    private static final boolean CAM_DIAG = false;
+    private static long camDiagLastAt = 0L;
 
     // ==================== 入口 ====================
 
@@ -176,18 +232,21 @@ public final class ProPhoneHandRenderer {
         float f2 = -0.4F * Mth.sin(f * (float) Math.PI);
         poseStack.translate(0.0F, -f1 / 2.0F, f2);
 
-        float tilt = calculateMapTilt(pitch);
+        // 相机模式：位移改用视线坐标系里的常量（此时 PoseStack 还没被 tilt 旋转，是唯一干净的时机）；
+        // 但 tilt 旋转**照旧保留** —— 手臂是在这一帧里画的，去掉它手就会和手机分家。
+        // 手机本体稍后由 applyCameraPose 精确抵消这一项即可。
+        //
+        // ⚠ 相机模式的 tilt 用**另一个参考俯仰**（见 CAM_TILT_REF_PITCH）：
+        // 取 +90 时，正常俯仰范围内 tilt 恒为 0 = 手机始终垂直于视线，先天就没有"随俯仰打转"。
+        float tilt = camera
+                ? calculateMapTilt(pitch + CAM_TILT_REF_PITCH)
+                : calculateMapTilt(pitch);
         if (camera) {
-            // 相机模式：平移必须在**视线坐标系**里做，不能沿用地图式那套。
-            // 本方法入口处 PoseStack 还在视线坐标系（调用方已应用玩家朝向旋转），
-            // 此处是唯一一次干净的位移机会；一旦做过 tilt 旋转，后续 translate 就会
-            // 落在"手机自己的旋转轴"上，偏移方向随视角漂移（实机表现为"位置总在往下偏"）。
             poseStack.translate(CAM_OFFSET_X, CAM_OFFSET_Y, CAM_OFFSET_Z);
         } else {
             poseStack.translate(0.0F, 0.04F + equippedProgress * -1.2F + tilt * -0.5F, -0.72F);
-            // 地图式俯仰补偿：tilt 是俯仰角的纯函数，把手机从"平行地面"一路转到"正对视线"
-            poseStack.mulPose(Axis.XP.rotationDegrees(tilt * -85.0F));
         }
+        poseStack.mulPose(Axis.XP.rotationDegrees(tilt * -85.0F));
 
         if (!player.isInvisible()) {
             poseStack.pushPose();
@@ -201,38 +260,59 @@ public final class ProPhoneHandRenderer {
         poseStack.mulPose(Axis.XP.rotationDegrees(f4 * 20.0F));
 
         if (camera) {
-            applyCameraPose(poseStack, player.getXRot());
+            applyCameraPose(poseStack, tilt);
+            camDiag(player.getXRot(), pitch, tilt);
         }
 
         renderPhoneBody(mc, player, poseStack, buffer, packedLight, stack);
     }
 
     /**
-     * 相机模式姿态：手机相对<b>视线</b>摆正，作为取景框。
-     *
-     * <h2>为什么需要 {@code -xRot} 这一项</h2>
-     * 默认的地图式持握里藏着 {@code tilt = calculateMapTilt(pitch)}：
-     * 平视（xRot=0）时 {@code tilt=1} → 绕 X 转 −85°（手机几乎水平）；
-     * 低头 90° 时 {@code tilt=0} → 不转（手机竖直、正对低头视线）。
-     * <p>
-     * 也就是说，手机"侧躺"的方向<b>在世界空间里随俯仰角滑动</b>：竖直的是世界 Y 轴，
-     * 而手机纵向轴在 90° 时就是世界 <b>Z 轴</b>。两个方向差 {@code 90° − xRot}。
-     * 相机模式不希望手机随"你看向哪儿"而转，所以把这一差值绕 Y <b>转回来</b>。
-     * <p>
-     * 轴选 Y 而不是 X：Y 与手机的屏幕纵向轴垂直，绕它转只改变屏幕朝向、
-     * <b>不会让画面上下颠倒</b>（绕 X 转 180° 就会翻）。
+     * 相机模式姿态：只做一件事 —— 抵消地图式 {@code tilt} 旋转，让手机相对视线恒定。     *
+     * <h2>为什么这里<b>不该</b>再补一个 {@code -xRot}（曾经的错误修法）</h2>
+     * 抵消掉 {@code tilt} 之后，手机在视线坐标系里的朝向已经只剩"视角自身的旋转"。
+     * 如果再乘一个 {@code RotY(-xRot)}：
+     * <ul>
+     *   <li>它绕的是<b>竖直轴</b>，而屏幕法线（正对玩家的方向）本来就落在这个轴的附近 ——
+     *       于是这个"水平旋转"对外表现成<b>画面内打转</b>，也就是玩家描述的"绕 Z 轴转"；</li>
+     *   <li>{@code RotX(-xRot)} 与 {@code RotY(-xRot)} <b>不对易</b>，
+     *       两者叠在一起永远不会互相抵消，只会合成一个随俯仰连续变化的歪斜 ——
+     *       这正是"怎么调都还在转"的原因。</li>
+     * </ul>
+     * 结论：手部那一路已经包含了正确的手感曲线，相机模式需要的是"把 tilt 变成 0"，
+     * <b>而不是在它之上再叠一层反向旋转</b>。
      *
      * <h2>尺寸：这里绝不能 scale</h2>
      * 缩放由 {@code renderPhoneBody} 统一施加 {@link #PHONE_SCALE}。
-     * 本方法曾在同一 PoseStack 上再乘一次缩放常量 —— 两个 3.0 相乘 = 实机 9 倍，
+     * 本方法曾在这里再乘一次缩放常量 —— 两个 3.0 相乘 = 实机 9 倍，
      * 表现就是"相机模式下的手机明显变大"（实机踩到）。
-     * <b>任何"相机模式专属缩放"都必须先乘进 {@link #PHONE_SCALE}，不能在这里另乘一次。</b>
+     * <b>任何"相机模式专属缩放"都必须乘进 {@link #PHONE_SCALE}，不能在这里另乘一次。</b>
      */
-    private static void applyCameraPose(PoseStack poseStack, float xRot) {
-        poseStack.mulPose(Axis.YP.rotationDegrees(-xRot));
+    private static void applyCameraPose(PoseStack poseStack, float tilt) {
+        // 唯一要做的事：把地图式 tilt 旋转抵消掉（CAM_TILT_REF_PITCH 已让它≈0，这里兜底）
+        poseStack.mulPose(Axis.XP.rotationDegrees(tilt * 85.0F));
+        // 相机模式自己的微调（默认全 0；实机现场调）
         poseStack.mulPose(Axis.XP.rotationDegrees(CAM_ROT_X));
         poseStack.mulPose(Axis.YP.rotationDegrees(CAM_ROT_Y));
         poseStack.mulPose(Axis.ZP.rotationDegrees(CAM_ROT_Z));
+    }
+
+    /** 见 {@link #CAM_DIAG}。只按时间节流。 */
+    private static void camDiag(float xRot, float interpPitch, float tilt) {
+        if (!CAM_DIAG) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        if (now - camDiagLastAt < 2000L) {
+            return;
+        }
+        camDiagLastAt = now;
+        LOGGER.info("[HuhuTalk/CamPose] xRot={} interpPitch={} tilt={} refPitch={} offsets=({},{},{}) rots=({},{},{})",
+                String.format(java.util.Locale.ROOT, "%.2f", xRot),
+                String.format(java.util.Locale.ROOT, "%.2f", interpPitch),
+                String.format(java.util.Locale.ROOT, "%.4f", tilt),
+                CAM_TILT_REF_PITCH, CAM_OFFSET_X, CAM_OFFSET_Y, CAM_OFFSET_Z,
+                CAM_ROT_X, CAM_ROT_Y, CAM_ROT_Z);
     }
 
     /**

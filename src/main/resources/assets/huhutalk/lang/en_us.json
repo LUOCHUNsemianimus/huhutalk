@@ -9,5 +9,6 @@
   "key.huhutalk.toggle_phone": "Open/Close Phone",
   "key.huhutalk.quick_voice": "Hold to talk (voice input)",
   "key.huhutalk.phone_click": "Phone left click (tap/confirm in phone)",
-  "key.huhutalk.phone_back": "Phone right click (back in phone)"
+  "key.huhutalk.phone_back": "Phone right click (back in phone)",
+  "huhutalk.toast.photo_saved": "Saved to gallery"
 }

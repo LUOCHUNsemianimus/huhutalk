@@ -100,6 +100,8 @@ public class ClientModEvents {
         }
         // 掏出即渲染：主手开始举着 Pro 手机的那一刻自动打开手机 UI
         PhoneOverlay.onHolderTick();
+        // 相机模式长按侧键 4 = 存相册（需在按住期间逐 tick 检查是否到达阈值）
+        PhoneOverlay.tickCameraHold();
         handleQuickVoice(mc);
     }
 

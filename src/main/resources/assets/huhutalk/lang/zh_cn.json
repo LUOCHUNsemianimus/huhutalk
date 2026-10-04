@@ -9,5 +9,6 @@
   "key.huhutalk.toggle_phone": "打开/关闭手机",
   "key.huhutalk.quick_voice": "按住说话（语音输入）",
   "key.huhutalk.phone_click": "手机左键（手机内点击/确认）",
-  "key.huhutalk.phone_back": "手机右键（手机内返回）"
+  "key.huhutalk.phone_back": "手机右键（手机内返回）",
+  "huhutalk.toast.photo_saved": "已保存到相册"
 }

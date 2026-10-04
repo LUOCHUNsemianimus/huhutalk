@@ -4,7 +4,9 @@ import com.mojang.blaze3d.platform.NativeImage;
 import com.mojang.blaze3d.systems.RenderSystem;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.Screenshot;
+import net.minecraft.client.gui.components.toasts.SystemToast;
 import net.minecraft.client.renderer.texture.DynamicTexture;
+import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 
 import java.io.ByteArrayInputStream;
@@ -102,9 +104,27 @@ public final class PhotoLibrary {
             Files.createDirectories(photoDir());
             String name = "photo_" + System.currentTimeMillis() + "_" + uniqueSuffix() + ".png";
             Files.write(photoDir().resolve(name), pngBytes);
+            savedToast();
             return name;
         } catch (IOException e) {
             return null;
+        }
+    }
+
+    /**
+     * 「已保存」提示气泡。
+     * <p>
+     * 用原版 {@code SystemToast} 而不是自绘：不占手机屏幕、不依赖 FBO 出图，
+     * 也不需要玩家正看着手机 —— 保存是一次"离线"副作用，提示理应独立于手机 UI。
+     * 失败（例如提示系统不可用）时静默放弃，绝不让保存本身因为提示而失败。
+     */
+    private static void savedToast() {
+        try {
+            Minecraft mc = Minecraft.getInstance();
+            mc.getToasts().addToast(new SystemToast(SystemToast.SystemToastId.PERIODIC_NOTIFICATION,
+                    Component.translatable("huhutalk.toast.photo_saved"), null));
+        } catch (Throwable ignored) {
+            // 提示只是锦上添花，任何异常都不该影响"照片已经落盘"这个事实
         }
     }
 

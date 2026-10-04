@@ -1530,17 +1530,16 @@ public class ChatPage implements IPhonePage {
 
     /**
      * 相机模式侧键的点击目标（<b>内容相对坐标</b>下的按钮中心），供
-     * {@code PhoneOverlay.handleCameraSideButton} 合成点击用。
+     * {@code PhoneOverlay.cameraSideButton} 合成点击用。
      * <p>
      * 之所以只给出"点哪儿"而不是直接暴露 {@code takePhoto/confirmPhoto/savePhoto}：
-     * 让侧键与屏幕上那两颗按钮走<b>同一条命中通路</b>，按钮的排版改了、命中框改了，
+     * 让侧键与屏幕上那几颗按钮走<b>同一条命中通路</b>，按钮的排版改了、命中框改了，
      * 侧键自动跟着改，不会出现"按钮挪了但侧键还点老位置"这种暗病。
      *
-     * <h2>侧键 5：先"保存"再"返回"</h2>
-     * 拍照界面上有两个都会离开相机的按钮 ——「保存」（写入图库）与「确认」（带进聊天不落盘）。
-     * 侧键 5 原本只做"返回"，那样刚拍的照片会白白丢掉。所以已拍过时，侧键 5 = 点「保存」：
-     * 先把照片落到图库（副作用是回到聊天页），再于下一次按下时走普通返回。这是这里唯一
-     * <b>刻意叠加</b>的一层语义，理由是"拍完反悔"比"拍完自动留存"更不常见。
+     * <h2>为什么"已拍成"时侧键 4 指向右下角</h2>
+     * 中间那颗胶囊在已拍成时会变成「重拍」，而「确认」在右下角。
+     * 玩家直觉是"再按一次 4 = 确认发送"，所以侧键 4 必须指向<b>确认</b>而不是中间那颗；
+     * 想丢掉重拍则交给侧键 5（它指向中间胶囊）。
      *
      * @param clickButton true = 侧键 4（左键/点击）；false = 侧键 5（右键/返回）
      * @return {x, y} 内容相对坐标；无可用目标时返回 null
@@ -1553,16 +1552,36 @@ public class ChatPage implements IPhonePage {
         int navH = navH();
         int btnH = UiFont.sh(28);
         int btnY = cameraButtonY();
+        boolean shot = cameraShot != null;
         if (clickButton) {
-            // 侧键 4：「拍照」/「重拍」胶囊（居中）
+            if (shot) {
+                // 已拍成：右下角「确认」→ 选中这张并回聊天（随后随文字一起发送）
+                return new int[]{w - UiFont.sh(54) + UiFont.sh(44) / 2, btnY + btnH / 2};
+            }
+            // 取景中：中间「拍照」胶囊
             return new int[]{w / 2, btnY + btnH / 2};
         }
-        if (cameraShot != null) {
-            // 侧键 5（已拍过）：右上角「保存」
-            return new int[]{w - UiFont.sh(54) + UiFont.sh(44) / 2, navH + UiFont.sh(8) + UiFont.sh(22) / 2};
+        if (shot) {
+            // 已拍成：中间「重拍」胶囊（丢弃这张，回到取景中）
+            return new int[]{w / 2, btnY + btnH / 2};
         }
-        // 侧键 5（未拍）：左上角返回
+        // 取景中：左上角返回
         return new int[]{UiFont.sh(20), navH / 2};
+    }
+
+    /**
+     * 相机「保存到相册」按钮的中心（内容相对坐标），供侧键<b>长按</b>合成点击用。
+     * <p>
+     * 与 {@link #cameraSideButtonTarget} 分开，是因为"保存"是长按触发的独立动作，
+     * 且按钮只在已拍成时存在；没有照片时返回 null，长按自然什么都不做。
+     */
+    public int[] cameraSaveButtonTarget() {
+        int w = phoneW();
+        if (w <= 0 || cameraShot == null) {
+            return null;
+        }
+        // 右上角「保存」胶囊
+        return new int[]{w - UiFont.sh(54) + UiFont.sh(44) / 2, navH() + UiFont.sh(8) + UiFont.sh(22) / 2};
     }
 
     /** 渲染相机界面：透明取景框（游戏透出）+ 四角边框 + 十字准星 + 底部控件 */
@@ -1684,12 +1703,17 @@ public class ChatPage implements IPhonePage {
         exitCameraMode();
     }
 
-    /** 保存：持久化到图库 → 返回聊天 */
+    /**
+     * 保存到相册：<b>留在已拍成页</b>，不退出相机。
+     * <p>
+     * 与 {@link #confirmPhoto()} 刻意区分：保存只是"把这张存下来"，玩家接下来仍可选择
+     * 轻点侧键 4 确认发送、或点侧键 5 重拍。若保存也直接退回聊天页，玩家就失去了选择，
+     * 也让"确认"与"保存"两个意图在结果上不可区分。
+     */
     private void savePhoto() {
         if (cameraShot != null) {
             PhotoLibrary.saveToGallery(cameraShot);
         }
-        exitCameraMode();
     }
 
     // ==================== 图片面板（🖼️） ====================
