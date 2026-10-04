@@ -60,6 +60,14 @@ public final class HuhuTalkClientSettings {
     private static String huhutalkIconStyle = "symbol2";
     /** 屏幕亮度（0~1，1=满亮度不调；往低调则变暗，最低叠 70% 黑色滤镜） */
     private static float screenBrightness = 1f;
+    /**
+     * 手机内独立光标的鼠标灵敏度（0.05~2.0）。
+     * <p>
+     * 与游戏「视角灵敏度」<b>无关</b>：光标吃的是鼠标原始增量 × 本系数 ÷ GUI Scale，
+     * 视角走原版那条 {@code sensitivity³×8} 曲线 —— 两者同源、互不干扰，
+     * 所以玩家可以一边转视角一边操作屏幕。
+     */
+    private static float phoneCursorSensitivity = 0.45f;
     /** 女仆手动分组：stableId -> 分组名 */
     private static final Map<String, String> maidGroups = new HashMap<>();
     /** 玩家自定义的分组名列表（持久化；联系人页会把其中的分组（含空组）也展示出来） */
@@ -285,6 +293,22 @@ public final class HuhuTalkClientSettings {
         screenBrightness = Math.max(0f, Math.min(1f, b));
     }
 
+    /** 手机内独立光标灵敏度（钳制 0.05~2.0） */
+    public static float getPhoneCursorSensitivity() {
+        return phoneCursorSensitivity;
+    }
+
+    /** 设置手机光标灵敏度并落盘 */
+    public static void setPhoneCursorSensitivity(float v) {
+        phoneCursorSensitivity = Math.max(0.05f, Math.min(2.0f, v));
+        save();
+    }
+
+    /** 拖动灵敏度滑块过程中的高频更新：只改内存，不落盘（松开时由调用方 save） */
+    public static void setPhoneCursorSensitivityRaw(float v) {
+        phoneCursorSensitivity = Math.max(0.05f, Math.min(2.0f, v));
+    }
+
     /** 设置某女仆手动分组；分组名为空则移除手动标记（回到默认按状态分组） */
     public static void setMaidGroup(String stableId, String group) {
         if (stableId == null) {
@@ -334,6 +358,8 @@ public final class HuhuTalkClientSettings {
             if (data.uiFontScale > 0f) uiFontScale = Math.max(0.5f, Math.min(2.0f, data.uiFontScale));
             screenBrightness = data.screenBrightness == null
                     ? 1f : Math.max(0f, Math.min(1f, data.screenBrightness));
+            phoneCursorSensitivity = data.phoneCursorSensitivity == null
+                    ? 0.45f : Math.max(0.05f, Math.min(2.0f, data.phoneCursorSensitivity));
             if (data.huhutalkIconStyle != null) setHuhutalkIconStyle(data.huhutalkIconStyle);
             maidGroups.clear();
             if (data.maidGroups != null) {
@@ -380,6 +406,7 @@ public final class HuhuTalkClientSettings {
             data.maxTypingMs = maxTypingMs;
             data.uiFontScale = uiFontScale;
             data.screenBrightness = screenBrightness;
+            data.phoneCursorSensitivity = phoneCursorSensitivity;
             data.huhutalkIconStyle = huhutalkIconStyle;
             data.maidGroups = maidGroups;
             data.customGroupNames = customGroupNames;
@@ -416,6 +443,7 @@ public final class HuhuTalkClientSettings {
         long maxTypingMs;
         float uiFontScale;
         Float screenBrightness; // 可空：缺失时默认满亮度 1.0
+        Float phoneCursorSensitivity; // 可空：缺失时默认 0.45
         String huhutalkIconStyle; // 可空：缺失时默认 symbol2
         Map<String, String> maidGroups;
         List<String> customGroupNames;

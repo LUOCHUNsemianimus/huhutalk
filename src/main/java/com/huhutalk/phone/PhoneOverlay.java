@@ -128,6 +128,173 @@ public class PhoneOverlay {
         return externalH > 0;
     }
 
+    // ==================== 独立光标（旁路输入） ====================
+    //
+    // 设计原则：手机只做加法，从不做减法 —— 鼠标移动照常转视角，左右键照常攻击/放置，
+    // 只有「手机侧键」这一路额外被手机接收。唯一例外是玩家主动点进文本输入框（真 Screen）。
+    // 光标画在 Overlay 自己的坐标系里，因此会随 Overlay 一起进入离屏纹理，
+    // 悬浮窗与模型屏两边的表现天然完全等价。
+
+    /** 拖动滚动的判定阈值（GUI 单位）：超过它才从「点击」升级为「滚动」 */
+    private static final float DRAG_SCROLL_THRESHOLD = 4f;
+    /** 拖动多少 GUI 单位折算 1 个单位滚轮（各页 mouseScrolled 按 scrollDelta×10 像素滚动） */
+    private static final double DRAG_PIXELS_PER_SCROLL_UNIT = 10.0;
+
+    /** 光标位置（手机局部坐标：相对手机左上角，含状态栏） */
+    private static float cursorX = 0f;
+    private static float cursorY = 0f;
+    /** 手机整体高度（状态栏 + 内容 + 水印栏）；渲染时更新，供光标钳制 */
+    private static int phoneTotalHeight = 0;
+    private static boolean cursorInitialized = false;
+    /** 侧键按住中 */
+    private static boolean cursorPressing = false;
+    private static float dragTotalX = 0f;
+    private static float dragTotalY = 0f;
+    private static boolean dragIsScroll = false;
+    /** 拖动滚动的未消费余量（像素），避免小幅拖动被取整丢掉 */
+    private static double scrollRemainder = 0.0;
+
+    /**
+     * 独立光标：接收鼠标原始增量。
+     * <p>
+     * 由 {@code MouseHandlerMixin} 在 {@code turnPlayer} 处喂入 —— 那里视角<b>照样</b>转，
+     * 所以这是「同源双路」：视角走原版的 {@code sensitivity³×8} 曲线，
+     * 光标走自己的 {@code 原始增量 ÷ GUI Scale × 手机光标灵敏度}，两者互不干扰。
+     */
+    public static void onMouseDelta(double rawDx, double rawDy) {
+        if (!visible || phoneTotalHeight <= 0 || phoneWidth <= 0) {
+            return;
+        }
+        // turnPlayer 每帧都会被调用（鼠标没动时增量为 0）。
+        // 这里必须提前返回：否则每帧都会标脏，dirty 机制直接失效。
+        if (rawDx == 0.0 && rawDy == 0.0) {
+            return;
+        }
+        double guiScale = Math.max(1.0, Minecraft.getInstance().getWindow().getGuiScale());
+        float sensitivity = HuhuTalkClientSettings.getPhoneCursorSensitivity();
+        moveCursor((float) (rawDx / guiScale * sensitivity), (float) (rawDy / guiScale * sensitivity));
+    }
+
+    /** 按手机局部坐标移动光标，并处理「按住拖动 = 滚动」手势 */
+    private static void moveCursor(float dx, float dy) {
+        cursorX = Math.max(0f, Math.min(phoneWidth, cursorX + dx));
+        cursorY = Math.max(0f, Math.min(phoneTotalHeight, cursorY + dy));
+        cursorInitialized = true;
+
+        if (cursorPressing) {
+            dragTotalX += dx;
+            dragTotalY += dy;
+            // 方向判定：纵向位移占优才升级为滚动（横向拖动不滚页面）
+            if (!dragIsScroll
+                    && Math.abs(dragTotalY) > DRAG_SCROLL_THRESHOLD
+                    && Math.abs(dragTotalY) > Math.abs(dragTotalX)) {
+                dragIsScroll = true;
+            }
+            if (dragIsScroll) {
+                scrollRemainder += dy;
+                double units = scrollRemainder / DRAG_PIXELS_PER_SCROLL_UNIT;
+                double whole = units >= 0 ? Math.floor(units) : Math.ceil(units);
+                if (whole != 0.0) {
+                    scrollRemainder -= whole * DRAG_PIXELS_PER_SCROLL_UNIT;
+                    // 内容跟手：往下拖（dy>0）= 看更早的内容 = scrollDelta 取正
+                    handlePhoneLocalScroll(cursorX, cursorY, whole);
+                }
+            }
+        } else {
+            // 悬停高亮：把移动转发给页面（坐标与点击完全一致）
+            IPhonePage page = getCurrentPage();
+            if (page != null && cursorY >= UiFont.sh(STATUSBAR_H)) {
+                page.mouseMoved(cursorX, cursorY - UiFont.sh(STATUSBAR_H));
+            }
+        }
+        PhoneScreenTarget.markDirty();
+    }
+
+    /**
+     * 独立光标：侧键事件（由 {@code MouseHandlerMixin} 转发，只有玩家绑定的侧键会走到这里）。
+     * <p>
+     * 手势：轻点 = 一次完整左键；按住纵向拖动 = 滚动（松开不再触发点击）；
+     * 另一颗侧键 = 一次完整右键（返回）。
+     */
+    public static void onPhoneSideButton(boolean clickButton, int action) {
+        if (!visible) {
+            return;
+        }
+        PhoneScreenTarget.markDirty();
+        if (action == GLFW.GLFW_PRESS) {
+            if (clickButton) {
+                cursorPressing = true;
+                dragIsScroll = false;
+                dragTotalX = 0f;
+                dragTotalY = 0f;
+                scrollRemainder = 0.0;
+            } else {
+                handlePhoneLocalMouse(cursorX, cursorY, GLFW.GLFW_MOUSE_BUTTON_RIGHT, GLFW.GLFW_PRESS);
+                handlePhoneLocalMouse(cursorX, cursorY, GLFW.GLFW_MOUSE_BUTTON_RIGHT, GLFW.GLFW_RELEASE);
+            }
+            return;
+        }
+        if (action == GLFW.GLFW_RELEASE && clickButton && cursorPressing) {
+            cursorPressing = false;
+            if (!dragIsScroll) {
+                handlePhoneLocalMouse(cursorX, cursorY, GLFW.GLFW_MOUSE_BUTTON_LEFT, GLFW.GLFW_PRESS);
+                handlePhoneLocalMouse(cursorX, cursorY, GLFW.GLFW_MOUSE_BUTTON_LEFT, GLFW.GLFW_RELEASE);
+            }
+            dragIsScroll = false;
+        }
+    }
+
+    /**
+     * 手机局部坐标点击。实现上直接借用屏幕坐标那条通路（把局部坐标加回手机左上角），
+     * 因此动画守卫、状态栏/底部导航命中、页面转发等逻辑<b>零重复</b>。
+     */
+    public static boolean handlePhoneLocalMouse(double relX, double relY, int button, int action) {
+        if (!visible) {
+            return false;
+        }
+        return handleMouseClicked(relX + phoneX, relY + renderedPhoneY, button, action);
+    }
+
+    /** 手机局部坐标滚轮（独立光标拖动滚动用），守卫条件与 {@link #handleMouseScroll} 保持一致 */
+    private static boolean handlePhoneLocalScroll(double relX, double relY, double scrollDelta) {
+        if (uiAnimEnabled() && containerAnim != ContainerAnim.IDLE) {
+            return true;
+        }
+        if (uiAnimEnabled() && (transTween != null || launchActive)) {
+            return true;
+        }
+        IPhonePage page = getCurrentPage();
+        if (page == null) {
+            return false;
+        }
+        if (relY < UiFont.sh(STATUSBAR_H)) {
+            return true;
+        }
+        return page.mouseScrolled(relX, relY - UiFont.sh(STATUSBAR_H), scrollDelta);
+    }
+
+    /**
+     * 独立光标本体：白色圆点 + 粉色芯，按住时外圈放大。
+     * <p>
+     * 画在 {@link #render} 内部（而不是 GUI 层），所以它会自动进入模型屏的离屏纹理 ——
+     * 这正是「光标活在 Overlay 坐标系里」的关键好处：两个模式零额外适配。
+     */
+    private static void renderCursor(GuiGraphics graphics, int baseX, int baseY) {
+        // 旧通路（Alt）下系统光标可见，不重复画
+        if (shouldCaptureMouse()) {
+            return;
+        }
+        if (cursorX < 0f || cursorY < 0f || cursorX > phoneWidth || cursorY > phoneTotalHeight) {
+            return;
+        }
+        int cx = baseX + Math.round(cursorX);
+        int cy = baseY + Math.round(cursorY);
+        int outer = cursorPressing && !dragIsScroll ? 15 : 11;
+        UiShapes.fillRoundedRect(graphics, cx - outer / 2, cy - outer / 2, outer, outer, outer / 2, 0x55FFFFFF);
+        UiShapes.fillRoundedRect(graphics, cx - 3, cy - 3, 6, 6, 3, 0xFFFFFFFF);
+        UiShapes.fillRoundedRect(graphics, cx - 1, cy - 1, 2, 2, 1, 0xFFDE7E7E);
+    }
+
     // ==================== 访问器 ====================
 
     /** 手机内容区宽度 */
@@ -229,6 +396,9 @@ public class PhoneOverlay {
     private static void doHideNow() {
         visible = false;
         dragging = false;
+        // 收屏时清掉侧键按住状态，避免下次打开残留「按住中」
+        cursorPressing = false;
+        dragIsScroll = false;
         containerAnim = ContainerAnim.IDLE;
         containerTween = null;
         forceFinishTransition();
@@ -480,6 +650,15 @@ public class PhoneOverlay {
         }
         phoneWidth = external ? externalW : Math.max(MIN_PHONE_W, Math.min(width, screenW - 20));
         phoneHeight = Math.max(20, totalHeight - UiFont.sh(STATUSBAR_H) - UiFont.sh(WATERMARK_H));
+        phoneTotalHeight = totalHeight;
+        // 独立光标：首次打开置于正中，之后沿用上次位置；每次都按当前矩形钳制
+        if (!cursorInitialized) {
+            cursorX = phoneWidth / 2f;
+            cursorY = totalHeight / 2f;
+            cursorInitialized = true;
+        }
+        cursorX = Math.max(0f, Math.min(phoneWidth, cursorX));
+        cursorY = Math.max(0f, Math.min(phoneTotalHeight, cursorY));
 
         // 默认锚点：屏幕模式锚右下角（右/下各留 10px）；模型屏锚画布左上角
         int defX = external ? 0 : screenW - phoneWidth - 10;
@@ -656,6 +835,9 @@ public class PhoneOverlay {
                         PhoneCaseRenderer.CORNER_RADIUS, PhoneCaseRenderer.CORNER_RADIUS, dimColor);
             }
         }
+
+        // 独立光标画在最上层。必须在 render 内部（而不是 GUI 层），才能随 Overlay 一起进离屏纹理。
+        renderCursor(graphics, phoneX, ry);
     }
 
     /**
@@ -1028,6 +1210,10 @@ public class PhoneOverlay {
     public static void resetForNewWorld() {
         visible = false;
         dragging = false;
+        // 新世界：光标回到「未初始化」，下次打开置于手机正中
+        cursorInitialized = false;
+        cursorPressing = false;
+        dragIsScroll = false;
         inChatApp = false;
         containerAnim = ContainerAnim.IDLE;
         containerTween = null;

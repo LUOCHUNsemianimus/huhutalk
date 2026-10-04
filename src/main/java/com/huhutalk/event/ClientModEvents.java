@@ -5,6 +5,7 @@ import com.huhutalk.client.render.ProPhoneHandRenderer;
 import com.huhutalk.phone.PhoneOverlay;
 import com.huhutalk.phone.IPhonePage;
 import com.huhutalk.phone.pages.ChatPage;
+import com.mojang.blaze3d.platform.InputConstants;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
 import net.minecraft.resources.ResourceLocation;
@@ -26,6 +27,17 @@ public class ClientModEvents {
             "key.huhutalk.release_cursor", GLFW.GLFW_KEY_LEFT_ALT, "key.category.huhutalk");
     public static final KeyMapping QUICK_VOICE = new KeyMapping(
             "key.huhutalk.quick_voice", GLFW.GLFW_KEY_H, "key.category.huhutalk");
+    /**
+     * 手机「左键」：独立光标下的点击/确认。默认鼠标侧键 4。
+     * <p>
+     * 之所以用侧键而不是原生左右键：那样鼠标左右键就能<b>完整留给游戏</b>（攻击/放置照常），
+     * 手机只额外接收侧键这一路 —— 视角转动、走路、攻击全都不受影响。
+     */
+    public static final KeyMapping PHONE_CLICK = new KeyMapping(
+            "key.huhutalk.phone_click", InputConstants.Type.MOUSE, GLFW.GLFW_MOUSE_BUTTON_4, "key.category.huhutalk");
+    /** 手机「右键」：独立光标下的返回上一页。默认鼠标侧键 5 */
+    public static final KeyMapping PHONE_BACK = new KeyMapping(
+            "key.huhutalk.phone_back", InputConstants.Type.MOUSE, GLFW.GLFW_MOUSE_BUTTON_5, "key.category.huhutalk");
 
     /** 正在按住 H 说话的聊天页（用于松手时停止录音） */
     private static ChatPage quickVoicePage = null;
@@ -35,6 +47,22 @@ public class ClientModEvents {
         event.register(TOGGLE_PHONE);
         event.register(RELEASE_CURSOR);
         event.register(QUICK_VOICE);
+        event.register(PHONE_CLICK);
+        event.register(PHONE_BACK);
+    }
+
+    /** 该鼠标按钮是否被玩家绑定为「手机左键」 */
+    public static boolean isPhoneClickButton(int button) {
+        return matchesMouseKey(PHONE_CLICK, button);
+    }
+
+    /** 该鼠标按钮是否被玩家绑定为「手机右键 / 返回」 */
+    public static boolean isPhoneBackButton(int button) {
+        return matchesMouseKey(PHONE_BACK, button);
+    }
+
+    private static boolean matchesMouseKey(KeyMapping mapping, int button) {
+        return mapping.getKey().getType() == InputConstants.Type.MOUSE && mapping.getKey().getValue() == button;
     }
 
     @SubscribeEvent
