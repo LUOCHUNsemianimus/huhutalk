@@ -1,5 +1,7 @@
 package com.huhutalk.phone.pages;
 
+import com.huhutalk.api.phone.PhoneApp;
+import com.huhutalk.api.phone.PhoneAppRegistry;
 import com.huhutalk.client.NotificationManager;
 import com.huhutalk.client.settings.HuhuTalkClientSettings;
 import com.huhutalk.network.C2SSOSPacket;
@@ -66,6 +68,52 @@ public class MainPage implements IPhonePage {
 
     /** APP 元数据（静态，类加载时由 {@link #buildApps()} 构建一次；供通用启动动画按名字查询） */
     private static final List<AppInfo> apps = buildApps();
+
+    /**
+     * 内置 App + 附属模组注册进来的 App 的<b>合并列表缓存</b>。
+     * <p>
+     * 为什么不直接把外部 App 塞进 {@link #apps}：{@code apps} 是 {@code static final}、
+     * 在类加载时定型，而附属模组的注册时机不由我们控制。改成「按注册版本号懒合并」之后，
+     * 附属模组<b>任何时候</b>注册都能在下一帧生效，也不会出现「注册成功但图标不出现」这种哑失败。
+     * <p>
+     * 位置稳定性：内置 App 恒定占据 0..N-1（网格布局按下标算），外部 App 一律追加在后面，
+     * 所以装不装附属模组都不会改变既有图标的排布。
+     */
+    private static List<AppInfo> mergedApps = null;
+    /** {@link #mergedApps} 对应的注册版本号；与 {@link PhoneAppRegistry#generation()} 不一致时重建 */
+    private static int mergedGeneration = -1;
+
+    /**
+     * 桌面当前应该显示的全部 App = 内置 {@link #apps} + {@link PhoneAppRegistry} 里的外部 App。
+     * <p>
+     * 每帧调用是便宜的：只有注册版本号变化时才真正重建列表。
+     * 首次调用会广播 {@link com.huhutalk.api.phone.PhoneAppRegisterEvent}（见 {@link PhoneAppRegistry#apps()}），
+     * 于是附属模组不需要关心"什么时候注册才来得及"。
+     */
+    private static List<AppInfo> allApps() {
+        // 顺序要紧：先取列表（这一步可能广播注册事件），再读版本号。
+        // 反过来会在"广播期间刚好有人注册"时把版本号读成旧值，导致缓存永不更新。
+        List<PhoneApp> external = PhoneAppRegistry.apps();
+        int generation = PhoneAppRegistry.generation();
+        if (mergedApps == null || mergedGeneration != generation) {
+            List<AppInfo> merged = new ArrayList<>(apps);
+            for (PhoneApp app : external) {
+                merged.add(toAppInfo(app));
+            }
+            mergedApps = merged;
+            mergedGeneration = generation;
+        }
+        return mergedApps;
+    }
+
+    /** 把外部注册的 {@link PhoneApp} 转成桌面内部使用的 {@link AppInfo}。 */
+    private static AppInfo toAppInfo(PhoneApp app) {
+        return new AppInfo(app.displayName(), app.iconColor(), app.centerText(), false,
+                app.centerScale(), app.centerColor(),
+                app.pageFactory() != null, false, app.pageFactory(),
+                app.iconTexture(), app.iconTexWidth(), app.iconTexHeight(), app.iconFill());
+    }
+
     /** 桌面中央表情贴图（每次进入桌面时选择一次） */
     private ResourceLocation stickerTex = null;
     private int stickerW = 24, stickerH = 24;
@@ -178,8 +226,9 @@ public class MainPage implements IPhonePage {
     private boolean getTalkIconPos(int[] out) {
         int w = PhoneOverlay.getPhoneWidth();
         int h = PhoneOverlay.getPhoneHeight();
-        for (int i = 0; i < apps.size(); i++) {
-            if ("HuhuTalk".equals(apps.get(i).name)) {
+        List<AppInfo> list = allApps();
+        for (int i = 0; i < list.size(); i++) {
+            if ("HuhuTalk".equals(list.get(i).name)) {
                 appRect(w, h, i, out);
                 return true;
             }
@@ -208,8 +257,9 @@ public class MainPage implements IPhonePage {
         }
 
         int[] rect = new int[4];
-        for (int i = 0; i < apps.size(); i++) {
-            AppInfo app = apps.get(i);
+        List<AppInfo> list = allApps();
+        for (int i = 0; i < list.size(); i++) {
+            AppInfo app = list.get(i);
             if (app.hidden) continue; // 狐狐三十分等暂隐藏
 
             appRect(w, h, i, rect);
@@ -243,6 +293,22 @@ public class MainPage implements IPhonePage {
                     graphics.blit(tex, x + inset, y + inset, iconDraw, iconDraw,
                             0.0f, 0.0f, srcSize, srcSize, srcSize, srcSize);
                 }
+            } else if (app.iconTexture != null) {
+                // 附属模组注册的 App：贴图图标（内置 App 各有各的画法，走不到这里）。
+                // 非正方形贴图按较长边贴合、短边留白，不拉伸；iconFill < 1 时四周整体留白。
+                float fill = app.iconFill <= 0f ? 1.0f : app.iconFill;
+                int box = Math.max(1, Math.round(iconW * fill));
+                int drawW = box, drawH = box;
+                if (app.iconTexWidth > app.iconTexHeight) {
+                    drawH = Math.max(1, box * app.iconTexHeight / app.iconTexWidth);
+                } else if (app.iconTexHeight > app.iconTexWidth) {
+                    drawW = Math.max(1, box * app.iconTexWidth / app.iconTexHeight);
+                }
+                int dx = x + (iconW - drawW) / 2;
+                int dy = y + (iconH - drawH) / 2;
+                graphics.blit(app.iconTexture, dx, dy, drawW, drawH,
+                        0.0f, 0.0f, app.iconTexWidth, app.iconTexHeight,
+                        app.iconTexWidth, app.iconTexHeight);
             } else {
                 float cs = UiFont.sc(app.centerScale);
                 int cw = (int) (font.width(app.center) * cs);
@@ -295,8 +361,9 @@ public class MainPage implements IPhonePage {
         int w = PhoneOverlay.getPhoneWidth();
         int h = PhoneOverlay.getPhoneHeight();
         int[] rect = new int[4];
-        for (int i = 0; i < apps.size(); i++) {
-            AppInfo app = apps.get(i);
+        List<AppInfo> list = allApps();
+        for (int i = 0; i < list.size(); i++) {
+            AppInfo app = list.get(i);
             if (app.hidden) continue;
 
             appRect(w, h, i, rect);
@@ -351,8 +418,9 @@ public class MainPage implements IPhonePage {
     public static int[] appIconCenterScreen(String appName) {
         int w = PhoneOverlay.getPhoneWidth();
         int h = PhoneOverlay.getPhoneHeight();
-        for (int i = 0; i < apps.size(); i++) {
-            AppInfo a = apps.get(i);
+        List<AppInfo> list = allApps();
+        for (int i = 0; i < list.size(); i++) {
+            AppInfo a = list.get(i);
             if (!a.name.equals(appName)) continue;
             int[] rect = new int[4];
             appRect(w, h, i, rect);
@@ -395,9 +463,26 @@ public class MainPage implements IPhonePage {
         final boolean implemented;    // 是否已实现（否则点开 ComingSoon）
         final boolean hidden;         // 暂隐藏（逻辑保留）
         final Supplier<IPhonePage> pageFactory;
+        /**
+         * 图标中心的贴图（附属模组注册的 App 用）；为 null 表示走「文字 / emoji」画法。
+         * 内置 App 全部为 null —— HuhuTalk 自己的贴图图标走的是它专用的特殊分支，不经过这里。
+         */
+        final ResourceLocation iconTexture;
+        final int iconTexWidth;       // 贴图源宽（像素）
+        final int iconTexHeight;      // 贴图源高（像素）
+        final float iconFill;         // 贴图在图标方块内的占比（1.0 = 撑满）
 
+        /** 内置 App 用的构造器（无贴图图标）。 */
         AppInfo(String name, int color, String center, boolean emoji, float centerScale, int centerColor,
                 boolean implemented, boolean hidden, Supplier<IPhonePage> pageFactory) {
+            this(name, color, center, emoji, centerScale, centerColor,
+                    implemented, hidden, pageFactory, null, 0, 0, 1.0f);
+        }
+
+        /** 完整构造器：多出「贴图图标」一组字段，供附属模组注册的 App 使用。 */
+        AppInfo(String name, int color, String center, boolean emoji, float centerScale, int centerColor,
+                boolean implemented, boolean hidden, Supplier<IPhonePage> pageFactory,
+                ResourceLocation iconTexture, int iconTexWidth, int iconTexHeight, float iconFill) {
             this.name = name;
             this.color = color;
             this.center = center;
@@ -407,6 +492,10 @@ public class MainPage implements IPhonePage {
             this.implemented = implemented;
             this.hidden = hidden;
             this.pageFactory = pageFactory;
+            this.iconTexture = iconTexture;
+            this.iconTexWidth = iconTexWidth;
+            this.iconTexHeight = iconTexHeight;
+            this.iconFill = iconFill;
         }
     }
 }
