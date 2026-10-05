@@ -243,18 +243,26 @@ public final class GalleryPage extends PhonePage {
   ⚠ 相机页**不要**继承 `PhonePage`：它的 `render` 是 `final` 且必定用 `pageBackground()` 铺满内容区，
   会把取景框整个盖死。相机页直接 `implements PhoneCameraHost` 自绘。
 
-### 8.2.1 聊天内相机的「已拍成页」重做（**待办**）
+### 8.2.1 聊天内相机的「已拍成页」重做 —— ✅ **已完成**
 
-现状：`renderCameraMode` 在 `shot == true` 时**照样画透明取景框**，照片只在左下角 24px 缩略图里，
-与真机/QQ 的"全屏放大刚才那张让人确认"不符。
+旧毛病：`renderCameraMode` 在 `shot == true` 时**照样画透明取景框**（能看到背后的世界），
+照片却只在左下角 24px 的缩略图里 —— 玩家要确认的恰恰是照片本身，结果它最小。
 
-要做的事：
-1. 已拍成时内容区**不透明**，用 `PhoneImages.drawCover` 全屏铺那张照片，底部叠「重拍 / 发送」两颗按钮。
-2. 这要求把 `isCameraMode()` 目前承担的**三个职责拆开**：手机体透明 / 取景姿态 / 输入归属（侧键 + 光标）。
-   否则要么全屏照片"透"出背后的世界，要么光标画不出来（玩家点不到那两颗按钮）。
-   计划在 `PhoneCameraHost` 上追加 3 个带默认值的判据（默认 = `isCameraMode()`，不破坏已有实现）。
-3. 拆完记得回来更新 [phone-camera-api.md](phone-camera-api.md) §6「多状态页怎么写」——
-   那里现在写着"当前限制"，拆开后改为正式的推荐写法。
+改成：
+1. **已拍成时整块内容区铺满刚拍的照片**（`PhoneImages.drawCover`，不变形），
+   底色兜底 + 底部暗带保证按钮可读；
+2. 底部两颗按钮：左「重拍 <键5名>」（白底红字） / 右「发送 <键4名>」（红底白字），
+   命中区与排版共用 `shotBarLayout`；
+3. **判据拆分**（本次为此新增的公开 API）：`PhoneCameraHost` 上加了
+   `cameraScreenTransparent()` / `cameraSideKeysActive()` / `cameraInputExclusive()`，
+   默认值都 = `isCameraMode()`，所以**对既有实现零影响**。`ChatPage` 只覆盖了第一个：
+   `cameraActive && cameraShot == null`。
+4. `ProPhoneHandRenderer.stackForMode` 与 `PhoneOverlay.render` 的透明/擦除判据
+   一并改走 `isCameraScreenTransparent()`；**取景姿态仍用 `isCameraMode()`**。
+
+> **刻意没做**：已拍成页的"光标可点"。侧键 4 = 发送 / 侧键 5 = 重拍是玩家的肌肉记忆，
+> 放开光标就得关掉侧键路由，反而更难用。命中逻辑已经写好并与排版对齐，
+> 将来若要放开，只需改 `cameraSideKeysActive()` / `cameraInputExclusive()` 两行。
 
 ### 8.3 图库 App
 

@@ -1726,8 +1726,9 @@ public class ChatPage implements PhoneCameraHost {
         // 左侧：上一张图片预览（"上一次拍到的那张"；没拍过时 lastCamShotKey 为 null，不画）
         if (lastCamShotKey != null) {
             ResourceLocation tex = PhotoLibrary.getOrLoadTexture(lastCamShotKey);
+            // getTextureSize 永不返回 null（取不到时兜底 24×24），所以不判空
             int[] d = PhotoLibrary.getTextureSize(lastCamShotKey);
-            if (tex != null && d != null) {
+            if (tex != null) {
                 int tx = baseX + thumbX;
                 int ty = baseY + thumbY;
                 UiShapes.fillRoundedRect(g, tx, ty, thumbSize, thumbSize, UiFont.sh(3), 0xCCFFFFFF);
@@ -1776,17 +1777,19 @@ public class ChatPage implements PhoneCameraHost {
         // 照片铺满顶栏以下的整块内容区。用 cover（居中裁切）而不是拉伸：
         // 截图比例和手机屏比例几乎不会一致，拉伸会把画面压扁。
         ResourceLocation tex = PhotoLibrary.getOrLoadTexture(CAM_SHOT_KEY);
+        // getTextureSize 永不返回 null（取不到时兜底 24×24），所以不判空
         int[] dim = PhotoLibrary.getTextureSize(CAM_SHOT_KEY);
         // 底色兜底：纹理万一没加载出来，也要挡住背后的世界（否则又变成"能看到背后的场景"）
         g.fill(baseX, top, baseX + w, bottom, 0xFF101010);
-        if (tex != null && dim != null) {
+        if (tex != null) {
             PhoneImages.drawCover(g, tex, baseX, top, w, bottom - top, dim[0], dim[1]);
         }
 
-        // 照片与按钮之间压一条渐变式的暗带：按钮是压在照片上的，没有它，
+        // 照片与按钮之间压一条暗带：按钮是压在照片上的，没有它，
         // 照片内容一花按钮就糊得看不清（这是全屏预览相对于缩略图版新引入的问题）。
+        // ⚠ shotBarLayout 给的是**内容相对坐标**，画的时候要加 baseY。
         int[] L = shotBarLayout(w, h);
-        int scrimTop = L[1] - UiFont.sh(6);
+        int scrimTop = baseY + L[1] - UiFont.sh(6);
         g.fill(baseX, scrimTop, baseX + w, bottom, 0x66000000);
 
         // 左「重拍」（次要：白底红字） / 右「发送」（主操作：红底白字）
@@ -1801,7 +1804,7 @@ public class ChatPage implements PhoneCameraHost {
                                 int bgColor, int textColor, String label) {
         UiShapes.fillRoundedRect(g, x, y, w, h, h / 2, bgColor);
         float ts = Math.min(UiFont.sc(1.0f), (w - UiFont.sh(6)) / Math.max(1f, (float) font.width(label)));
-        ts = Math.max(0.35f, ts);
+        ts = Math.max(0.25f, ts);
         float tw = font.width(label) * ts;
         drawScaledText(g, font, label, x + (w - tw) / 2f,
                 y + (h - font.lineHeight * ts) / 2f, textColor, ts);
@@ -1816,7 +1819,10 @@ public class ChatPage implements PhoneCameraHost {
         int margin = UiFont.sh(8);
         int gap = UiFont.sh(6);
         int btnH = Math.max(UiFont.sh(20), Math.round(h * 0.085f));
-        int btnW = Math.max(UiFont.sh(30), (w - margin * 2 - gap) / 2);
+        // 宽度直接对半分，**不给固定最小宽度**：给了最小宽度在小手机/大字体倍率下
+        // 右按钮会顶出屏幕（w=60、uiScale=2 时能溢出 14px）。宁可按钮窄、字号跟着缩，
+        // 也不能画到手机外面去 —— 字号由 drawActionPill 按胶囊宽度自适应。
+        int btnW = Math.max(1, (w - margin * 2 - gap) / 2);
         int y = h - UiFont.sh(8) - btnH;
         return new int[]{margin, y, btnW, btnH, margin + btnW + gap, y, btnW, btnH};
     }

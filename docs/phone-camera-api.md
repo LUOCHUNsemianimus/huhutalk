@@ -63,7 +63,10 @@ event.register(PhoneApp.builder(id, "我的相机")
 
 | 方法 | 必须 | 说明 |
 |---|---|---|
-| `isCameraMode()` | ✅ | **唯一的开关**。返回 true 时下面 §3 那一整批行为全部生效 |
+| `isCameraMode()` | ✅ | **主开关**。返回 true 时下面三个细分判据默认也全是 true，整套相机行为生效 |
+| `cameraScreenTransparent()` | ❌ 默认 = `isCameraMode()` | 手机体是否透明 + 3D 机壳是否换擦除纹理。**"显示全屏照片"的状态必须单独关掉它**，否则照片半透 |
+| `cameraSideKeysActive()` | ❌ 默认 = `isCameraMode()` | 侧键 4/5 是否路由到相机动作、长按手势是否生效 |
+| `cameraInputExclusive()` | ❌ 默认 = `isCameraMode()` | 是否独占输入（不画光标 + 吞鼠标点击） |
 | `cameraPrimaryAction()` | ✅ | 侧键 4 轻点。典型语义：拍照 |
 | `cameraBackAction()` | ✅ | 侧键 5。典型语义：退出/取消 |
 | `cameraSaveAction()` | ❌ 默认空实现 | 侧键 4 **长按**。不需要就别覆盖 |
@@ -71,20 +74,26 @@ event.register(PhoneApp.builder(id, "我的相机")
 
 它继承了 `IPhonePage`，所以 `render` / `mouseClicked` / `onBackPressed` 等照常实现。
 
+> **单状态相机（整页都是取景框）只实现 `isCameraMode()` + 三个动作方法就够了** ——
+> 桌面「相机」App 就是这么写的。只有页内有多级状态时才需要碰那三个细分判据。
+
 ---
 
-## 3. `isCameraMode() == true` 时，HuhuTalk 会替你做什么
+## 3. 每个判据各驱动什么
 
-| 行为 | 由谁驱动 | 为什么 |
+| 行为 | 判据 | 为什么 |
 |---|---|---|
-| **手机体背景透明** | `PhoneOverlay.render` | 让游戏画面从取景框里透出来 |
-| **3D 机壳换成擦除版纹理** | `ProPhoneHandRenderer` | 在模型屏下也能直接看穿机身看到真实场景 |
-| **手机抬到眼前当取景框** | `ProPhoneHandRenderer` | 平时是"平行地面"的地图式持握，取景要正对视线 |
-| **不画独立光标** | `PhoneOverlay.renderCursor` | 那个界面全程侧键操作，画出来只会让人误以为能挪过去点 |
-| **吞掉鼠标点击** | `PhoneOverlay.handlePhoneLocalMouse` | 鼠标要完整留给"转视角取景" |
-| **侧键路由到本接口的三个动作** | `PhoneOverlay.onPhoneSideButton` | 键位映射是显式的，与你的排版彻底解耦 |
+| **手机抬到眼前当取景框** | `isCameraMode()` | 平时是"平行地面"的地图式持握，取景要正对视线 |
+| **手机体背景透明** | `cameraScreenTransparent()` | 让游戏画面从取景框里透出来 |
+| **3D 机壳换成擦除版纹理** | `cameraScreenTransparent()` | 在模型屏下也能直接看穿机身看到真实场景 |
+| **不画独立光标** | `cameraInputExclusive()` | 那个界面全程侧键操作，画出来只会让人误以为能挪过去点 |
+| **吞掉鼠标点击** | `cameraInputExclusive()` | 鼠标要完整留给"转视角取景" |
+| **侧键路由到本接口的动作方法** | `cameraSideKeysActive()` | 键位映射是显式的，与你的排版彻底解耦 |
 
 **这就是相机页和普通页的全部区别。** 上面每一条你都不用自己实现，也不受你的排版影响。
+
+> ⚠ 早先这六件事共用 `isCameraMode()` 一个判据，于是"只想让某个状态不透明"办不到 ——
+> 一关就把光标、侧键一起关了。现在拆开之后，外观 / 侧键 / 光标可以各自独立开关。
 
 ---
 
@@ -144,21 +153,33 @@ HuhuTalk 的相机侧键状态机是这样的：
 
 ### 多状态页怎么写
 
-聊天页就是这种情况：**取景中**要透明，**已拍成**要显示全屏照片。
+聊天页的相机就是这样：**取景中**要透明，**已拍成**要显示全屏照片。做法是
+`isCameraMode()` 全程返回 true（两个状态都是相机），再按需关掉细分判据：
 
-⚠ **当前限制（重要）**：`PhoneOverlay` 目前用**同一个判据** `isCameraMode()` 决定三件事 ——
+```java
+@Override public boolean isCameraMode()            { return active; }
+// 已拍成要显示全屏照片 → 那个状态绝不能透明，否则照片半透、背后的世界穿过来
+@Override public boolean cameraScreenTransparent() { return active && shot == null; }
+// 侧键语义两个状态都一样（4=发送 / 5=重拍），所以这两条不用覆盖
+```
 
-1. 手机体透明 + 擦除机壳 + 取景姿态；
-2. 不画光标 + 吞掉鼠标点击；
-3. 侧键是否路由到你的 `cameraPrimaryAction()` / `cameraBackAction()`。
+**如果还想让某个状态能被光标点**（例如"已拍成"页给两颗可点按钮），
+必须把这两条**一起**关掉：
 
-所以如果你在"已拍成"状态返回 `false` 想换回光标，**侧键也会一起不再走你的动作方法**。
-在 HuhuTalk 把这三件事拆成独立判据并对外开放之前，多状态相机只有两条路：
+```java
+@Override public boolean cameraSideKeysActive() { return active && shot == null; }
+@Override public boolean cameraInputExclusive() { return active && shot == null; }
+```
 
-- **全程返回 true**：两个状态都由侧键驱动、都不画光标（聊天内相机目前就是这样）；
-- 自己处理鼠标输入 —— 但那个状态下的点击在 Overlay 层就被吞了，做不到。
+只关 `cameraInputExclusive()` 没有用：侧键 4 在手机里就是"左键单击"，
+只要它还路由给相机，键事件在路由那一步就被消费了，玩家的光标永远点不到东西。
 
-HuhuTalk 自己的聊天内相机正在往"已拍成页显示全屏照片"改，届时会把判据拆开并同步更新本文档。
+> ⚠ **不要**用"让某个状态的 `isCameraMode()` 返回 false"来实现可点状态 ——
+> 那会把侧键一起关掉，玩家的侧键 4/5 就不再是"发送/重拍"了。
+>
+> HuhuTalk 自己的聊天相机**没有**开启光标点击：侧键 4 = 发送 / 侧键 5 = 重拍是玩家的肌肉记忆，
+> 换成"挪光标去点按钮"反而更难用。它的「已拍成」页只覆盖了 `cameraScreenTransparent()`，
+> 但仍然把两颗按钮画出来、并让命中区与排版对齐 —— 将来若要放开光标，改判据即可。
 
 ---
 
@@ -181,7 +202,9 @@ HuhuTalk 自己的聊天内相机正在往"已拍成页显示全屏照片"改，
 > 黑边**上沿 == 四角取景标记的下沿 == `viewBottom()`**，三者同一个值，所以天然对齐、连成完整取景框。
 
 它与**聊天内相机**（`ChatPage` 里的 📷）刻意区分：
-聊天内相机是"拍了要发给女仆"，所以有确认/重拍两态；独立相机是"拍了就存"，所以只有取景态。
+聊天内相机是"拍了要发给女仆"，所以有确认/重拍两态 —— 已拍成时
+**整块内容区铺满刚拍的照片**（不透明）并给「重拍 / 发送」两颗按钮；
+独立相机是"拍了就存"，所以只有取景态。
 
 ---
 

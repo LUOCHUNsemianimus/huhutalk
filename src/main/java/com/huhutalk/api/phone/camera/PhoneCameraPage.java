@@ -210,14 +210,17 @@ public class PhoneCameraPage implements PhoneCameraHost {
         int shutterX = L[5], shutterY = L[6], shutterD = L[7];
 
         // 左下：装饰缩略图（刚拍的这张）。拍过才画。
-        ResourceLocation thumbTex = hasShot ? PhotoLibrary.getOrLoadTexture(THUMB_KEY) : null;
-        int[] thumbDim = hasShot ? PhotoLibrary.getTextureSize(THUMB_KEY) : null;
-        if (thumbTex != null && thumbDim != null) {
-            int tx = baseX + thumbX;
-            int ty = baseY + thumbY;
-            UiShapes.fillRoundedRect(graphics, tx, ty, thumbSize, thumbSize, UiFont.sh(3), 0xCCFFFFFF);
-            // 用 cover 而不是拉伸：任意屏幕比例的截图贴进方形框里都不变形
-            PhoneImages.drawCover(graphics, thumbTex, tx, ty, thumbSize, thumbSize, thumbDim[0], thumbDim[1]);
+        if (hasShot) {
+            ResourceLocation thumbTex = PhotoLibrary.getOrLoadTexture(THUMB_KEY);
+            // getTextureSize 永不返回 null（取不到时兜底 24×24），所以不判空
+            int[] thumbDim = PhotoLibrary.getTextureSize(THUMB_KEY);
+            if (thumbTex != null) {
+                int tx = baseX + thumbX;
+                int ty = baseY + thumbY;
+                UiShapes.fillRoundedRect(graphics, tx, ty, thumbSize, thumbSize, UiFont.sh(3), 0xCCFFFFFF);
+                // 用 cover 而不是拉伸：任意屏幕比例的截图贴进方形框里都不变形
+                PhoneImages.drawCover(graphics, thumbTex, tx, ty, thumbSize, thumbSize, thumbDim[0], thumbDim[1]);
+            }
         }
 
         // 中间：圆形快门（白圈 + 粉芯），圆内写玩家绑定的确认键名。

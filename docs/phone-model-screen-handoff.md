@@ -52,7 +52,7 @@
 | `client/render/ProPhoneHandRenderer.java` | **新增**。订阅 `RenderHandEvent` 接管第一人称手持渲染：双手姿势 + 手机本体 + 挂屏幕四边形 + **相机模式姿态**。`ENABLED=false` 一键回退原版。判据集中在 `shouldRender(mc, stack)`，**不排除 Screen 打开**（§5.2-8） |
 | `client/render/PhoneScreenTarget.java` | **新增**。离屏帧缓冲、动态纹理注册、屏幕面矩形几何、出图驱动、dirty 判定、`DIAG` 探针。判据用 `PhoneOverlay.hasModelScreen()` |
 | `phone/PhoneOverlay.java` | 手机 UI 总控。`RenderMode` 状态机 + `phoneOpen`（`isVisible()` 由两者算出）+ `onHolderTick()` 掏出即渲染 + 独立光标全套 + `isCameraMode()` + **相机侧键状态机 `cameraSideButton` / `tickCameraHold`** + **拍照抓图请求 `requestWorldCapture` / `consumeWorldCapture`** + **屏内气泡 `showBubble`** |
-| `phone/pages/ChatPage.java` | 聊天页 + **相机界面**（`renderCameraMode` / `handleCameraClick` / `cameraBarLayout`）。相机侧键入口是三个语义方法：`cameraPrimaryAction()` / `cameraBackAction()` / `cameraSaveAction()` |
+| `phone/pages/ChatPage.java` | 聊天页 + **相机界面**（`renderViewfinder` / `renderShotPreview` / `shotBarLayout` / `cameraBarLayout`）。相机侧键入口是三个语义方法：`cameraPrimaryAction()` / `cameraBackAction()` / `cameraSaveAction()`。**已拍成页现为全屏照片 + 「重拍 / 发送」两颗按钮**（不透明，不再透出背后世界）；判据拆分见 `PhoneCameraHost.cameraScreenTransparent()` |
 | `init/ItemPhoneCamera.java` `init/HuhuTalkItems.java` | **新增**隐藏物品 `phone_camera`（不进创造栏、不是 `ItemMaidPhone`）。它只是"模型名片"，让 `ItemRenderer` 能按注册名查到擦除版模型，见 §4 期 1e |
 | `client/PhotoLibrary.java` | 图库 + 临时截图。纹理注册改为**每次唯一 `ResourceLocation`**（§5.5-20）。保存**不再自己弹提示**（改由 `PhoneOverlay.showBubble` 在手机屏内弹，§5.5-30） |
 | `event/ClientModEvents.java` | 两个手机侧键位；`RenderFrameEvent.Pre` 出图 + 俯仰低通；**`RenderLevelStageEvent.AFTER_LEVEL` 抓拍照帧**（§5.5-29）；`CalculatePlayerTurnEvent` 降速；每 tick `onHolderTick()` + `tickCameraHold()`。~~`RELEASE_CURSOR`~~ 已于期 1d 删除 |
