@@ -264,12 +264,30 @@ public final class GalleryPage extends PhonePage {
 > 放开光标就得关掉侧键路由，反而更难用。命中逻辑已经写好并与排版对齐，
 > 将来若要放开，只需改 `cameraSideKeysActive()` / `cameraInputExclusive()` 两行。
 
-### 8.3 图库 App
+### 8.3 图库 App —— ✅ **已完成**
 
+- `phone/pages/GalleryPage.java`：3 列网格（`extends PhonePage`，滚动走骨架自管模型）。
+  单击进阅览；**长按 1 秒**进多选；选中态右上角「删除」批量删。
+  选中视觉沿用聊天内图库页的配色（粉 `#DE7E7E` / 未选 `0x40000000` / 删除红 `#E53935`），
+  另加"图片缩到 0.8 倍居中"作为更强的选中感。
+- `phone/pages/GalleryViewerPage.java`：阅览页（深底 + `PhoneImages.drawFit` 完整可见），
+  右上角「删除」删完直接 `popPage()`。**返回时下层网格页收到 `onOpen()` 自动刷新列表**，
+  不需要额外的通知机制。
+- `phone/pages/GalleryDeleteButton.java`：两颗删除按钮共用的「渲染与命中共用同一份位置」小工具。
+- `client/GalleryAppRegistration.java`：走公开注册通路（`.slot(3)` + `.order(-99)`）。
+- **新增公开页能力**：`IPhonePage.onLongPress(relX, relY)` —— 见
+  [phone-page-skeleton.md](phone-page-skeleton.md) §4.1。默认返回 false，
+  **现有页面一行未改**；判定在松开时做，不需要每 tick 计时器。
 - 数据与纹理：`PhotoLibrary.listGallery()` / `getOrLoadTexture(key)` / `getTextureSize(key)` / `deleteGallery(fileName)`。
-- 画缩略图：`PhoneImages.drawCover(...)`（非正方形照片变方不变形）。
-- 列表：`PhoneList<...>` 或自己用 `PhoneImages` 摆网格（网格需要自己排，`PhoneList` 不支持多列）。
-- 作者说图库**可以不做公开方法**，但 `PhoneImages` 已经让这件事变得很快。
+  注意 `listGallery()` **每次都读一遍目录**，所以 `GalleryPage` 只在 `onOpen()` 与删除后刷新，不每帧调。
+- 作者说图库**可以不做公开方法**，所以两个页面放在 `phone/pages/` 而不是 `api/`。
+
+> **为什么长按没做成"按住到 1 秒即时反馈"**：当前输入链路里，按住期间 Overlay 不向页面转发任何事件，
+> PRESS/RELEASE 是松开时一起补发的。要即时反馈就得加每 tick 的计时器 + 松开时的抑制状态（约多 30 行）。
+> 代价只是反馈出现在松手那一刻，作者拍板接受。
+>
+> **为什么不用双击**：双击必须给单击加 ~300ms 延迟（第一下会先触发"进阅览"），
+> 那是对**每一次**进阅览的永久 UX 代价，比长按贵得多。
 
 ---
 

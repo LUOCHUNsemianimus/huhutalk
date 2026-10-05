@@ -123,7 +123,7 @@ PhoneApp.builder(ResourceLocation id, String displayName)
 
 | 事项 | 行为 |
 |---|---|
-| **排布** | 位置由 **槽位** 决定，不由注册顺序决定。不指定 `.slot()` 时落到最小空槽；指定了就固定占那格。内置 App 也用同一套槽位（HuhuTalk 占 0，手册占 2，设置占 5） |
+| **排布** | 位置由 **槽位** 决定，不由注册顺序决定。不指定 `.slot()` 时落到最小空槽；指定了就固定占那格。内置/官方 App 也用同一套槽位（占 0、1、2、3、5） |
 | **会不会挤掉内置图标** | 不会。内置 App 先占自己的槽位，外部 App 只能填空位或自己申请的格子；申请的格子被占会**退让到空槽 + WARN**，不会挤掉别人 |
 | **网格容量** | 每行 3 个，**槽位固定 9 个**（= 三种手机长宽比里最小的容量：4:3 → 3 行）。这样玩家切换屏幕比例时不会出现「图标跑到可视区外」 |
 | **点击** | 默认播放「色块放大淡出」启动动画（从你的图标中心生成图标底色的色块，放大铺满并淡出，目标页在底下原地淡入）。不想要就 `.launchAnimation(false)`，回退成通用的「从右侧滑入」转场 |
@@ -264,9 +264,9 @@ HuhuTalk 内置了一个自检 App，**默认关闭**，用下面任一方式打
    **「自检·骨架」**（`PhonePage` + `PhoneList`）、**「自检·滚动」**（`PhonePage` 自管滚动）、
    **「自检·控件」**（四种控件 + `PhoneRow`）、**「自检·图片」**（`PhoneImages` 四种画法）；
    > 这 6 个都没指定 `.slot()`，会按注册顺序填掉空槽。**桌面只有 9 格**：内置占 0 / 2 / 5，
-   > 相机 App 占 1，于是只剩 `3、4、6、7、8` 五个空位 —— 6 个自检 App 里会有 **1 个**
-   > 因「桌面已满」被 WARN 拒绝。**这是预期行为，不是 bug**（日志里能看到那条 WARN）。
-   > 想同时看到 6 个，可以临时把相机 App 的注册注释掉再试。
+   > 相机占 1，图库占 3，于是只剩 `4、6、7、8` 四个空位 —— 6 个自检 App 里会有 **2 个**
+   > 因「桌面已满」被 WARN 拒绝。**这是预期行为，不是 bug**（日志里能看到那两条 WARN）。
+   > 想同时看到 6 个，可以临时把相机/图库的注册注释掉再试。
 3. 六个都点得开、右键都能返回桌面；滚动页、控件页、图片页各自的表现符合预期 → 全链路正常；
 4. 日志里会有一行 `[HuhuTalk/PhoneApp] 已注册桌面 App：...`（每个 App 一条）。
 
@@ -338,6 +338,9 @@ HuhuTalk 内置了一个自检 App，**默认关闭**，用下面任一方式打
 | `src/main/java/com/huhutalk/api/phone/camera/PhoneCameraHost.java` | **相机能力接口**（做相机页实现它） |
 | `src/main/java/com/huhutalk/api/phone/camera/PhoneCameraPage.java` | **桌面相机 App 的页面**（参考实现） |
 | `src/main/java/com/huhutalk/client/CameraAppRegistration.java` | 桌面相机 App 的注册（公开通路的示例） |
+| `src/main/java/com/huhutalk/phone/pages/GalleryPage.java` | 桌面图库 App：3 列网格 + 长按多选 + 批量删除 |
+| `src/main/java/com/huhutalk/phone/pages/GalleryViewerPage.java` | 图库阅览页（大图 + 删除） |
+| `src/main/java/com/huhutalk/client/GalleryAppRegistration.java` | 桌面图库 App 的注册 |
 | `src/main/java/com/huhutalk/client/debug/PhoneAppSelfTest.java` | 自检 App 与骨架示例页（默认关闭） |
 | [phone-page-skeleton.md](phone-page-skeleton.md) | **页面骨架文档** |
 | [phone-camera-api.md](phone-camera-api.md) | **相机能力 API**（`PhoneCameraHost` / 抓图 / 存盘 / 踩坑） |

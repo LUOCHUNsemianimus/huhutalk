@@ -160,6 +160,36 @@ public final class MyListPage extends PhonePage {
 > 顶栏 → 内容），这正是消除重复的关键。需要顶栏上的自定义按钮请用 `onTopBarClick`。
 > 如果你需要完全不同的结构，直接 `implements IPhonePage` 就行，本类只是**可选**的便利层。
 
+### 4.1 长按（`IPhonePage.onLongPress`）
+
+按住 ≥ `PhoneOverlay.LONG_PRESS_MS`（**1000ms**）、期间没有拖动成滚动，松开时会先问页面：
+
+```java
+@Override
+public boolean onLongPress(double relX, double relY) {   // 返回 true = 已消费
+    // ⚠ 坐标是**手机内容区**坐标（顶栏在里面）；要复用 onContentClick 那套布局，
+    //   先减 contentTop() 换成内容坐标
+    int index = indexAt(relX, relY - contentTop());
+    if (index < 0) return false;      // 没命中 → 返回 false，上层照常补一次普通点击
+    ...
+    return true;                       // 消费掉 → 不再补普通点击
+}
+```
+
+几条要点：
+
+| 事项 | 说明 |
+|---|---|
+| **默认不启用** | `IPhonePage` 默认返回 `false`，所以**现有页面一行不用改**：按住 1 秒再松开，行为与以前完全一致（就是一次普通点击） |
+| **判定在松开时** | 按住期间 `PhoneOverlay` 不向页面转发任何事件，左键的 PRESS/RELEASE 本来就是松开时一起补发的。所以这里只需比较时长，**不需要每 tick 的计时器**，也不会有"长按已触发就别再补轻点"那套状态 |
+| **代价** | 选中/触发反馈出现在**松手那一刻**，而不是按住第 1 秒 |
+| **"没有拖动"怎么判** | `PhoneOverlay` 内部已判好：位移超过阈值就升级为滚动，那种情况下**根本不会有点击**，本钩子自然也不会被调用 |
+| **坐标系** | 与 `mouseClicked` 一致（手机内容区原点）。这是最容易踩的坑——见上面代码里的 `contentTop()` |
+| **参考实现** | `GalleryPage`（长按进入多选） |
+
+> 相机那套"长按侧键 = 存相册"是**另一条**通路（`PhoneCameraHost.cameraSaveAction`，阈值 350ms、按住期间就触发），
+> 与本钩子互不相干：相机界面根本不走独立光标。
+
 ---
 
 ## 5. `PhoneList<T>` 参考

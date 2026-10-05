@@ -251,6 +251,15 @@ public class PhoneOverlay {
     private static float dragTotalY = 0f;
     private static boolean dragIsScroll = false;
     /**
+     * 通用「长按」阈值（毫秒）。按住够久且没拖动成滚动，松开时会先问页面 {@link IPhonePage#onLongPress}。
+     * <p>
+     * 取 1000：这是"明确的按住"而不是"手滑"，所以比相机那套 350 的保存阈值长得多。
+     * 图库的"长按进入多选"就靠它。
+     */
+    public static final long LONG_PRESS_MS = 1000L;
+    /** 本次左键按住开始的时间戳（毫秒），用于松开时算出按住了多久 */
+    private static long pressStartAt = 0L;
+    /**
      * 本次拖动滚动的<b>主轴是否为横向</b>。
      * <p>
      * 在"升级为滚动"的那一刻锁定，之后整个手势不再换轴 —— 否则鼠标一抖动，
@@ -491,6 +500,7 @@ public class PhoneOverlay {
                 dragTotalX = 0f;
                 dragTotalY = 0f;
                 scrollRemainder = 0.0;
+                pressStartAt = System.currentTimeMillis();
             } else {
                 handlePhoneLocalMouse(cursorLocalX(), cursorLocalY(), GLFW.GLFW_MOUSE_BUTTON_RIGHT, GLFW.GLFW_PRESS);
                 handlePhoneLocalMouse(cursorLocalX(), cursorLocalY(), GLFW.GLFW_MOUSE_BUTTON_RIGHT, GLFW.GLFW_RELEASE);
@@ -500,8 +510,18 @@ public class PhoneOverlay {
         if (action == GLFW.GLFW_RELEASE && clickButton && cursorPressing) {
             cursorPressing = false;
             if (!dragIsScroll) {
-                handlePhoneLocalMouse(cursorLocalX(), cursorLocalY(), GLFW.GLFW_MOUSE_BUTTON_LEFT, GLFW.GLFW_PRESS);
-                handlePhoneLocalMouse(cursorLocalX(), cursorLocalY(), GLFW.GLFW_MOUSE_BUTTON_LEFT, GLFW.GLFW_RELEASE);
+                double relX = cursorLocalX();
+                double relY = cursorLocalY();
+                // 长按先给页面一次机会：按住够久 → 页面按"长按语义"处理，
+                // 消费掉了就不再补普通点击（见 IPhonePage#onLongPress 的说明）。
+                IPhonePage cur = getCurrentPage();
+                boolean longPressed = cur != null
+                        && System.currentTimeMillis() - pressStartAt >= LONG_PRESS_MS
+                        && cur.onLongPress(relX, relY - UiFont.sh(STATUSBAR_H));
+                if (!longPressed) {
+                    handlePhoneLocalMouse(relX, relY, GLFW.GLFW_MOUSE_BUTTON_LEFT, GLFW.GLFW_PRESS);
+                    handlePhoneLocalMouse(relX, relY, GLFW.GLFW_MOUSE_BUTTON_LEFT, GLFW.GLFW_RELEASE);
+                }
             }
             dragIsScroll = false;
         }

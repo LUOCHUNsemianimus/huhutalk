@@ -46,4 +46,28 @@ public interface IPhonePage {
      * 返回 true 表示已消费该右键（上层不再执行 popPage/关闭手机）；false 则交给上层默认逻辑。
      */
     default boolean onBackPressed() { return false; }
+
+    /**
+     * 「长按」：按住 ≥ {@link PhoneOverlay#LONG_PRESS_MS} 毫秒、期间<b>没有拖动成滚动</b>，然后松开。
+     * <p>
+     * 参数是<b>按下那一刻</b>的手机内容区相对坐标（与 {@link #mouseClicked} 同一坐标系）。
+     * <p>
+     * ⚠ 如果你继承的是 {@code PhonePage}，注意它把坐标系又切了一刀：
+     * {@code mouseClicked} / {@code onLongPress} 收的是<b>手机内容区</b>坐标（顶栏在里面），
+     * 而 {@code onContentClick} / {@code renderContent} 收的是<b>内容坐标</b>（原点在顶栏下方）。
+     * 两个钩子里要往同一套布局做命中时，本方法里记得减掉 {@code contentTop()}。
+     *
+     * <h2>为什么判定在"松开"而不是"按住到 1 秒"</h2>
+     * 这条通路本来就是为"不引入每 tick 计时器"设计的：鼠标按住期间
+     * {@code PhoneOverlay} 不向页面转发任何事件，左键的 PRESS/RELEASE 是<b>松开时一起补发</b>的，
+     * 所以到松开时才知道按了多久 —— 也就顺便不需要"长按已触发就别再补一次轻点"那套状态。
+     * 代价是选中反馈出现在松手瞬间，而不是按住第 1 秒。
+     *
+     * <h2>页面只在自己关心的位置实现它</h2>
+     * 默认返回 false = "没消费"。上层于是照常补一次普通点击，
+     * <b>所以现有页面一行都不用改</b>（它们这个时长内松开，行为与以前完全一致）。
+     *
+     * @return true 表示已消费 —— 上层<b>不会</b>再补一次普通点击
+     */
+    default boolean onLongPress(double relX, double relY) { return false; }
 }
