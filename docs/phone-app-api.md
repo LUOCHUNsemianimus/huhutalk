@@ -212,13 +212,14 @@ HuhuTalk 内置了一个自检 App，**默认关闭**，用下面任一方式打
 然后：
 
 1. 启动客户端，打开手机桌面；
-2. 应多出四个图标：
+2. 应多出 **6 个**图标：
    **「自检·文字」**（文字/emoji 图标通路）、**「自检·贴图」**（贴图图标通路）、
-   **「自检·骨架」**（`PhonePage` + `PhoneList`）、**「自检·滚动」**（`PhonePage` 自管滚动）；
-3. 四个都点得开、右键都能返回桌面；两个骨架页都能滚、都能点中行 → 全链路正常；
+   **「自检·骨架」**（`PhonePage` + `PhoneList`）、**「自检·滚动」**（`PhonePage` 自管滚动）、
+   **「自检·控件」**（四种控件 + `PhoneRow`）、**「自检·图片」**（`PhoneImages` 四种画法）；
+3. 六个都点得开、右键都能返回桌面；滚动页、控件页、图片页各自的表现符合预期 → 全链路正常；
 4. 日志里会有一行 `[HuhuTalk/PhoneApp] 已注册桌面 App：...`（每个 App 一条）。
 
-骨架页的验收细节见 [phone-page-skeleton.md](phone-page-skeleton.md) §6。
+各页的详细判据见 [phone-page-skeleton.md](phone-page-skeleton.md) §10。
 
 实现见 `src/main/java/com/huhutalk/client/debug/PhoneAppSelfTest.java`。
 

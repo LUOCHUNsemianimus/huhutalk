@@ -3,8 +3,15 @@ package com.huhutalk.client.debug;
 import com.huhutalk.HuhuTalk;
 import com.huhutalk.api.phone.PhoneApp;
 import com.huhutalk.api.phone.PhoneAppRegisterEvent;
+import com.huhutalk.api.phone.ui.PhoneDropdown;
+import com.huhutalk.api.phone.ui.PhoneImages;
 import com.huhutalk.api.phone.ui.PhoneList;
 import com.huhutalk.api.phone.ui.PhonePage;
+import com.huhutalk.api.phone.ui.PhoneRow;
+import com.huhutalk.api.phone.ui.PhoneSlider;
+import com.huhutalk.api.phone.ui.PhoneStepper;
+import com.huhutalk.api.phone.ui.PhoneSwitch;
+import com.huhutalk.api.phone.ui.PhoneText;
 import com.huhutalk.phone.IPhonePage;
 import com.huhutalk.phone.PhoneOverlay;
 import net.minecraft.client.Minecraft;
@@ -95,6 +102,20 @@ public final class PhoneAppSelfTest {
                 .center("⇅", 2.0f, 0xFFFFFFFF)
                 .page(ScrollTestPage::new)
                 .order(103)
+                .build());
+
+        event.register(PhoneApp.builder(id("selftest_widgets"), "自检·控件")
+                .color(0xFFEF6C00)
+                .center("▤", 2.0f, 0xFFFFFFFF)
+                .page(WidgetTestPage::new)
+                .order(104)
+                .build());
+
+        event.register(PhoneApp.builder(id("selftest_images"), "自检·图片")
+                .color(0xFF5C6BC0)
+                .center("▣", 2.0f, 0xFFFFFFFF)
+                .page(ImageTestPage::new)
+                .order(105)
                 .build());
     }
 
@@ -283,6 +304,192 @@ public final class PhoneAppSelfTest {
             }
             clickedRow = index + 1;
             return true;
+        }
+    }
+
+    /**
+     * 控件自检：{@link PhoneSwitch} / {@link PhoneStepper} / {@link PhoneSlider} / {@link PhoneDropdown}
+     * 四种控件各来一个，全部挂在 {@link PhoneRow} 上，页面本身可滚动。
+     * <p>
+     * 判定：
+     * <ol>
+     *   <li>开关能拨；</li>
+     *   <li>▲▼ 能加减，标签里的数值同步变；</li>
+     *   <li>滑块能<b>按住在轨道上拖动</b>（拖动中显示"拖动中 x%"，松手才显示"落定 x%"）；</li>
+     *   <li>下拉能点开、能滚轮选择、下面的行会整体下移；</li>
+     *   <li>操作结果实时显示在最后一行。</li>
+     * </ol>
+     * 同时验证滚动：行数够多时页面可滚，而控件跟着一起滚且<b>依然点得准</b>。
+     */
+    private static final class WidgetTestPage extends PhonePage {
+
+        private final List<PhoneRow> rows = new ArrayList<>();
+        private String status = "操作上面的控件试试";
+        /** 各行总高，供 {@link #contentHeight()} 用（由 {@link #layoutRows()} 维护） */
+        private int totalHeight = 0;
+
+        private final PhoneStepper stepper = new PhoneStepper()
+                .steps(1, 2, 3, 4, 5)
+                .setValue(3)
+                .onChange(v -> status = "增减 → " + num(v));
+
+        private final PhoneSlider slider = new PhoneSlider()
+                .setValue(0.4)
+                .onChange(t -> status = "拖动中 " + Math.round(t * 100) + "%")
+                .onCommit(t -> status = "滑块落定 → " + Math.round(t * 100) + "%");
+
+        WidgetTestPage() {
+            PhoneSwitch switchWidget = new PhoneSwitch()
+                    .on(true)
+                    .onChange(v -> status = "开关 → " + (v ? "开" : "关"));
+            PhoneDropdown dropdown = new PhoneDropdown()
+                    .options("选项 A", "选项 B", "选项 C", "选项 D", "选项 E", "选项 F")
+                    .selected(0)
+                    .onChange(i -> status = "下拉 → " + i);
+
+            rows.add(PhoneRow.of("开关", switchWidget));
+            rows.add(PhoneRow.of(() -> "增减：" + stepper.display(), stepper));
+            rows.add(PhoneRow.of(() -> "滑块：" + Math.round(slider.value() * 100) + "%", slider));
+            rows.add(PhoneRow.of("下拉选择", dropdown));
+            rows.add(PhoneRow.of(() -> status));
+        }
+
+        @Override
+        protected String title() {
+            return "控件自检";
+        }
+
+        /** 列表/设置形态的页面用略深一档的底色。 */
+        @Override
+        protected int pageBackground() {
+            return colors().pageBgList();
+        }
+
+        @Override
+        protected int contentHeight() {
+            return totalHeight;
+        }
+
+        /** 整数省掉小数点，只用于自检页的状态显示。 */
+        private static String num(double v) {
+            return v == Math.rint(v) ? String.valueOf((long) v) : String.valueOf(v);
+        }
+
+        /**
+         * 自上而下堆行，<b>唯一</b>的布局累加处（渲染前与命中前各调一次，保证一致）。
+         * 行的 y 已叠加滚动偏移，所以控件会跟着页面一起滚。
+         */
+        private void layoutRows() {
+            int y = PhoneText.px(6);
+            for (PhoneRow row : rows) {
+                row.background(colors().cardBg()).layout(font(), 0, scrollY(y), width());
+                y += row.height() + PhoneText.px(4);
+            }
+            totalHeight = y;
+        }
+
+        @Override
+        protected void renderContent(GuiGraphics g, int originX, int originY, int w, int h, float partialTick) {
+            layoutRows();
+            for (PhoneRow row : rows) {
+                row.render(g, originX, originY);
+            }
+        }
+
+        @Override
+        protected boolean onContentClick(double localX, double localY, int button, int action) {
+            layoutRows();
+            for (PhoneRow row : rows) {
+                if (action == GLFW.GLFW_PRESS && row.mousePressed(localX, localY, button)) {
+                    return true;
+                }
+                if (action == GLFW.GLFW_RELEASE && row.mouseReleased(localX, localY, button)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        @Override
+        protected void onContentMoved(double localX, double localY) {
+            for (PhoneRow row : rows) {
+                row.mouseDragged(localX, localY);
+            }
+        }
+
+        @Override
+        public boolean mouseScrolled(double relX, double relY, double scrollDelta) {
+            if (relY < contentTop()) {
+                return false;
+            }
+            layoutRows();
+            // 下拉展开时先让它吃掉滚轮（否则会一边选项一边滚页面）
+            for (PhoneRow row : rows) {
+                if (row.mouseScrolled(scrollDelta)) {
+                    return true;
+                }
+            }
+            return super.mouseScrolled(relX, relY, scrollDelta);
+        }
+    }
+
+    /**
+     * 图片绘制自检：拿同一张贴图的同一块<b>非正方形</b>子区域，用 {@link PhoneImages} 的四种画法
+     * 各画一遍，宽高比处理的差异应当一眼可见：
+     * <ul>
+     *   <li>{@code draw}：拉伸（会变形）</li>
+     *   <li>{@code drawFit}：完整可见、上下留白</li>
+     *   <li>{@code drawCover}：铺满并居中裁切（头像用这个）</li>
+     *   <li>{@code drawRegion}：只取子区域并拉伸</li>
+     * </ul>
+     */
+    private static final class ImageTestPage extends PhonePage {
+
+        /** 源贴图是 256×256；故意取一个很扁的子区域（256×96）来暴露宽高比差异 */
+        private static final int TEX_SIZE = 256;
+        private static final int REGION_W = 256;
+        private static final int REGION_H = 96;
+
+        @Override
+        protected String title() {
+            return "图片自检";
+        }
+
+        @Override
+        protected int pageBackground() {
+            return colors().pageBgList();
+        }
+
+        @Override
+        protected void renderContent(GuiGraphics g, int originX, int originY, int w, int h, float partialTick) {
+            Font font = font();
+            int gap = PhoneText.px(8);
+            int cols = 2;
+            int box = Math.max(16, (w - gap * (cols + 1)) / cols);
+            int labelH = PhoneText.px(12);
+            String[] labels = {"draw 拉伸", "drawFit 留白", "drawCover 裁切", "drawRegion 子区"};
+
+            int top = PhoneText.px(12);
+            for (int i = 0; i < labels.length; i++) {
+                int col = i % cols;
+                int row = i / cols;
+                int bx = originX + gap + col * (box + gap);
+                int by = originY + top + row * (box + labelH + gap);
+
+                switch (i) {
+                    case 0 -> PhoneImages.draw(g, SAMPLE_ICON, bx, by, box, box, TEX_SIZE, TEX_SIZE);
+                    case 1 -> PhoneImages.drawFit(g, SAMPLE_ICON, bx, by, box, box, REGION_W, REGION_H);
+                    case 2 -> PhoneImages.drawCover(g, SAMPLE_ICON, bx, by, box, box, REGION_W, REGION_H);
+                    default -> PhoneImages.drawRegion(g, SAMPLE_ICON, bx, by, box, box,
+                            0, 0, REGION_W, REGION_H, TEX_SIZE, TEX_SIZE);
+                }
+                PhoneText.draw(g, font, labels[i], bx, by + box + PhoneText.px(2),
+                        colors().textSecondary(), PhoneText.scale(0.75f));
+            }
+
+            PhoneText.draw(g, font, "同为 256×96 源区域：留白 / 裁切 / 拉伸 应明显不同",
+                    originX + gap, originY + top + 2 * (box + labelH + gap) + PhoneText.px(4),
+                    colors().textMuted(), PhoneText.scale(0.8f));
         }
     }
 }

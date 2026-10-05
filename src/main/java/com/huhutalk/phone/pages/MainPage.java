@@ -26,7 +26,7 @@ import java.util.regex.Pattern;
 /**
  * 手机主界面（桌面）。
  * <ul>
- *   <li>桌面背景 {@link #DESKTOP_BG}（临时色，后续在屏幕中间渲染更多内容）</li>
+ *   <li>桌面背景取自当前主题的 {@code pageBg}（随「配色方案」切换整体变化）</li>
  *   <li>APP 图标：圆角正方形，每行 {@link #APP_COLS} 个，纵向向下延伸；行数容量随手机长宽比变化
  *       （20:9 → 5 行、9:16 → 4 行、4:3 → 3 行）</li>
  *   <li>每个图标中心显示文字或 emoji，图标下方标注其灰字名称（0.5 倍、带阴影描边）</li>
@@ -36,8 +36,15 @@ import java.util.regex.Pattern;
  * </ul>
  */
 public class MainPage implements IPhonePage {
-    /** 桌面背景色（临时 #f0e4ea；后续替换为正式配色并在中间渲染更多内容） */
-    private static final int DESKTOP_BG = 0xFFF0E4EA;
+    /**
+     * 桌面背景色：取自当前主题的 {@code pageBg}（主要页面背景）。
+     * <p>
+     * 这里原本是硬编码的临时色 {@code #f0e4ea}（注释写着"后续替换为正式配色"）。
+     * 改读主题之后，「设置」页里的换配色方案会连桌面一起换掉——否则换个主题只换一半，看着很别扭。
+     */
+    private static int desktopBg() {
+        return com.huhutalk.client.theme.ThemeManager.getActive().pageBg();
+    }
     /** 每行 app 图标个数 */
     private static final int APP_COLS = 3;
     /** 图标下方名称的灰字颜色 */
@@ -242,8 +249,8 @@ public class MainPage implements IPhonePage {
         int h = PhoneOverlay.getPhoneHeight();
         var font = Minecraft.getInstance().font;
 
-        // 桌面背景（临时色 #f0e4ea，覆盖整个内容区；后续在此之上渲染更多内容）
-        graphics.fill(baseX, baseY, baseX + w, baseY + h, DESKTOP_BG);
+        // 桌面背景（取自主题，随「配色方案」切换整体变化）
+        graphics.fill(baseX, baseY, baseX + w, baseY + h, desktopBg());
 
         // 桌面中央表情（每次进入桌面时选择；本帧需要时选择后绘制）
         if (!stickerChosen) {

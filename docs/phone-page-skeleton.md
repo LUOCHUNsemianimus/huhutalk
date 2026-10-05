@@ -193,7 +193,165 @@ public final class MyListPage extends PhonePage {
 
 ---
 
-## 6. 自检：怎么确认骨架是通的
+## 6. 画图：`PhoneImages`
+
+### 6.1 图片句柄统一是 `ResourceLocation`
+
+本模组里所有"运行期产生的图"都已经统一成这个形式，所以**没有再引入第二套图片类型**：
+
+| 来源 | 拿纹理 | 拿尺寸 |
+|---|---|---|
+| 女仆头像 | `MaidAvatarManager.getOrLoadTexture(stableId)` | `MaidAvatarManager.getTextureSize(stableId)` |
+| 图库照片 | `PhotoLibrary.getOrLoadTexture(key)` | `PhotoLibrary.getTextureSize(key)` |
+| 玩家皮肤 | `((AbstractClientPlayer) p).getSkin().texture()` | 固定 64×64，头颅正面是 8×8 子区域 |
+| 资源包里的图 | `ResourceLocation.fromNamespaceAndPath("mymod", "textures/icon/x.png")` | 你的贴图尺寸 |
+
+### 6.2 四种画法
+
+| 方法 | 行为 | 典型场景 |
+|---|---|---|
+| `draw(g, tex, x, y, w, h, srcW, srcH)` | **拉伸**铺满（宽高比不符会变形） | 尺寸天生匹配 |
+| `drawFit(...)` | 按宽高比缩放到**完整可见**，四周留白（contain） | 照片预览、说明插图 |
+| `drawCover(...)` | 按宽高比铺满并**居中裁切**（cover） | **头像**——非正方形照片变方不变形 |
+| `drawRegion(g, tex, x, y, w, h, u, v, uW, vH, texW, texH)` | 只画贴图的一个子区域 | 皮肤头颅、雪碧图、九宫格 |
+
+```java
+// 女仆头像：先取纹理与尺寸，再用 cover 画进 30×30
+ResourceLocation tex = MaidAvatarManager.getOrLoadTexture(stableId);
+int[] size = MaidAvatarManager.getTextureSize(stableId);
+if (tex != null && size != null) {
+    PhoneImages.drawCover(g, tex, x, y, 30, 30, size[0], size[1]);
+}
+
+// 玩家皮肤的头颅正面
+PhoneImages.drawRegion(g, skin, x, y, 30, 30, 8, 8, 8, 8, 64, 64);
+```
+
+> ⚠️ **圆角图片没做**。要圆角贴图得遮罩或自定义着色器，目前头像都是方块。
+
+---
+
+## 7. 画字：`PhoneText`
+
+手机 UI 的字号要跟着玩家的「字体倍率」设置走，而 `GuiGraphics` 只能按 1 倍画。
+既有页面每处都自己抄了一遍 `pushPose / scale / popPose` 的换算（被复制了十几遍），这里收成一个入口。
+
+| 方法 | 说明 |
+|---|---|
+| `scale(float relative)` | 相对倍率 × 全局字体倍率，直接传给下面的绘制方法 |
+| `px(int pixels)` | 把固定像素量（行高、留白）按全局倍率放大 |
+| `width(font, text, scale)` / `height(font, scale)` | 量文字占多大，**不要自己拿 `font.width` 乘**，容易漏掉全局倍率 |
+| `draw(...)` / `drawShaded(...)` | 任意倍率绘制 |
+| `drawCenteredIn(g, font, text, x, y, w, h, color, scale)` | 在矩形内水平+垂直居中 |
+| `drawLeftIn(g, font, text, x, y, w, h, padLeft, color, scale)` | 垂直居中、左对齐；**超出宽度自动截断补「…」** |
+| `truncate(font, text, maxWidth, scale)` | 单独要截断时用 |
+
+---
+
+## 8. 控件与 `PhoneRow`
+
+### 8.1 四个控件
+
+| 控件 | 形态 | 关键行为 |
+|---|---|---|
+| `PhoneSwitch` | 胶囊开关 | 点击即切换并回调 `onChange`；`setValue` 不触发回调 |
+| `PhoneStepper` | 竖排 ▲▼ | **离散档位** `steps(...)`，`setValue` 自动吸附最近档位；到顶/到底仍消费点击，不穿透 |
+| `PhoneSlider` | 轨道 + 把手 | 值恒为 `0.0~1.0`；**`onChange` 拖动中实时、`onCommit` 松手落盘**——不需要自己写 `dragging` 布尔量 |
+| `PhoneDropdown` | 点击展开 | 展开时**画在自己矩形之外**，见下方警告；展开时吃掉滚轮 |
+
+四个控件都默认从主题取色（`accent` / `neutralBg` / `cardBg` / `textPrimary`），也都能用 `colors(...)` 覆盖。
+
+> ⚠️ **`PhoneDropdown` 展开时会画到矩形外**：高度是 `extraHeight()`。
+> `PhoneRow` 已经把它算进行高（后续行会自动下移），所以**用 `PhoneRow` 摆就没问题**；
+> 直接裸用的话要自己预留高度，并且注意它的渲染顺序。
+
+### 8.2 `PhoneRow`：一行「标签 + 右侧控件」
+
+两种排布由控件的 `layoutHint()` 决定：
+
+- `INLINE_RIGHT`（开关、stepper）：标签在左、控件右对齐
+- `STACKED`（滑块、下拉）：标签占一行、控件占满下一行
+
+```java
+private final List<PhoneRow> rows = List.of(
+        PhoneRow.of("开启某功能", new PhoneSwitch().on(v0).onChange(v -> save(v))),
+        PhoneRow.of(() -> "数值：" + stepper.display(), stepper),
+        PhoneRow.of(() -> "亮度：" + pct + "%", slider),
+        PhoneRow.of("选择项", dropdown),
+        PhoneRow.of(() -> "状态：" + status));   // 纯文本行
+
+/** 唯一布局处：行高自动算（含下拉展开），控件矩形也在这里定 */
+private void layoutRows() {
+    int y = PhoneText.px(6);
+    for (PhoneRow row : rows) {
+        row.background(colors().cardBg()).layout(font(), 0, y, width());
+        y += row.height() + PhoneText.px(4);
+    }
+}
+```
+
+**三态接线**（行代管拖动，页面不用维护"谁在被拖"）：
+
+```java
+@Override protected boolean onContentClick(double x, double y, int button, int action) {
+    layoutRows();                       // 命中前再摆一次，与渲染共用同一份布局
+    for (PhoneRow row : rows) {
+        if (action == GLFW.GLFW_PRESS   && row.mousePressed(x, y, button))  return true;
+        if (action == GLFW.GLFW_RELEASE && row.mouseReleased(x, y, button)) return true;
+    }
+    return false;
+}
+
+@Override protected void onContentMoved(double x, double y) {
+    for (PhoneRow row : rows) row.mouseDragged(x, y);
+}
+
+@Override public boolean mouseScrolled(double relX, double relY, double delta) {
+    if (relY < contentTop()) return false;
+    layoutRows();
+    for (PhoneRow row : rows) {
+        if (row.mouseScrolled(delta)) return true;   // 下拉展开时先让它吃掉
+    }
+    return super.mouseScrolled(relX, relY, delta);
+}
+```
+
+> ⚠️ **控件放进 `PhoneList` 的行里需要自己接线**：列表行的 y 随滚动变化，
+> 行内控件必须每帧按行位置 `bounds(...)`。`PhoneRow` 目前是为**页面级行**设计的。
+
+---
+
+## 9. 主题与颜色
+
+### 9.1 色板是默认值，不是强制
+
+`PhonePage.colors()`（返回 `ColorScheme`）与 `pageBackground()` 都是**可覆盖的普通方法**，不是 final：
+
+- **大多数页面不覆盖** → 自动跟着主题走，换主题整体变色；
+- **自带视觉风格的 App**（例如深色底的内容页）→ 覆盖 `colors()` / `pageBackground()`，或干脆用自己的品牌色。
+  色板负责"让默认页面跟着主题走"，**不负责规定所有 App 长什么样**。
+
+### 9.2 页面结构语义色（`ColorScheme.PEARL_PINK`）
+
+| 字段 | 值 | 用途 |
+|---|---|---|
+| `pageBg` | `#F2E8EF` | 主要页面背景（含桌面） |
+| `pageBgList` | `#EDE1E7` | 设置 / 条目 / 列表类页面背景 |
+| `cardBg` | `#FCF2F5` | 栏目 / 卡片填充 |
+| `textPrimary` | `#3A2E33` | 主要文字（对 `pageBg` 对比度 ≈ 10.9 : 1） |
+| `textSecondary` | `#6F6167` | 次要文字（≈ 4.9 : 1） |
+| `textMuted` | `#8A7C82` | 弱化文字（≈ 3.3 : 1） |
+| `divider` | `#E3D5DB` | 分隔线 |
+| `accent` | `#DE7E7E` | 主强调色（开关激活 / 滑块把手 / stepper 箭头） |
+
+### 9.3 换主题
+
+`ThemeManager.setScheme(id)` / `cycleNext()` 已就绪，内置「设置」页的「配色方案」行就能切。
+目前只有 `PEARL_PINK` 一个预设，追加新预设是纯增量工作。
+
+---
+
+## 10. 自检：怎么确认骨架是通的
 
 和 App 注册自检同一个开关（详见 [phone-app-api.md](phone-app-api.md) §9）：
 
@@ -201,20 +359,24 @@ public final class MyListPage extends PhonePage {
 -Dhuhutalk.debugApps=true     或环境变量   HUHUTALK_DEBUG_APPS=true
 ```
 
-打开手机桌面会多出四个图标，其中两个专门验骨架：
+打开手机桌面会多出 **6 个**图标（App 注册 3 个 + 骨架/控件/图片 3 个 + 滚动 1 个，共 6 个自检 App）：
 
 | 图标 | 验证什么 |
 |---|---|
+| **自检·文字** | App 注册的文字/emoji 图标通路 |
+| **自检·贴图** | App 注册的贴图图标通路 |
 | **自检·骨架** | `PhonePage` + `PhoneList`（模型 B）：顶栏由骨架画、返回键可点、40 行列表能滚、裁剪正确、**滚动后点哪行是哪行**、悬停高亮 |
 | **自检·滚动** | `PhonePage` 自管滚动（模型 A）：`scrollY` 与 `logicalY` 互逆换算，滚到任意位置都点得准 |
+| **自检·控件** | 四种控件 + `PhoneRow`，且与页面滚动共存 |
+| **自检·图片** | `PhoneImages` 四种画法（留白 / 裁切 / 拉伸差异） |
 
-判定：两个页面都能滚、都能点中行（点中的行号显示在顶栏右侧）、「‹ 返回」能回桌面。
+判定：都能点开、右键回桌面；两个滚动页都能滚能点；控件页开关/▲▼/**滑块拖动**/下拉展开都正常。
 
 ---
 
-## 7. 和现有页面的关系
+## 11. 和现有页面的关系
 
-**现有 12 个页面一行没改，继续照旧工作。**
+**现有 12 个页面一行没改，继续照旧工作。**（唯一例外：`MainPage` 的桌面底色接到了主题上。）
 
 - 新页面（包括附属模组的页面）**一律用骨架**；
 - 现有页面**按需顺手迁**——下次因为功能原因本来就要动它时，顺手换成骨架，一次一个、可单独验收；
@@ -224,15 +386,16 @@ public final class MyListPage extends PhonePage {
 
 ---
 
-## 8. 已知未做（需要就说）
+## 12. 已知未做（需要就说）
 
 | 项 | 说明 |
 |---|---|
-| **控件集**（按钮 / 开关 / 下拉） | 没有第二个使用方之前不做，避免过设计 |
-| **滚动条** | 目前只提供 `scrollOffset` / `maxScroll()`，需要时自己画 |
-| **主题语义色不全** | `ColorScheme` 只有顶栏 / 气泡 / 操作色，缺「列表行底 / 分隔线 / 次要文字 / 卡片」。骨架目前用 `pageBg` + `accentSoft` 等已有色凑，分隔线用固定半透明黑。要真正贯通主题得给 `ColorScheme` 加字段（record 构造器签名会变），等有需要再动 |
+| **圆角图片** | `UiShapes` 只能填纯色圆角矩形；圆角贴图要遮罩或自定义着色器。头像目前是方块 |
+| **滚动条** | 已决定搁置。只提供 `scrollOffset` / `maxScroll()`，需要时自己画 |
+| **控件放进 `PhoneList` 行内** | 需自己接线：列表行的 y 随滚动变化，行内控件要每帧按行位置 `bounds(...)`；`PhoneRow` 是为页面级行设计的 |
 | **多列网格列表** | `PhoneList` 只有单列。`PhoneCasePickerPage` 那种网格暂不支持 |
 | **吸顶分组头** | 没有 |
+| **文本输入框** | 页面内没有可用的输入控件。需要打字时既有做法是借用真 `Screen`（见 `PhoneInputScreen`，输入法可用） |
 
 ---
 
@@ -242,5 +405,10 @@ public final class MyListPage extends PhonePage {
 |---|---|
 | `src/main/java/com/huhutalk/api/phone/ui/PhonePage.java` | 页面骨架 |
 | `src/main/java/com/huhutalk/api/phone/ui/PhoneList.java` | 虚拟化行列表 |
-| `src/main/java/com/huhutalk/client/debug/PhoneAppSelfTest.java` | 自检 App 与两个骨架示例页（默认关闭） |
+| `src/main/java/com/huhutalk/api/phone/ui/PhoneRow.java` | 标签 + 控件行 |
+| `src/main/java/com/huhutalk/api/phone/ui/PhoneSwitch.java` 等 4 个 | 开关 / stepper / 滑块 / 下拉 |
+| `src/main/java/com/huhutalk/api/phone/ui/PhoneImages.java` | 画图 |
+| `src/main/java/com/huhutalk/api/phone/ui/PhoneText.java` | 画字 |
+| `src/main/java/com/huhutalk/client/debug/PhoneAppSelfTest.java` | 6 个自检 App 与示例页（默认关闭） |
 | [phone-app-api.md](phone-app-api.md) | App 注册 API |
+| [phone-ui-toolkit-handoff.md](phone-ui-toolkit-handoff.md) | **工作日志与交接**（先读这个） |

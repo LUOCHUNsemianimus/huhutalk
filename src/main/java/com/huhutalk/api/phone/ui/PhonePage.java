@@ -160,6 +160,16 @@ public abstract class PhonePage implements IPhonePage {
         return ThemeManager.getActive();
     }
 
+    /**
+     * 页面底色。默认取主题的 {@code pageBg}（主要页面背景）。
+     * <p>
+     * 「设置 / 条目 / 列表」形态的页面通常返回 {@code colors().pageBgList()}（略深一档），
+     * 自带视觉风格的 App 则可以直接返回自己的颜色——色板是默认值，不是强制。
+     */
+    protected int pageBackground() {
+        return colors().pageBg();
+    }
+
     /** 常用字体 */
     protected final Font font() {
         return Minecraft.getInstance().font;
@@ -232,7 +242,7 @@ public abstract class PhonePage implements IPhonePage {
         setScrollOffset(scrollOffset);
 
         // 页面背景
-        graphics.fill(baseX, baseY, baseX + w, baseY + h, colors().pageBg());
+        graphics.fill(baseX, baseY, baseX + w, baseY + h, pageBackground());
 
         // 顶栏
         renderTopBar(graphics, baseX, baseY, w);
