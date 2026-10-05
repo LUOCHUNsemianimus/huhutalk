@@ -60,10 +60,10 @@ public record ColorScheme(
     public static final ColorScheme PEARL_PINK = new ColorScheme(
             "pearl_pink",
             "珍珠粉",
-            0xFFF06292,   // 顶栏：高亮粉
+            0xFFDE7E7E,   // 顶栏：品牌粉（与内置页面的硬编码顶栏同色；原为 #F06292，偏紫，已更正）
             0xFFFFFFFF,   // 顶栏文字：白
             0xFFF2E8EF,   // 主要页面背景：柔和粉
-            0xFFF06292,   // 底部导航：同款粉
+            0xFFDE7E7E,   // 底部导航：与顶栏同色
             0xFFFFE0EA,   // 底部导航未选中：浅粉
             0xFFFFFFFF,   // 底部导航选中：白
             0xFF00796B,   // 女仆气泡：低饱和低亮深青

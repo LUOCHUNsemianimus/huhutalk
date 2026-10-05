@@ -298,8 +298,11 @@ public final class GalleryPage extends PhonePage {
 #### 顶栏配色统一
 
 - `PhonePage` 新增公开常量 `BRAND_TOPBAR_BG`（`#DE7E7E`）与钩子 `topBarBackground()`。
-  骨架默认仍跟主题走（`topBarBg()` = `#F06292`）；要跟内置页面统一就覆盖它返回该常量。
+  骨架默认跟主题走（`topBarBg()`）；**主题本身也已更正**——`PEARL_PINK.topBarBg` / `navBg`
+  原为偏紫的 `#F06292`，现改为 `#DE7E7E`，与内置页面硬编码的顶栏同色。
 - 已应用：`GalleryPage` / `GalleryViewerPage` / `ManualPage`（手册原来是 `#F06292`）。
+  注意这三个是**显式返回品牌常量**而不是依赖主题——这样以后新增配色方案时，
+  它们仍与聊天/消息/设置这些硬编码顶栏的老页面保持一致。
 
 > **为什么长按没做成"按住到 1 秒即时反馈"**：当前输入链路里，按住期间 Overlay 不向页面转发任何事件，
 > PRESS/RELEASE 是松开时一起补发的。要即时反馈就得加每 tick 的计时器 + 松开时的抑制状态（约多 30 行）。

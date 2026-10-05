@@ -65,9 +65,10 @@
 | 资源 | 说明 |
 |---|---|
 | `models/item/phone_3d.json` | 手机本体模型（16 个 element / 5 个 group；`case_core` 是那块实心机身） |
-| `models/item/phone_camera.json` | **与 `phone_3d.json` 几何逐字相同**，只把 `textures` 指向擦除版纹理 |
+| `models/item/phone_camera.json` | **与 `phone_3d.json` 几何逐字相同**，只把 `textures` 指向擦除版纹理（现指向 `phone_camera_2`） |
 | `textures/item/phone_3d.png` | 手机纹理（**已换成用户修复版**，见 §5.5-21） |
-| `textures/item/phone_3d_erased.png` | 擦除版：把"玩家侧可见面"擦成全透明，相机模式的取景框效果就靠它 |
+| `textures/item/phone_camera_2.png` | **当前的擦除版**（用户手绘，128×128）：把"玩家侧可见面"擦成全透明，相机模式的取景框效果就靠它 |
+| `textures/item/phone_3d_erased.png` | ~~旧的擦除版~~ **已弃用**：擦得不够干净（用户反馈）。文件留着仅供对照，没有任何引用指向它 |
 
 ### 相邻但**本任务未改动**（别混淆）
 
@@ -155,8 +156,9 @@
 ### 期 1e 相机模式（**功能已通，UI 按第二轮反馈重排待验收**）
 
 **取景框原理（关键，别推翻）**：不给模型掏窟窿，而是**换一张擦除纹理**。
-`phone_3d_erased.png` 把"玩家侧可见面"擦成全透明 ⇒ 机壳在那些面上**直接透出后面的真实场景**，几何零改动。
+`phone_camera_2.png` 把"玩家侧可见面"擦成全透明 ⇒ 机壳在那些面上**直接透出后面的真实场景**，几何零改动。
 `phone_camera.json` 就是"同一份几何 + 换一行纹理引用"，由隐藏物品 `phone_camera` 让 `ItemRenderer` 能寻址。
+（旧的 `phone_3d_erased.png` 擦得不干净，已弃用；换纹理只需改 `phone_camera.json` 里那两行 `textures`。）
 
 **拍照抓图（本轮重做，别改回去）**：`PhoneOverlay.requestWorldCapture` 只登记请求，
 真正的抓取发生在 `RenderLevelStageEvent.Stage.AFTER_LEVEL` —— 那一刻**世界已画完，手/手机/HUD 都还没画**

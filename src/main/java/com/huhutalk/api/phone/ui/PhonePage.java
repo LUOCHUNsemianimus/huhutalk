@@ -70,10 +70,12 @@ public abstract class PhonePage implements IPhonePage {
     /**
      * HuhuTalk 的<b>品牌顶栏色</b>（{@code #DE7E7E}）。
      * <p>
-     * 聊天页、消息页、联系人页、设置页、相机页…… 内置页面的顶栏全都是这个硬编码色。
-     * 骨架的默认顶栏则跟着主题走（{@code ColorScheme.topBarBg()}，目前是更亮的 {@code #F06292}），
-     * 于是"用骨架写的页面"和"老页面"摆在一起会像两台不同的手机。
-     * 想要统一观感就覆盖 {@link #topBarBackground()} 返回本常量。
+     * 聊天页、消息页、联系人页、设置页、相机页…… 内置页面的顶栏全都是这个硬编码色，
+     * 主题的 {@code ColorScheme.topBarBg()} 也是同一个值（曾经是偏紫的 {@code #F06292}，已更正）。
+     * 那为什么还要有本常量？因为<b>骨架页面的顶栏是"跟主题走"的</b>：
+     * 以后一旦新增了别的配色方案，用骨架写的页面顶栏会变、而老页面不会 ——
+     * 两者摆在一起就像两台不同的手机。想让自己的页面<b>永远</b>和内置页面一致，
+     * 就覆盖 {@link #topBarBackground()} 返回本常量（图库、手册就是这么做的）。
      */
     public static final int BRAND_TOPBAR_BG = 0xFFDE7E7E;
 

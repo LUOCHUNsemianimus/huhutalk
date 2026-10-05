@@ -380,6 +380,8 @@ private void layoutRows() {
 
 | 字段 | 值 | 用途 |
 |---|---|---|
+| `topBarBg` | `#DE7E7E` | 顶栏 / 底部导航背景（= `PhonePage.BRAND_TOPBAR_BG`） |
+| `topBarText` | `#FFFFFF` | 顶栏文字 |
 | `pageBg` | `#F2E8EF` | 主要页面背景（含桌面） |
 | `pageBgList` | `#EDE1E7` | 设置 / 条目 / 列表类页面背景 |
 | `cardBg` | `#FCF2F5` | 栏目 / 卡片填充 |
