@@ -1,6 +1,7 @@
 package com.huhutalk.phone;
 
 import com.huhutalk.HuhuTalk;
+import com.huhutalk.api.phone.camera.PhoneCameraHost;
 import com.huhutalk.client.render.PhoneScreenTarget;
 import com.huhutalk.client.render.ProPhoneHandRenderer;
 import com.huhutalk.client.settings.HuhuTalkClientSettings;
@@ -549,14 +550,14 @@ public class PhoneOverlay {
      * 又不需要给窄手机再加一颗按钮。保存后<b>刻意留在已拍成页</b>：玩家接着轻点 4 确认发送，
      * 或点 5 重拍，两个方向都还留着选择。
      *
-     * <h2>为什么动作要"合成点击"而不是直接调 ChatPage 的私有方法</h2>
-     * 合成成按钮中心的坐标再走 {@link #handleMouseClicked}，按钮命中外框、动画守卫、
-     * 发送/保存流程全部复用同一条通路 —— 按钮排版改了，侧键自动跟着改，
-     * 不会出现"按钮挪了但侧键还点老位置"这种暗病。
+     * <h2>为什么动作要"合成点击"而不是直接调页面方法</h2>
+     * 早先的实现让 {@code PhoneOverlay} 把侧键翻译成按钮中心坐标、再走 {@link #handleMouseClicked}。
+     * 那等于把"键位 → 意图"的映射埋进坐标算术里 —— 排版一改，命中区就可能挪位或与邻区重叠，
+     * 表现为"按了这个键却触发了那个动作"或"根本没反应"。
      * <p>
-     * ⚠ 这段说明是历史遗留：期 1e 已改为**直接调用 {@link ChatPage} 的语义方法**
-     * （{@code cameraPrimaryAction / cameraBackAction / cameraSaveAction}），键位映射是显式的，
-     * 与排版彻底解耦（踩坑见交接文档 §5.3-18）。
+     * 现在改为<b>直接调用 {@link PhoneCameraHost} 的语义方法</b>：键位映射是显式的，
+     * 与渲染排版彻底解耦（踩坑见交接文档 §5.3-18）。判据是接口而不是具体页面类，
+     * 所以附属模组写的相机页也走同一条通路。
      */
     private static void cameraSideButton(boolean clickButton, int action) {
         if (action == GLFW.GLFW_PRESS) {
@@ -580,13 +581,13 @@ public class PhoneOverlay {
         }
         cameraHoldFired = false;
         IPhonePage page = getCurrentPage();
-        if (!(page instanceof ChatPage cp)) {
+        if (!(page instanceof PhoneCameraHost host)) {
             return;
         }
         if (which == 1) {
-            cp.cameraPrimaryAction();
+            host.cameraPrimaryAction();
         } else {
-            cp.cameraBackAction();
+            host.cameraBackAction();
         }
     }
 
@@ -595,19 +596,25 @@ public class PhoneOverlay {
      * <p>
      * 由 {@code ClientModEvents.onClientTick} 每 tick 调用（见 {@link #CAM_HOLD_SAVE_MS}）。
      * 只对侧键 4 生效；没有照片时 {@code cameraSaveAction()} 内部自然无事发生。
+     * <p>
+     * {@link PhoneCameraHost#handlesLongPress()} 返回 false 的相机（"按下即存"那种）
+     * <b>根本不进这套手势</b>：这里直接返回，于是 {@code cameraHoldFired} 永不为真，
+     * 松开时必定走一次 {@link PhoneCameraHost#cameraPrimaryAction()}。
+     * 否则玩家按住超过 350ms 就会「长按没动作、轻点也被吞」——按了没反应。
      */
     public static void tickCameraHold() {
         if (!isCameraMode() || cameraHoldButton != 1 || cameraHoldFired) {
+            return;
+        }
+        IPhonePage page = getCurrentPage();
+        if (!(page instanceof PhoneCameraHost host) || !host.handlesLongPress()) {
             return;
         }
         if (System.currentTimeMillis() - cameraHoldStartAt < CAM_HOLD_SAVE_MS) {
             return;
         }
         cameraHoldFired = true;
-        IPhonePage page = getCurrentPage();
-        if (page instanceof ChatPage cp) {
-            cp.cameraSaveAction();
-        }
+        host.cameraSaveAction();
     }
 
     /** 手机局部坐标滚轮（独立光标拖动滚动用），守卫条件与 {@link #handleMouseScroll} 保持一致 */
@@ -808,7 +815,7 @@ public class PhoneOverlay {
     }
 
     /**
-     * 当前页面是否处于「相机模式」（聊天页 📷）。
+     * 当前页面是否处于「相机模式」。
      * <p>
      * 单独抽出来是因为它有两个<b>跨模块</b>的用途，且都必须与页面逻辑保持一致：
      * <ul>
@@ -817,9 +824,13 @@ public class PhoneOverlay {
      *       让 3D 机壳在玩家侧直接透出真实场景（见 {@code ItemPhoneCamera}）。</li>
      * </ul>
      * 两处必须同源，否则会出现"透明屏上仍是机壳"或"机壳透了但页面还是不透明"这类半边生效的怪象。
+     * <p>
+     * <b>判据是公开接口 {@link PhoneCameraHost}，不是具体的页面类</b>：
+     * 任何页面（含附属模组的相机页）只要实现它并返回 true，上面这些行为就全部自动生效。
+     * 早先这里写死 {@code instanceof ChatPage}，把"相机"这件能力锁在了内置聊天页上。
      */
     public static boolean isCameraMode() {
-        return getCurrentPage() instanceof ChatPage cp && cp.isCameraMode();
+        return getCurrentPage() instanceof PhoneCameraHost host && host.isCameraMode();
     }
 
     /**
@@ -931,32 +942,75 @@ public class PhoneOverlay {
     /**
      * 从桌面进入 HuhuTalk App 内容区（默认消息 tab，显示底部导航）。
      * 委托给通用 {@link #launchApp}，使用 HuhuTalk 图标底色做启动动画。
+     * <p>
+     * 定位走的是<b>槽位常量</b>而不是 {@code "HuhuTalk"} 这个名字：HuhuTalk 恒定占
+     * {@link MainPage#SLOT_TALK}，而名字是玩家可见文案——附属模组起个同名 App 时，
+     * 按名字查会把启动动画的原点抢到别人的图标上。
      */
     public static void openChatApp() {
-        launchApp(new MessageListPage(), "HuhuTalk");
+        launchApp(new MessageListPage(), MainPage.SLOT_TALK);
     }
 
     /**
      * 通用 App 启动动画：点开某 App 的首页 target 时，在对应图标中心生成其底色色块，
      * 由小放大并淡出，底层 target 页原地淡入。任何 App 复用同一套动画。
      * 播放期间普通点击屏蔽，右键可强制打断并出栈返回。
+     *
+     * @param slot 图标所在槽位（见 {@link MainPage#SLOT_COUNT}）
+     */
+    public static void launchApp(IPhonePage target, int slot) {
+        launchAppAt(target, MainPage.appIconCenterScreen(slot), true);
+    }
+
+    /**
+     * 同 {@link #launchApp(IPhonePage, int)}，但按 App <b>名字</b>定位图标。
+     * 保留给外部按名字调用的旧入口；内部走槽位版本。
      */
     public static void launchApp(IPhonePage target, String appName) {
+        launchAppAt(target, MainPage.appIconCenterScreen(appName), true);
+    }
+
+    /**
+     * <b>桌面 App 的公开启动入口</b>：播放「图标色块放大淡出 + 目标页原地淡入」的启动动画，
+     * 但<b>不进入 HuhuTalk 内容区</b>。
+     * <p>
+     * 与 {@link #launchApp(IPhonePage, int)} 的唯一区别就是后者会置 {@code inChatApp = true}
+     * （于是显示底部导航）。桌面上的普通 App 不该出现 HuhuTalk 的底部导航，
+     * 所以它们走这条；页栈里<b>保留桌面</b>，右键照常回桌面而不是直接关掉手机。
+     * <p>
+     * 桌面上点开 App 时，HuhuTalk 会按 {@code PhoneApp.launchAnimation()} 自动在
+     * 本方法与 {@link #pushPage} 之间选；你也可以自己调它（例如从别处程序化打开某个 App）。
+     *
+     * @param slot 图标所在槽位，动画的色块从这里生成；槽位为空则跳过动画直接进页
+     */
+    public static void launchDesktopApp(IPhonePage target, int slot) {
+        launchAppAt(target, MainPage.appIconCenterScreen(slot), false);
+    }
+
+    private static void launchAppAt(IPhonePage target, int[] iconCenter, boolean enterContentArea) {
         if (!isVisible()) return;
-        inChatApp = true;
-        activeTab = Tab.MESSAGE;
-        pageStack.clear();
-        pageStack.push(target);
-        if (uiAnimEnabled()) {
-            int[] c = MainPage.appIconCenterScreen(appName);
-            if (c != null) {
-                launchCx = c[0];
-                launchCy = c[1];
-                launchIconW = c[2];
-                launchBlockColorRgb = c[3];
-                launchActive = true;
-                launchTween = new AnimTween(LAUNCH_DURATION);
-            }
+        if (enterContentArea) {
+            inChatApp = true;
+            activeTab = Tab.MESSAGE;
+            pageStack.clear();
+            pageStack.push(target);
+        } else {
+            // 桌面 App：不进内容区（无底部导航），但栈底压回桌面 ——
+            // 否则右键会走到 popPage 的 "栈深 1 且不在内容区 → hide()" 分支，直接把手机关掉，
+            // 而不是回到桌面（那是内置「设置/手册」一直以来的行为）。
+            inChatApp = false;
+            activeTab = Tab.MESSAGE;
+            pageStack.clear();
+            pageStack.push(new MainPage());
+            pageStack.push(target);
+        }
+        if (uiAnimEnabled() && iconCenter != null) {
+            launchCx = iconCenter[0];
+            launchCy = iconCenter[1];
+            launchIconW = iconCenter[2];
+            launchBlockColorRgb = iconCenter[3];
+            launchActive = true;
+            launchTween = new AnimTween(LAUNCH_DURATION);
         }
     }
 

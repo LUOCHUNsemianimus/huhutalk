@@ -207,7 +207,7 @@ public final class GalleryPage extends PhonePage {
 | **控件放进 `PhoneList` 的行里** | **需要自己接线**：列表行的 y 随滚动变化，行内控件必须每帧按行位置 `bounds(...)`。目前 `PhoneRow` 是为页面级行设计的。 |
 | **多列网格列表** | `PhoneList` 只有单列。`PhoneCasePickerPage` 那种网格不支持。 |
 | **吸顶分组头** | 没有。 |
-| **App 启动动画** | 未对外开放——内置 HuhuTalk 的"色块放大"动画与「进入内容区显示底部导航」耦合在 `PhoneOverlay.launchApp` 里。外部 App 走通用「从右滑入」转场。 |
+| **App 启动动画** | ✅ **已开放**（本轮）。`PhoneApp.Builder.launchAnimation(boolean)`，默认开启；机制是 `PhoneOverlay.launchDesktopApp(page, slot)` —— 与「进入 HuhuTalk 内容区（底部导航）」彻底解耦（不再置 `inChatApp`）。内置 App 仍走各自的既有通路（HuhuTalk 用 `openChatApp()`，手册/设置用 `pushPage`），不受影响。详见 [phone-app-api.md](phone-app-api.md) §5.1 |
 | **未读红点 / 隐藏 / 运行时注销** | 均未开放。 |
 
 ---
@@ -226,9 +226,22 @@ public final class GalleryPage extends PhonePage {
 
 ### 8.2 相机 App
 
+> **状态更新（本轮定稿的落点，优先于下面的旧建议）**
+> - 桌面排布已改为**槽位制**（见 §9.1），`相机` 预定 **槽位 1**。
+> - 相机的桌面图标**走 `PhoneAppRegistry` 自己注册自己**（纯公开 API 通路，`id = huhutalk:camera`），
+>   不再往 `MainPage` 内置表里塞。注册必须放在**客户端初始化**里（直接 `register`），
+>   而不是订阅 `PhoneAppRegisterEvent` —— 这样它在外部列表里排第一个，能抢到槽位 1；
+>   附属模组是事件触发时注册的，排在它后面。
+> - 独立相机与聊天内相机**不共享状态机**：独立相机**没有「已拍成页」**，按下即存相册、留在取景；
+>   聊天内相机保留「已拍成页」，且本轮要改成**全屏铺照片**（见下）。
+> - 需要新增的公开能力：`PhoneCameraHost` 接口（把 `PhoneOverlay` 里写死的 `instanceof ChatPage`
+>   泛化为接口判定）。这是附属模组将来做自己相机页的前提。
+
 - 抓图链路已经现成：`PhoneOverlay.requestWorldCapture(Consumer<byte[]>)` + `PhotoLibrary.captureMainTargetPng()` / `saveToGallery(byte[])` / `registerCaptured(byte[])`。
 - 取景预览可以复用 `ChatPage` 里那套擦除纹理逻辑（搜 `PhoneOverlay.requestWorldCapture` 的调用点）。
 - 新页面用 `PhonePage` 的 `showTopBar()` / `renderContent` 画取景框。
+  ⚠ 相机页**不要**继承 `PhonePage`：它的 `render` 是 `final` 且必定用 `pageBackground()` 铺满内容区，
+  会把取景框整个盖死。相机页直接 `implements IPhonePage` 自绘。
 - **不要**改 `ChatPage` 里的相机逻辑，直接把可复用部分抽出来或复制到新页。
 
 ### 8.3 图库 App
@@ -249,6 +262,16 @@ public final class GalleryPage extends PhonePage {
 | `MainPage.java` | 桌面底色改为 `ThemeManager.getActive().pageBg()` | 底色从 `#F0E4EA` 变为 `#F2E8EF`；切主题时会一起变 |
 | `ColorScheme.java` | +7 字段；`pageBg` 值改为 `#F2E8EF` | **`PhoneCasePickerPage` 底色跟着变**（唯一读 `pageBg` 的既有页面） |
 | 其余 11 个页面 | **未改动** | — |
+
+### 9.1 排布改为「槽位」（本轮新增，含对外语义变更）
+
+| 项 | 变化 |
+|---|---|
+| `MainPage` | **位置从「列表下标」改成「显式槽位」**：`AppInfo` 新增 `slot` / `behavior` / `unreadBadge`；新增 `SLOT_COUNT`(=9)、`SLOT_TALK`(=0) |
+| `MainPage` | 6 处 `"名字".equals(app.name)` 判功能 → `AppBehavior` 枚举（`TALK` / `MANUAL` / `PLAIN`）。**从此改名、挪位都不会让红点或入口失联** |
+| `MainPage` | `appIconCenterScreen(String)` 保留，新增按槽位的 `appIconCenterScreen(int)`；`PhoneOverlay.openChatApp()` 改走槽位 0，不再按名字查图标 |
+| `PhoneApp` | 新增公开 `Builder.slot(int)` 与 `MAX_SLOTS`/`SLOT_AUTO`；**不调 `.slot()` 的附属模组行为完全不变** |
+| **对外语义变更** | `phone-app-api.md` §5 那句「内置 App 恒定占前几个位置、外部一律追加在后面」**已改写**：现在外部可用 `.slot()` 指定任意空槽；申请的槽位被占会退让到空槽 + WARN（不会消失） |
 
 ---
 

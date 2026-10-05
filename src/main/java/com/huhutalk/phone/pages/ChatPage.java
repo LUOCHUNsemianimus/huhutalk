@@ -1,5 +1,6 @@
 package com.huhutalk.phone.pages;
 
+import com.huhutalk.api.phone.camera.PhoneCameraHost;
 import com.huhutalk.client.ChatHistoryStorage;
 import com.huhutalk.client.MaidAvatarManager;
 import com.huhutalk.client.MaidStatusCache;
@@ -14,7 +15,6 @@ import com.huhutalk.network.C2SMaidImageChatPacket;
 import com.huhutalk.network.C2SClaimTransferPacket;
 import com.huhutalk.network.C2SPhoneTypingDonePacket;
 import com.huhutalk.network.C2SRequestMaidStatusPacket;
-import com.huhutalk.phone.IPhonePage;
 import com.huhutalk.phone.PhoneInputScreen;
 import com.huhutalk.phone.PhoneOverlay;
 import com.huhutalk.phone.UiFont;
@@ -43,8 +43,12 @@ import java.util.Random;
 /**
  * 聊天页面（完整版）。
  * 所有键（历史/草稿/未读/发消息）统一使用 stableId，死亡/复活不丢失数据。
+ * <p>
+ * 本页同时是一个 {@link PhoneCameraHost}：聊天里的 📷 会切进相机模式，
+ * 于是"手机体透明 + 擦除机壳 + 侧键接管 + 取景姿态"这套由 {@code PhoneOverlay} 驱动的行为
+ * 自动生效。判据是接口而不是页面类，所以独立相机页（另一个类）也复用同一套通路。
  */
-public class ChatPage implements IPhonePage {
+public class ChatPage implements PhoneCameraHost {
     private static final int AVATAR = 12;
     private static final int MARGIN = 6;
     private static final int MAX_VISIBLE_INPUT_LINES = 3;
@@ -224,6 +228,7 @@ public class ChatPage implements IPhonePage {
     }
 
     /** 是否处于相机模式（用于让手机体在相机模式下透明化，透出游戏画面） */
+    @Override
     public boolean isCameraMode() { return cameraActive; }
 
     /** 把最后一条"玩家发送"的消息标红"!"（消息入离线队列、尚未送达）。本地+落盘 */
@@ -1622,6 +1627,7 @@ public class ChatPage implements IPhonePage {
      * 排版一改，命中区就可能挪位或与邻区重叠，表现为"按了这个键却触发了那个动作"或"根本没反应"。
      * 现在改为**直接调用语义方法**：键位映射是显式的，与渲染排版彻底解耦。
      */
+    @Override
     public void cameraPrimaryAction() {
         if (cameraShot != null) {
             confirmPhoto();
@@ -1644,6 +1650,7 @@ public class ChatPage implements IPhonePage {
      * 丢弃的那张仍会作为左侧「上一张」缩略图留着（{@code lastCamShotKey} 不动）——
      * 真机相机的左下角缩略图显示的正是刚拍/刚删的那张，且它是"我拍到过什么"的视觉记录。
      */
+    @Override
     public void cameraBackAction() {
         if (cameraShot != null) {
             cameraShot = null;
@@ -1658,6 +1665,7 @@ public class ChatPage implements IPhonePage {
      * 只在已拍成时有效（没有照片就无事发生），且保存后<b>留在已拍成页</b>：
      * 玩家接着可以确认发送，或返回重来，两个方向都还留着。
      */
+    @Override
     public void cameraSaveAction() {
         savePhoto();
     }

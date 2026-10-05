@@ -1,10 +1,10 @@
 package com.huhutalk.phone.pages;
 
+import com.huhutalk.HuhuTalk;
 import com.huhutalk.api.phone.PhoneApp;
 import com.huhutalk.api.phone.PhoneAppRegistry;
 import com.huhutalk.client.NotificationManager;
 import com.huhutalk.client.settings.HuhuTalkClientSettings;
-import com.huhutalk.network.C2SSOSPacket;
 import com.huhutalk.phone.IPhonePage;
 import com.huhutalk.phone.PhoneOverlay;
 import com.huhutalk.phone.UiFont;
@@ -13,7 +13,6 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.resources.ResourceLocation;
-import net.neoforged.neoforge.network.PacketDistributor;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
@@ -29,10 +28,11 @@ import java.util.regex.Pattern;
  *   <li>桌面背景取自当前主题的 {@code pageBg}（随「配色方案」切换整体变化）</li>
  *   <li>APP 图标：圆角正方形，每行 {@link #APP_COLS} 个，纵向向下延伸；行数容量随手机长宽比变化
  *       （20:9 → 5 行、9:16 → 4 行、4:3 → 3 行）</li>
- *   <li>每个图标中心显示文字或 emoji，图标下方标注其灰字名称（0.5 倍、带阴影描边）</li>
- *   <li>HuhuTalk 图标右上角未读红点</li>
- *   <li>「设置」图标打开手机内置手册（{@link ManualPage}）</li>
- *   <li>SOS 紧急呼叫按钮（召来全部已佩戴手机的女仆并进入战斗保护）</li>
+ *   <li><b>位置由槽位决定，不由列表顺序决定</b>：每个 App 自带 {@link AppInfo#slot}，
+ *       允许留空、允许跳号；内置与附属模组共用同一套槽位表（见 {@link #SLOT_COUNT}）</li>
+ *   <li>每个图标中心显示文字或 emoji，图标下方标注其灰字名称（0.8 倍、带阴影描边）</li>
+ *   <li>HuhuTalk 图标：右上角未读红点，点击进入 App 内容区（由 {@code AppBehavior.TALK} 驱动）</li>
+ *   <li>「手册」图标打开手机内置手册（{@link ManualPage}）</li>
  * </ul>
  */
 public class MainPage implements IPhonePage {
@@ -47,6 +47,19 @@ public class MainPage implements IPhonePage {
     }
     /** 每行 app 图标个数 */
     private static final int APP_COLS = 3;
+    /**
+     * 桌面槽位总数 = 三种屏幕比例的<b>最小</b>容量（{@code 4:3} → 3 行 × {@link #APP_COLS} 列）。
+     * <p>
+     * 布局被刻意锁在这个范围内：网格容量随长宽比变化（20:9→15 格、9:16→12 格、4:3→9 格，
+     * 见 {@link #gridRows()}），但槽位布局是<b>一份与长宽比无关的数据</b>。若允许排到第 10 格，
+     * 玩家把比例从 20:9 切到 4:3 就会「丢图标」；锁在 9 格内则三种比例都装得下。
+     */
+    public static final int SLOT_COUNT = PhoneApp.MAX_SLOTS;
+    /**
+     * HuhuTalk 自己的槽位：恒定占用，且<b>不接受外部注册抢占</b>。
+     * 后续「游戏内热切换」也只允许调整其他 App 的位置（作者原话：HuhuTalk 不动）。
+     */
+    public static final int SLOT_TALK = 0;
     /** 图标下方名称的灰字颜色 */
     private static final int LABEL_COLOR = 0xFF7A7A7A;
     /** 桌面中央表情边长 = 手机内容宽度 × 该比例 */
@@ -73,51 +86,106 @@ public class MainPage implements IPhonePage {
 
     private static final Random RANDOM = new Random();
 
-    /** APP 元数据（静态，类加载时由 {@link #buildApps()} 构建一次；供通用启动动画按名字查询） */
+    /**
+     * 内置 App 的元数据（类加载时由 {@link #buildApps()} 构建一次）。
+     * <p>
+     * <b>列表顺序不再决定位置</b>：每个 App 自带 {@link AppInfo#slot}，位置由槽位算。
+     * 这个列表只用来「圈出内置 App 占了哪些槽位」——内置优先，外部注册再去填空位。
+     */
     private static final List<AppInfo> apps = buildApps();
 
     /**
-     * 内置 App + 附属模组注册进来的 App 的<b>合并列表缓存</b>。
+     * 桌面槽位表：{@code slots()[i]} = 第 i 格的 App，{@code null} = 空槽。这是「位置」的唯一真相来源。
+     * <p>
+     * 为什么从「按列表下标排布」改成「按槽位排布」：下标是隐式的——删一个 App、插一个 App，
+     * 后面所有图标一起位移；而附属模组的注册又只能追加，于是我们自己的新 App（相机等）
+     * 永远拿不到想要的格子。槽位是显式数据，才能做到「允许留空、允许跳号、位置自由」。
      * <p>
      * 为什么不直接把外部 App 塞进 {@link #apps}：{@code apps} 是 {@code static final}、
      * 在类加载时定型，而附属模组的注册时机不由我们控制。改成「按注册版本号懒合并」之后，
      * 附属模组<b>任何时候</b>注册都能在下一帧生效，也不会出现「注册成功但图标不出现」这种哑失败。
-     * <p>
-     * 位置稳定性：内置 App 恒定占据 0..N-1（网格布局按下标算），外部 App 一律追加在后面，
-     * 所以装不装附属模组都不会改变既有图标的排布。
      */
-    private static List<AppInfo> mergedApps = null;
-    /** {@link #mergedApps} 对应的注册版本号；与 {@link PhoneAppRegistry#generation()} 不一致时重建 */
+    private static AppInfo[] mergedSlots = null;
+    /** {@link #mergedSlots} 对应的注册版本号；与 {@link PhoneAppRegistry#generation()} 不一致时重建 */
     private static int mergedGeneration = -1;
 
     /**
-     * 桌面当前应该显示的全部 App = 内置 {@link #apps} + {@link PhoneAppRegistry} 里的外部 App。
+     * 桌面当前应该显示的槽位表 = 内置 {@link #apps} + {@link PhoneAppRegistry} 里的外部 App。
      * <p>
-     * 每帧调用是便宜的：只有注册版本号变化时才真正重建列表。
+     * 每帧调用是便宜的：只有注册版本号变化时才真正重建。
      * 首次调用会广播 {@link com.huhutalk.api.phone.PhoneAppRegisterEvent}（见 {@link PhoneAppRegistry#apps()}），
      * 于是附属模组不需要关心"什么时候注册才来得及"。
      */
-    private static List<AppInfo> allApps() {
+    private static AppInfo[] slots() {
         // 顺序要紧：先取列表（这一步可能广播注册事件），再读版本号。
         // 反过来会在"广播期间刚好有人注册"时把版本号读成旧值，导致缓存永不更新。
         List<PhoneApp> external = PhoneAppRegistry.apps();
         int generation = PhoneAppRegistry.generation();
-        if (mergedApps == null || mergedGeneration != generation) {
-            List<AppInfo> merged = new ArrayList<>(apps);
-            for (PhoneApp app : external) {
-                merged.add(toAppInfo(app));
-            }
-            mergedApps = merged;
+        if (mergedSlots == null || mergedGeneration != generation) {
+            mergedSlots = buildSlots(external);
             mergedGeneration = generation;
         }
-        return mergedApps;
+        return mergedSlots;
+    }
+
+    /**
+     * 合并内置与外部 App 到槽位表。
+     * <p>
+     * <b>内置优先</b>：内置 App 先占自己的槽位，外部 App 只能填空位或自己申请的格子。
+     * <p>
+     * <b>申请不到就退让，而不是消失</b>：附属模组明确指定了被占用的槽位时，落到最小空槽并打 WARN。
+     * 「图标不出现」这种哑失败比「位置不对」难排查得多——注册表刻意不抛异常的同一套理由。
+     */
+    private static AppInfo[] buildSlots(List<PhoneApp> external) {
+        AppInfo[] out = new AppInfo[SLOT_COUNT];
+        for (AppInfo a : apps) {
+            if (a.slot >= 0 && a.slot < SLOT_COUNT) {
+                out[a.slot] = a;
+            }
+        }
+        for (PhoneApp app : external) {
+            int want = app.slot();
+            int at = -1;
+            if (want >= 0) {
+                if (want >= SLOT_COUNT) {
+                    HuhuTalk.LOGGER.warn("[HuhuTalk/PhoneApp] App「{}」申请的槽位 {} 越界（合法 0~{}），已改放空槽",
+                            app.displayName(), want, SLOT_COUNT - 1);
+                } else if (out[want] == null) {
+                    at = want;
+                } else {
+                    HuhuTalk.LOGGER.warn("[HuhuTalk/PhoneApp] 槽位 {} 已被「{}」占用，App「{}」已改放空槽",
+                            want, out[want].name, app.displayName());
+                }
+            }
+            if (at < 0) {
+                at = firstFreeSlot(out);
+                if (at < 0) {
+                    HuhuTalk.LOGGER.warn("[HuhuTalk/PhoneApp] 桌面 {} 格已满，App「{}」未能显示",
+                            SLOT_COUNT, app.displayName());
+                    continue;
+                }
+            }
+            out[at] = toAppInfo(app, at);
+        }
+        return out;
+    }
+
+    /** 最小空槽下标；没有空位返回 -1。 */
+    private static int firstFreeSlot(AppInfo[] slots) {
+        for (int i = 0; i < slots.length; i++) {
+            if (slots[i] == null) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     /** 把外部注册的 {@link PhoneApp} 转成桌面内部使用的 {@link AppInfo}。 */
-    private static AppInfo toAppInfo(PhoneApp app) {
-        return new AppInfo(app.displayName(), app.iconColor(), app.centerText(), false,
+    private static AppInfo toAppInfo(PhoneApp app, int slot) {
+        return new AppInfo(slot, AppBehavior.PLAIN, false,
+                app.displayName(), app.iconColor(), app.centerText(), false,
                 app.centerScale(), app.centerColor(),
-                app.pageFactory() != null, false, app.pageFactory(),
+                app.pageFactory() != null, false, app.launchAnimation(), app.pageFactory(),
                 app.iconTexture(), app.iconTexWidth(), app.iconTexHeight(), app.iconFill());
     }
 
@@ -125,27 +193,34 @@ public class MainPage implements IPhonePage {
     private ResourceLocation stickerTex = null;
     private int stickerW = 24, stickerH = 24;
     private boolean stickerChosen = false;
-    /** SOS 点击后的短暂提示（毫秒时间戳） */
-    private long sosFlashUntil = 0;
-    private String sosMessage = "";
 
     public MainPage() {
         // apps 由 buildApps() 静态构建一次，构造函数不再往里 add，避免反复 new 造成重复图标
     }
 
-    /** 一次性构建全部 APP 元数据。 */
+    /**
+     * 一次性构建全部内置 App 元数据。
+     * <p>
+     * <b>书写顺序不重要</b>——位置由每个 App 自己的 {@link AppInfo#slot} 决定；
+     * 之前是「列表下标即格位」，删一个插一个后面全位移，这也是本次改成槽位的直接原因。
+     * <p>
+     * 注意 {@code behavior} 取代了过去散在各处的 {@code "SOS".equals(app.name)} 这类<b>按名字判功能</b>的写法：
+     * 名字是给玩家看的文案，改名/挪位不该让红点或入口静默失联。
+     */
     private static List<AppInfo> buildApps() {
         List<AppInfo> list = new ArrayList<>();
-        // HuhuTalk：狐狸 emoji 居中（2.25 倍），点击进入 App 内容区（消息页 + 底部导航）。底色用 #de6f8d
-        list.add(new AppInfo("HuhuTalk", 0xFFDE6F8D, "🦊", true, 2.25f, 0xFFFFFFFF, true, false, null));
-        // 狐狐打人 / 狐狐打车：中心保留两字文案
-        list.add(new AppInfo("狐狐打人", 0xFF8000, "打人", false, 1.0f, 0xFFFFFFFF, false, false, null));
-        list.add(new AppInfo("狐狐打车", 0xFFFF00, "打车", false, 1.0f, 0xFFFFFFFF, false, false, null));
-        // 第二行：[SOS, 狐狐三十分(隐藏), 设置]。SOS 左置、隐藏的 30 分居中、设置靠右
-        list.add(new AppInfo("SOS", 0xFF0000, "SOS", false, 1.0f, 0xFFFFFFFF, true, false, null));
-        list.add(new AppInfo("狐狐三十分", 0x6495ED, "30分", false, 1.0f, 0xFFFFFFFF, false, true, null));
-        // 设置：齿轮 emoji，2 倍字号、灰色，打开手机内置手册
-        list.add(new AppInfo("设置", 0xFFEEEEEE, "⚙", true, 2.0f, 0xFF757575, true, false, ManualPage::new));
+        // 0 HuhuTalk：狐狸 emoji 居中（2.25 倍），点击进入 App 内容区（消息页 + 底部导航）。底色用 #de6f8d
+        // 恒定占 SLOT_TALK，不参与后续的「游戏内热切换」。
+        list.add(new AppInfo(SLOT_TALK, AppBehavior.TALK, true,
+                "HuhuTalk", 0xFFDE6F8D, "🦊", true, 2.25f, 0xFFFFFFFF, true, false, null));
+        // 1 刻意留空：预留给「相机」App —— 它作为外部注册走 PhoneAppRegistry（见 Phase 3 的计划），
+        //   显式申请槽位 1。留空而不是先占住，是为了让「我们自己的 App 也能走公开注册通路」这条验证成立。
+        // 2 手册：手机内置手册（拆分前，「设置」图标指向的就是这个页面）
+        list.add(new AppInfo(2, AppBehavior.MANUAL, false,
+                "手册", 0xFFEFEBE9, "📖", true, 2.0f, 0xFF5D4037, true, false, ManualPage::new));
+        // 5 设置：占位（图标先站位，后续把设置项搬进来；现在点开是「敬请期待」）
+        list.add(new AppInfo(5, AppBehavior.PLAIN, false,
+                "设置", 0xFFEEEEEE, "⚙", true, 2.0f, 0xFF757575, false, false, null));
         return list;
     }
 
@@ -207,12 +282,14 @@ public class MainPage implements IPhonePage {
     }
 
     /**
-     * 计算第 i 个 app 图标的矩形（内容区相对坐标，未含 baseX/baseY）。
+     * 计算某个<b>槽位</b>的图标矩形（内容区相对坐标，未含 baseX/baseY）。
      * 渲染（加 baseX/baseY）与点击命中（直接用 relX/relY）共用，保证一致。
      * 纵向步进含图标下方名称留白，避免名称与下一行重叠。
      * out = {x, y, iconW, iconH}。
+     *
+     * @param slot 槽位下标，见 {@link #SLOT_COUNT}
      */
-    private static void appRect(int w, int h, int i, int[] out) {
+    private static void appRect(int w, int h, int slot, int[] out) {
         Font font = Minecraft.getInstance().font;
         int margin = Math.max(4, (int) (w * 0.06));
         int iconW = Math.max(10, (w - margin * (APP_COLS + 1)) / APP_COLS);
@@ -221,24 +298,39 @@ public class MainPage implements IPhonePage {
         int rowGap = Math.max(3, (int) (h * 0.015));
         int cellStep = iconH + labelH + rowGap;
         int startY = gridStartY(h);
-        int row = i / APP_COLS;
-        int col = i % APP_COLS;
+        int row = slot / APP_COLS;
+        int col = slot % APP_COLS;
         out[0] = margin + col * (iconW + margin);
         out[1] = startY + row * cellStep;
         out[2] = iconW;
         out[3] = iconH;
     }
 
+    /** 按槽位取 App；空槽返回 null。 */
+    private static AppInfo appAt(int slot) {
+        AppInfo[] slots = slots();
+        return slot >= 0 && slot < slots.length ? slots[slot] : null;
+    }
+
+    /** 找第一个符合该行为的槽位下标；没有返回 -1。 */
+    private static int slotOf(AppBehavior behavior) {
+        AppInfo[] slots = slots();
+        for (int i = 0; i < slots.length; i++) {
+            if (slots[i] != null && slots[i].behavior == behavior) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
     /** 计算 HuhuTalk 图标的红点位置，渲染与点击共用 */
     private boolean getTalkIconPos(int[] out) {
         int w = PhoneOverlay.getPhoneWidth();
         int h = PhoneOverlay.getPhoneHeight();
-        List<AppInfo> list = allApps();
-        for (int i = 0; i < list.size(); i++) {
-            if ("HuhuTalk".equals(list.get(i).name)) {
-                appRect(w, h, i, out);
-                return true;
-            }
+        int slot = slotOf(AppBehavior.TALK);
+        if (slot >= 0) {
+            appRect(w, h, slot, out);
+            return true;
         }
         return false;
     }
@@ -264,12 +356,12 @@ public class MainPage implements IPhonePage {
         }
 
         int[] rect = new int[4];
-        List<AppInfo> list = allApps();
-        for (int i = 0; i < list.size(); i++) {
-            AppInfo app = list.get(i);
-            if (app.hidden) continue; // 狐狐三十分等暂隐藏
+        AppInfo[] slots = slots();
+        for (int slot = 0; slot < slots.length; slot++) {
+            AppInfo app = slots[slot];
+            if (app == null || app.hidden) continue; // 空槽 / 暂隐藏（如「狐狐三十分」）
 
-            appRect(w, h, i, rect);
+            appRect(w, h, slot, rect);
             int x = baseX + rect[0];
             int y = baseY + rect[1];
             int iconW = rect[2];
@@ -280,7 +372,8 @@ public class MainPage implements IPhonePage {
             UiShapes.fillRoundedRect(graphics, x, y, iconW, iconH, r, app.color | 0xFF000000);
 
             // 图标中心内容：HuhuTalk 按玩家选择的风格（高清/低清贴图或狐狸 emoji），其它用文字/emoji
-            if ("HuhuTalk".equals(app.name)) {
+            // 判据是 behavior 而不是名字——名字是给玩家看的文案，改名/挪位不该让图标画法失联
+            if (app.behavior == AppBehavior.TALK) {
                 String style = HuhuTalkClientSettings.getHuhutalkIconStyle();
                 if ("fox".equals(style)) {
                     // 狐狸 emoji（与其它 app 一样用大字）
@@ -333,7 +426,7 @@ public class MainPage implements IPhonePage {
             drawScaledTextShaded(graphics, font, app.name, lx, ly, LABEL_COLOR, ls);
 
             // HuhuTalk 未读红点
-            if ("HuhuTalk".equals(app.name)) {
+            if (app.unreadBadge) {
                 int unread = NotificationManager.getTotalUnread();
                 if (unread > 0) {
                     int dotX = x + iconW - 12;
@@ -343,20 +436,12 @@ public class MainPage implements IPhonePage {
                     drawScaledText(graphics, font, num, dotX + 2, dotY + 1, 0xFFFFFFFF, UiFont.sc(0.75f));
                 }
             }
-            // 设置（手册）首次未看：右上角小红点提示
-            if ("设置".equals(app.name) && !HuhuTalkClientSettings.isManualSeen()) {
+            // 手册首次未看：右上角小红点提示
+            if (app.behavior == AppBehavior.MANUAL && !HuhuTalkClientSettings.isManualSeen()) {
                 int dotX = x + iconW - 8;
                 int dotY = y - 5;
                 graphics.fill(dotX, dotY, dotX + 9, dotY + 9, 0xFFFF0000);
             }
-        }
-
-        // SOS 点击后的短暂提示
-        if (System.currentTimeMillis() < sosFlashUntil && !sosMessage.isEmpty()) {
-            int msgW = (int) (font.width(sosMessage) * UiFont.sc(1.0f));
-            int msgY = gridStartY(h) - (int) (h * 0.02);
-            graphics.fill(baseX + 4, msgY - UiFont.sh(2), baseX + w - 4, msgY + (int) (font.lineHeight * UiFont.sc(1.0f)) + UiFont.sh(2), 0xAA000000);
-            drawScaledText(graphics, font, sosMessage, baseX + (w - msgW) / 2, msgY, 0xFFFF6666, UiFont.sc(1.0f));
         }
     }
 
@@ -368,46 +453,42 @@ public class MainPage implements IPhonePage {
         int w = PhoneOverlay.getPhoneWidth();
         int h = PhoneOverlay.getPhoneHeight();
         int[] rect = new int[4];
-        List<AppInfo> list = allApps();
-        for (int i = 0; i < list.size(); i++) {
-            AppInfo app = list.get(i);
-            if (app.hidden) continue;
+        AppInfo[] slots = slots();
+        for (int slot = 0; slot < slots.length; slot++) {
+            AppInfo app = slots[slot];
+            if (app == null || app.hidden) continue;
 
-            appRect(w, h, i, rect);
+            appRect(w, h, slot, rect);
             int x = rect[0], y = rect[1], iconW = rect[2], iconH = rect[3];
 
             if (relX >= x && relX <= x + iconW && relY >= y && relY <= y + iconH) {
-                // SOS：不发页，直接发紧急呼叫包并显示提示
-                if ("SOS".equals(app.name)) {
-                    sendSos();
-                    return true;
+                // 行为全部由 AppBehavior 决定，与名字、与格位都无关
+                switch (app.behavior) {
+                    // 进入 HuhuTalk App 内容区（消息页 + 底部导航）
+                    case TALK -> {
+                        PhoneOverlay.openChatApp();
+                        return true;
+                    }
+                    // 点击即标记已看，消除首次红点；随后照常进入手册页
+                    case MANUAL -> HuhuTalkClientSettings.setManualSeen(true);
+                    // 普通 App：往下走统一的开页逻辑
+                    case PLAIN -> {
+                    }
                 }
-                // HuhuTalk：进入 HuhuTalk App 内容区（消息页 + 底部导航）
-                if ("HuhuTalk".equals(app.name)) {
-                    PhoneOverlay.openChatApp();
-                    return true;
-                }
-                // 设置（手册）：点击即标记已看，消除首次红点
-                if ("设置".equals(app.name)) {
-                    HuhuTalkClientSettings.setManualSeen(true);
-                }
-                if (app.implemented && app.pageFactory != null) {
-                    PhoneOverlay.pushPage(app.pageFactory.get());
+                IPhonePage target = app.implemented && app.pageFactory != null
+                        ? app.pageFactory.get()
+                        : new ComingSoonPage();
+                if (app.launchAnimation) {
+                    // 启动动画：从图标中心生成该 App 底色的色块、放大淡出，目标页原地淡入。
+                    // 注意它**不进入** HuhuTalk 内容区（没有底部导航），桌面仍留在栈底，右键照常回桌面。
+                    PhoneOverlay.launchDesktopApp(target, slot);
                 } else {
-                    PhoneOverlay.pushPage(new ComingSoonPage());
+                    PhoneOverlay.pushPage(target);
                 }
                 return true;
             }
         }
         return false;
-    }
-
-    /** 发送 SOS 紧急呼叫包，并显示短暂提示 */
-    private void sendSos() {
-        PacketDistributor.sendToServer(new C2SSOSPacket());
-        int bound = com.huhutalk.client.SosBindCache.count();
-        sosMessage = "🚨 已呼叫 " + bound + " 位 SOS 女仆赶来保护!";
-        sosFlashUntil = System.currentTimeMillis() + 3000;
     }
 
     /** 红点坐标计算（预留未来动画使用） */
@@ -418,24 +499,38 @@ public class MainPage implements IPhonePage {
     }
 
     /**
-     * 指定 App 图标中心（屏幕绝对坐标）+ 边长 + 底色。
+     * 指定<b>槽位</b>的图标中心（屏幕绝对坐标）+ 边长 + 底色。
      * 供通用启动动画（{@code PhoneOverlay.launchApp}）作为色块生成原点、初始尺寸与颜色。
-     * 返回 {centerX, centerY, iconW, colorRGB}；未找到该 App 返回 null。
+     * 返回 {centerX, centerY, iconW, colorRGB}；该槽位为空返回 null。
      */
-    public static int[] appIconCenterScreen(String appName) {
+    public static int[] appIconCenterScreen(int slot) {
+        AppInfo a = appAt(slot);
+        if (a == null) {
+            return null;
+        }
         int w = PhoneOverlay.getPhoneWidth();
         int h = PhoneOverlay.getPhoneHeight();
-        List<AppInfo> list = allApps();
-        for (int i = 0; i < list.size(); i++) {
-            AppInfo a = list.get(i);
-            if (!a.name.equals(appName)) continue;
-            int[] rect = new int[4];
-            appRect(w, h, i, rect);
-            int cx = rect[0] + rect[2] / 2;
-            int cy = rect[1] + rect[3] / 2;
-            int sx = PhoneOverlay.getPhoneX() + cx;
-            int sy = PhoneOverlay.getPhoneY() + PhoneOverlay.getStatusBarHeight() + cy;
-            return new int[]{ sx, sy, rect[2], a.color & 0x00FFFFFF };
+        int[] rect = new int[4];
+        appRect(w, h, slot, rect);
+        int cx = rect[0] + rect[2] / 2;
+        int cy = rect[1] + rect[3] / 2;
+        int sx = PhoneOverlay.getPhoneX() + cx;
+        int sy = PhoneOverlay.getPhoneY() + PhoneOverlay.getStatusBarHeight() + cy;
+        return new int[]{ sx, sy, rect[2], a.color & 0x00FFFFFF };
+    }
+
+    /**
+     * 按 App <b>名字</b>查图标中心（保留的旧入口，供按名字定位的调用方使用）。
+     * <p>
+     * 内置入口（HuhuTalk 的启动动画）已改走 {@link #appIconCenterScreen(int)}+{@link #SLOT_TALK}，
+     * 不再经过名字——否则附属模组起个同名 App 就会把内置动画的原点抢走。
+     */
+    public static int[] appIconCenterScreen(String appName) {
+        AppInfo[] slots = slots();
+        for (int slot = 0; slot < slots.length; slot++) {
+            if (slots[slot] != null && slots[slot].name.equals(appName)) {
+                return appIconCenterScreen(slot);
+            }
         }
         return null;
     }
@@ -460,7 +555,29 @@ public class MainPage implements IPhonePage {
         g.pose().popPose();
     }
 
+    /**
+     * 内置 App 的点击行为。
+     * <p>
+     * 为什么是枚举而不是 lambda：后续的「游戏内热切换」要把布局落盘，
+     * 行为必须是<b>可序列化的稳定标识</b>——lambda 进不了 JSON，
+     * 而名字字符串会因为改名/翻译而失联（这正是本次要拆掉的老写法）。
+     */
+    enum AppBehavior {
+        /** 进入 HuhuTalk 内容区（消息页 + 底部导航 + 启动动画） */
+        TALK,
+        /** 打开手机内置手册（并消除首次未看红点） */
+        MANUAL,
+        /** 普通：有 pageFactory 就进页面，否则进「敬请期待」 */
+        PLAIN
+    }
+
     public static class AppInfo {
+        /** 所在槽位（0 ~ {@link #SLOT_COUNT}-1）；决定图标画在哪一格，与列表顺序无关。 */
+        final int slot;
+        /** 点击行为。取代了原先散在各处的 {@code "SOS".equals(name)} 这类按名字判功能的写法。 */
+        final AppBehavior behavior;
+        /** 是否画未读红点（目前只有 HuhuTalk）。 */
+        final boolean unreadBadge;
         final String name;            // 图标下方全名
         final int color;              // 图标底色
         final String center;          // 图标中心内容（文字或 emoji）
@@ -469,6 +586,14 @@ public class MainPage implements IPhonePage {
         final int centerColor;        // 中心内容颜色
         final boolean implemented;    // 是否已实现（否则点开 ComingSoon）
         final boolean hidden;         // 暂隐藏（逻辑保留）
+        /**
+         * 点开时是否播放「色块放大」启动动画。
+         * <p>
+         * 内置 App 一律 {@code false}：HuhuTalk 走自己的 {@code openChatApp()} 通路，
+         * 手册/设置保持原本的「从右滑入」，不因为这次改动而变样。
+         * 附属模组注册的 App 由 {@code PhoneApp.launchAnimation} 决定，默认开启。
+         */
+        final boolean launchAnimation;
         final Supplier<IPhonePage> pageFactory;
         /**
          * 图标中心的贴图（附属模组注册的 App 用）；为 null 表示走「文字 / emoji」画法。
@@ -479,17 +604,23 @@ public class MainPage implements IPhonePage {
         final int iconTexHeight;      // 贴图源高（像素）
         final float iconFill;         // 贴图在图标方块内的占比（1.0 = 撑满）
 
-        /** 内置 App 用的构造器（无贴图图标）。 */
-        AppInfo(String name, int color, String center, boolean emoji, float centerScale, int centerColor,
+        /** 内置 App 用的构造器（无贴图图标、不播启动动画）。 */
+        AppInfo(int slot, AppBehavior behavior, boolean unreadBadge,
+                String name, int color, String center, boolean emoji, float centerScale, int centerColor,
                 boolean implemented, boolean hidden, Supplier<IPhonePage> pageFactory) {
-            this(name, color, center, emoji, centerScale, centerColor,
-                    implemented, hidden, pageFactory, null, 0, 0, 1.0f);
+            this(slot, behavior, unreadBadge, name, color, center, emoji, centerScale, centerColor,
+                    implemented, hidden, false, pageFactory, null, 0, 0, 1.0f);
         }
 
         /** 完整构造器：多出「贴图图标」一组字段，供附属模组注册的 App 使用。 */
-        AppInfo(String name, int color, String center, boolean emoji, float centerScale, int centerColor,
-                boolean implemented, boolean hidden, Supplier<IPhonePage> pageFactory,
+        AppInfo(int slot, AppBehavior behavior, boolean unreadBadge,
+                String name, int color, String center, boolean emoji, float centerScale, int centerColor,
+                boolean implemented, boolean hidden, boolean launchAnimation,
+                Supplier<IPhonePage> pageFactory,
                 ResourceLocation iconTexture, int iconTexWidth, int iconTexHeight, float iconFill) {
+            this.slot = slot;
+            this.behavior = behavior;
+            this.unreadBadge = unreadBadge;
             this.name = name;
             this.color = color;
             this.center = center;
@@ -498,6 +629,7 @@ public class MainPage implements IPhonePage {
             this.centerColor = centerColor;
             this.implemented = implemented;
             this.hidden = hidden;
+            this.launchAnimation = launchAnimation;
             this.pageFactory = pageFactory;
             this.iconTexture = iconTexture;
             this.iconTexWidth = iconTexWidth;
