@@ -135,6 +135,7 @@ public final class MyListPage extends PhonePage {
 | `boolean showTopBar()` | `true` | 关掉后内容区从手机内容区原点开始 |
 | `boolean showBackButton()` | `true` | 是否画「‹ 返回」 |
 | `void onBack()` | `PhoneOverlay.popPage()` | 点返回键做什么 |
+| `int topBarBackground()` | `colors().topBarBg()` | 顶栏底色。想和内置页面（聊天/消息/设置）统一就用 `PhonePage.BRAND_TOPBAR_BG`（`#DE7E7E`） |
 | `void renderTopBarExtras(g, baseX, baseY, w, barH, textY)` | 空 | 顶栏右侧的额外内容（计数、按钮…） |
 | `int contentHeight()` | `0` | 内容总高；≤ 视口高时不滚。**用 PhoneList 时保持 0** |
 | `double scrollSpeed()` | `10` | 1 单位滚轮 = 多少逻辑像素 |
@@ -160,7 +161,21 @@ public final class MyListPage extends PhonePage {
 > 顶栏 → 内容），这正是消除重复的关键。需要顶栏上的自定义按钮请用 `onTopBarClick`。
 > 如果你需要完全不同的结构，直接 `implements IPhonePage` 就行，本类只是**可选**的便利层。
 
-### 4.1 长按（`IPhonePage.onLongPress`）
+### 4.1 `onOpen()` 什么时候会被调用（踩过坑）
+
+`onOpen()` 是页面做初始化的地方（拉列表、重置状态、重roll 内容）。它**只在两种情况**被调：
+
+1. **页面被压入栈顶**时；
+2. **它上面那层被弹出、重新露出它**时。
+
+⚠ **别把初始化写在构造函数里就以为稳了**：构造函数只在 `new` 的那一刻跑，而"重新露出"那次不会重新 `new`。
+图库 App 第一版就是这么踩的——列表刷新写在 `onOpen()` 里，但当时 `PhoneOverlay` 有几处
+**裸 `pageStack.push(...)`** 绕过了这个通知，于是"页面能打开、布局也对，内容永远是空的"。
+
+现已统一成 `PhoneOverlay.pushTop(page)`（push + 通知），所有入栈点都走它。
+**如果你是 HuhuTalk 的维护者：别再写裸的 `pageStack.push(...)`。**
+
+### 4.2 长按（`IPhonePage.onLongPress`）
 
 按住 ≥ `PhoneOverlay.LONG_PRESS_MS`（**1000ms**）、期间没有拖动成滚动，松开时会先问页面：
 

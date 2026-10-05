@@ -67,6 +67,16 @@ public abstract class PhonePage implements IPhonePage {
     /** 默认滚动速度：1 单位滚轮 = 多少逻辑像素 */
     private static final int DEFAULT_SCROLL_SPEED = 10;
 
+    /**
+     * HuhuTalk 的<b>品牌顶栏色</b>（{@code #DE7E7E}）。
+     * <p>
+     * 聊天页、消息页、联系人页、设置页、相机页…… 内置页面的顶栏全都是这个硬编码色。
+     * 骨架的默认顶栏则跟着主题走（{@code ColorScheme.topBarBg()}，目前是更亮的 {@code #F06292}），
+     * 于是"用骨架写的页面"和"老页面"摆在一起会像两台不同的手机。
+     * 想要统一观感就覆盖 {@link #topBarBackground()} 返回本常量。
+     */
+    public static final int BRAND_TOPBAR_BG = 0xFFDE7E7E;
+
     /** 当前滚动偏移（逻辑像素，0 = 内容顶端） */
     private int scrollOffset = 0;
 
@@ -170,6 +180,16 @@ public abstract class PhonePage implements IPhonePage {
         return colors().pageBg();
     }
 
+    /**
+     * 顶栏底色。默认取主题的 {@code topBarBg()}（随配色方案切换）。
+     * <p>
+     * 想让自己的页面和内置页面（聊天/消息/设置…）的顶栏一致，
+     * 就返回 {@link #BRAND_TOPBAR_BG}。
+     */
+    protected int topBarBackground() {
+        return colors().topBarBg();
+    }
+
     /** 常用字体 */
     protected final Font font() {
         return Minecraft.getInstance().font;
@@ -268,7 +288,7 @@ public abstract class PhonePage implements IPhonePage {
         }
         int barH = topBarHeight();
         ColorScheme c = colors();
-        graphics.fill(baseX, baseY, baseX + w, baseY + barH, c.topBarBg());
+        graphics.fill(baseX, baseY, baseX + w, baseY + barH, topBarBackground());
 
         Font font = Minecraft.getInstance().font;
         int textY = baseY + (barH - font.lineHeight) / 2;

@@ -778,7 +778,7 @@ public class PhoneOverlay {
             if (pageStack.isEmpty()) {
                 inChatApp = false;
                 activeTab = Tab.MESSAGE;
-                pageStack.push(new MainPage());
+                pushTop(new MainPage());
             }
             phoneOpen = true;
             renderMode = RenderMode.MODEL;
@@ -966,7 +966,7 @@ public class PhoneOverlay {
         if (pageStack.isEmpty()) {
             inChatApp = false;
             activeTab = Tab.MESSAGE;
-            pageStack.push(new MainPage());
+            pushTop(new MainPage());
         }
     }
 
@@ -1029,7 +1029,7 @@ public class PhoneOverlay {
             inChatApp = true;
             activeTab = Tab.MESSAGE;
             pageStack.clear();
-            pageStack.push(target);
+            pushTop(target);
         } else {
             // 桌面 App：不进内容区（无底部导航），但栈底压回桌面 ——
             // 否则右键会走到 popPage 的 "栈深 1 且不在内容区 → hide()" 分支，直接把手机关掉，
@@ -1037,8 +1037,8 @@ public class PhoneOverlay {
             inChatApp = false;
             activeTab = Tab.MESSAGE;
             pageStack.clear();
-            pageStack.push(new MainPage());
-            pageStack.push(target);
+            pushTop(new MainPage());
+            pushTop(target);
         }
         if (uiAnimEnabled() && iconCenter != null) {
             launchCx = iconCenter[0];
@@ -1082,7 +1082,26 @@ public class PhoneOverlay {
         }
         activeTab = tab;
         pageStack.clear();
-        pageStack.push(createTopPage(tab));
+        pushTop(createTopPage(tab));
+    }
+
+    /**
+     * 把一个页面压入栈顶，并<b>按契约通知它 {@link IPhonePage#onOpen()}</b>。
+     * <p>
+     * <b>为什么必须走这个方法</b>：直接 {@code pageStack.push(...)} 会绕过 {@code onOpen()}，
+     * 页面就"进了栈但没收到通知"。页面的初始化大多挂在这上面 ——
+     * 图库 App 的相册列表刷新、联系人页的女仆列表请求、桌面的中央表情重roll。
+     * 症状特别有迷惑性：<b>页面能正常打开、布局也对，但内容永远是空的</b>
+     * （图库 App 第一版就踩了这个：聊天里能看到照片，图库页却坚持"暂无照片"——
+     * 因为它压根没去读过目录）。
+     * <p>
+     * 所以除了这里，别再出现裸的 {@code pageStack.push(...)}；新页面一律走本方法。
+     */
+    private static void pushTop(IPhonePage page) {
+        pageStack.push(page);
+        if (page != null) {
+            page.onOpen();
+        }
     }
 
     /**
@@ -1097,7 +1116,9 @@ public class PhoneOverlay {
             from.onClose();
         }
         pageStack.push(page);
-        page.onOpen();
+        if (page != null) {
+            page.onOpen();
+        }
         beginTransition(from, page, true);
     }
 
@@ -1116,7 +1137,7 @@ public class PhoneOverlay {
             inChatApp = false;
             activeTab = Tab.MESSAGE;
             pageStack.clear();
-            pageStack.push(new MainPage());
+            pushTop(new MainPage());
         }
         // 桌面模式栈深 1：不弹出（返回交给右键关闭手机）
     }

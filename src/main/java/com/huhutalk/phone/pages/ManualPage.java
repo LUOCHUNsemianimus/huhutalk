@@ -30,8 +30,8 @@ public class ManualPage implements IPhonePage {
 
     /** 页面底色 #f5ebf2 */
     private static final int PAGE_BG = 0xFFF5EBF2;
-    /** 顶栏底色 */
-    private static final int HEADER_BG = 0xFFF06292;
+    /** 顶栏底色：改成 HuhuTalk 品牌粉，与聊天/消息/设置/图库等页面统一（原来跟主题是 #f06292） */
+    private static final int HEADER_BG = com.huhutalk.api.phone.ui.PhonePage.BRAND_TOPBAR_BG;
     /** 黑色文字 */
     private static final int TEXT_COLOR = 0xFF000000;
     /** 次要文字（浅黑灰） */

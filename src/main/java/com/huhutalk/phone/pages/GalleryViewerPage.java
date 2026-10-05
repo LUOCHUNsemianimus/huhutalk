@@ -45,6 +45,12 @@ public class GalleryViewerPage extends PhonePage {
         return 0xFF101010;
     }
 
+    /** 顶栏与网格页同一个品牌粉（深底内容 + 品牌顶栏，和内置页面观感一致） */
+    @Override
+    protected int topBarBackground() {
+        return BRAND_TOPBAR_BG;
+    }
+
     @Override
     protected void renderContent(GuiGraphics g, int ox, int oy, int w, int h, float partialTick) {
         ResourceLocation tex = PhotoLibrary.getOrLoadTexture(fileName);

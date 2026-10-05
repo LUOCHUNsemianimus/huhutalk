@@ -72,6 +72,12 @@ public class GalleryPage extends PhonePage {
         return colors().pageBgList();
     }
 
+    /** 顶栏用 HuhuTalk 品牌粉（与聊天页/消息页/设置页一致），不跟主题走 */
+    @Override
+    protected int topBarBackground() {
+        return BRAND_TOPBAR_BG;
+    }
+
     @Override
     public void onOpen() {
         refresh();

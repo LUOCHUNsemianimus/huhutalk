@@ -282,6 +282,25 @@ public final class GalleryPage extends PhonePage {
   注意 `listGallery()` **每次都读一遍目录**，所以 `GalleryPage` 只在 `onOpen()` 与删除后刷新，不每帧调。
 - 作者说图库**可以不做公开方法**，所以两个页面放在 `phone/pages/` 而不是 `api/`。
 
+#### 图库上线时修掉的两个坑（都值得记住）
+
+1. **`onOpen()` 被绕过 → 页面"打开了但内容是空的"**。
+   `PhoneOverlay` 里原先有几处裸的 `pageStack.push(...)`（`launchAppAt` / `switchTab` / 桌面入栈），
+   它们**不通知 `onOpen()`**。图库的列表刷新挂在 `onOpen()` 上，于是聊天里能看到照片、
+   图库页却坚持"暂无照片"——因为**它压根没去读过目录**（迷惑性极强：布局全对）。
+   已统一成 `PhoneOverlay.pushTop(page)`（push + 通知），所有入栈点都走它。
+   > 唯一的行为变化：`switchTab` 现在会通知新顶层页，于是切到「联系人」tab 会发一次
+   > `C2SRequestMaidListPacket`（`ContactListPage.onOpen`）——这是**期望**的刷新行为。
+2. **亮红文字压在品牌粉顶栏上几乎看不见**。顶栏改成 `#DE7E7E` 后，删除按钮原来的
+   `#E53935` 对比度只有约 **1.7:1**。改成主题 `dangerBg`（暗红 `#B71C1C`）实心小胶囊 + 白字，
+   对比度约 **6.6:1**，而且"实心胶囊"天然说明它可点。
+
+#### 顶栏配色统一
+
+- `PhonePage` 新增公开常量 `BRAND_TOPBAR_BG`（`#DE7E7E`）与钩子 `topBarBackground()`。
+  骨架默认仍跟主题走（`topBarBg()` = `#F06292`）；要跟内置页面统一就覆盖它返回该常量。
+- 已应用：`GalleryPage` / `GalleryViewerPage` / `ManualPage`（手册原来是 `#F06292`）。
+
 > **为什么长按没做成"按住到 1 秒即时反馈"**：当前输入链路里，按住期间 Overlay 不向页面转发任何事件，
 > PRESS/RELEASE 是松开时一起补发的。要即时反馈就得加每 tick 的计时器 + 松开时的抑制状态（约多 30 行）。
 > 代价只是反馈出现在松手那一刻，作者拍板接受。
