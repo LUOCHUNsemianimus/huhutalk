@@ -1,6 +1,7 @@
 package com.huhutalk.phone.pages;
 
 import com.huhutalk.api.phone.camera.PhoneCameraHost;
+import com.huhutalk.api.phone.ui.PhoneImages;
 import com.huhutalk.client.ChatHistoryStorage;
 import com.huhutalk.client.MaidAvatarManager;
 import com.huhutalk.client.MaidStatusCache;
@@ -227,9 +228,22 @@ public class ChatPage implements PhoneCameraHost {
         }
     }
 
-    /** 是否处于相机模式（用于让手机体在相机模式下透明化，透出游戏画面） */
+    /**
+     * 是否处于相机界面。**取景中与已拍成都是相机**：两个状态的侧键语义、取景姿态都一样，
+     * 只有"外观"和"显示什么"不同（见 {@link #cameraScreenTransparent()}）。
+     */
     @Override
     public boolean isCameraMode() { return cameraActive; }
+
+    /**
+     * 只有<b>取景中</b>才让手机体透明、机壳换成擦除版，好让游戏画面从取景框里透出来。
+     * <p>
+     * <b>已拍成时必须返回 false</b>：那个状态整块内容区铺着刚拍的照片，
+     * 一透明照片就半透、背后的世界直接穿过来 —— 这正是这一轮要修的毛病
+     * （旧版的做法是把照片缩成左下角 24px 的缩略图，所以没暴露这个问题）。
+     */
+    @Override
+    public boolean cameraScreenTransparent() { return cameraActive && cameraShot == null; }
 
     /** 把最后一条"玩家发送"的消息标红"!"（消息入离线队列、尚未送达）。本地+落盘 */
     public void markLastSentPending() {
@@ -1539,80 +1553,46 @@ public class ChatPage implements PhoneCameraHost {
         return phoneH() - UiFont.sh(44);
     }
 
+    /**
+     * 相机"这一张还没确认的照片"在图库/纹理里的固定 key。
+     * <p>
+     * 独立相机（{@code PhoneCameraPage}）刻意用另一个 key，两个相机不能共用：
+     * 共用会让"独立相机拍一张"把聊天页正在等确认的那张覆盖掉。
+     */
+    private static final String CAM_SHOT_KEY = "__camshot__";
+
     /** 取景中：快门直径 = 手机宽度 × 此比例（≈ 上一版 0.30 的一半，实机反馈"太大"） */
     private static final float SHUTTER_W_RATIO = 0.15f;
     /** 快门直径下限（逻辑像素，随全局字体倍率缩放） */
     private static final int SHUTTER_MIN = 9;
-    /** 已拍成时左侧缩略图边长（逻辑像素）：比取景中的小，给右侧「按<键名>确认」腾出 1 倍字号的空间 */
-    private static final int THUMB_SHOT = 24;
-    /** 确认胶囊的左右内边距 */
-    private static final int CONFIRM_PAD_X = 5;
 
     /**
-     * 相机控件条的布局参数（渲染与命中共用同一份，避免两处各写一套导致脱节）。
+     * <b>取景中</b>底部控件条的布局参数（渲染与命中共用同一份，避免两处各写一套导致脱节）。
      *
      * <h2>版面构成（自左向右）</h2>
      * <ul>
-     *   <li><b>上一张预览</b>：始终存在（取景中显示上一次拍到的那张，拍成后显示刚拍的这张），
-     *       固定贴左。已拍成时缩到 {@link #THUMB_SHOT}：腾出的宽度要给右侧那颗
-     *       「按&lt;键名&gt;确认」——那颗胶囊里的键名必须能用<b>1 倍默认字号</b>
-     *       （手机宽度下「按鼠标按键4确认」约 69 逻辑像素，不腾地方就只能缩到 0.45 倍，小到看不清）。</li>
-     *   <li><b>快门</b>（仅取景中）：居中，直径 = 手机宽 × {@link #SHUTTER_W_RATIO}
-     *       （≈ 上一版 {@code w*0.30} 的一半），圆内写玩家绑定的确认键名。</li>
-     *   <li><b>确认胶囊</b>（仅已拍成）：贴右，宽度按标签的 1 倍字号撑开。</li>
+     *   <li><b>上一张预览</b>：固定贴左，显示"上一次拍到的那张"（没拍过就不画）。</li>
+     *   <li><b>快门</b>：居中，直径 = 手机宽 × {@link #SHUTTER_W_RATIO}，圆内写玩家绑定的确认键名。</li>
      * </ul>
+     * 已拍成页<b>不用</b>这套：它整块内容区铺照片，按钮走 {@link #shotBarLayout}。
      *
-     * @param shot 是否已拍成（拍照成功页）。两个状态的控件与宽度分配不同，必须显式区分，
-     *             否则命中区与渲染很容易在"缩略图让位"这件事上脱节。
-     * @return {barTop, barH, thumbX, thumbY, thumbSize, shutterX, shutterY, shutterD,
-     *         confirmX, confirmY, confirmW, confirmH}
+     * @return {barTop, barH, thumbX, thumbY, thumbSize, shutterX, shutterY, shutterD}
      */
-    private int[] cameraBarLayout(int w, boolean shot) {
+    private int[] cameraBarLayout(int w) {
         int h = phoneH();
         int barTop = cameraViewBottom();
         int barH = Math.max(UiFont.sh(24), h - barTop);
-        Font font = Minecraft.getInstance().font;
         int edge = UiFont.sh(5);
-        int gap = UiFont.sh(6);
 
-        // ---- 确认胶囊（仅已拍成）：宽度按"按<键名>确认"的 1 倍默认字号撑开，贴右 ----
-        // 1 倍字号优先：先按标签的 1 倍宽度算出胶囊，再让左侧缩略图让位（而不是反向压缩字号）。
-        int confirmH = Math.max(UiFont.sh(18), Math.round(barH * 0.5f));
-        int confirmW = (int) Math.ceil(font.width(confirmLabel()) * UiFont.sc(1.0f)) + UiFont.sh(CONFIRM_PAD_X) * 2;
-        int confirmX = w - edge - confirmW;
-        int confirmY = barTop + (barH - confirmH) / 2;
-
-        // ---- 上一张预览：贴左。已拍成时先让宽度给胶囊（下限 12 逻辑像素）----
         int thumbSize = Math.max(UiFont.sh(14), barH - 8);
-        if (shot) {
-            int room = confirmX - gap - edge;                     // 胶囊左缘之前能放多宽
-            thumbSize = Math.max(UiFont.sh(12),
-                    Math.min(thumbSize, Math.min(UiFont.sh(THUMB_SHOT), room)));
-        }
         int thumbX = edge;
         int thumbY = barTop + (barH - thumbSize) / 2;
 
-        // ---- 兜底：超大全局字体 / 超长键名时胶囊可能压到预览，此时把胶囊钳进剩余空间，
-        //      字号交给渲染端按胶囊宽度退让（宁可字小，也不能盖住预览）----
-        if (shot) {
-            confirmW = Math.min(confirmW,
-                    Math.max(UiFont.sh(34), w - edge - (thumbX + thumbSize + gap)));
-            confirmX = w - edge - confirmW;
-        }
-
-        // ---- 快门（仅取景中）----
         int shutterD = Math.max(UiFont.sh(SHUTTER_MIN), Math.round(w * SHUTTER_W_RATIO));
         int shutterX = w / 2 - shutterD / 2;
         int shutterY = barTop + (barH - shutterD) / 2;
 
-        return new int[]{barTop, barH, thumbX, thumbY, thumbSize,
-                shutterX, shutterY, shutterD,
-                confirmX, confirmY, confirmW, confirmH};
-    }
-
-    /** 确认胶囊的文案：键名走玩家绑定（默认「鼠标按键 4」），所以会把"按…确认"整句写出来 */
-    private String confirmLabel() {
-        return "按" + cameraKeyHint(true) + "确认";
+        return new int[]{barTop, barH, thumbX, thumbY, thumbSize, shutterX, shutterY, shutterD};
     }
 
     /**
@@ -1670,17 +1650,25 @@ public class ChatPage implements PhoneCameraHost {
         savePhoto();
     }
 
-    /** 渲染相机界面：透明取景框（游戏透出）+ 四角边框 + 十字准星 + 底部控件 */
+    /**
+     * 渲染相机界面。两个状态的版面差别很大，所以直接分派：
+     * <ul>
+     *   <li><b>取景中</b>：透明取景框（游戏透出）+ 四角边框 + 十字准星 + 底部控件条
+     *       —— 见 {@link #renderViewfinder}；</li>
+     *   <li><b>已拍成</b>：<b>全屏</b>铺刚拍的这张照片（不透明，盖掉取景框与背后的世界）
+     *       + 底部「重拍 / 发送」两颗按钮 —— 见 {@link #renderShotPreview}。</li>
+     * </ul>
+     */
     private void renderCameraMode(GuiGraphics g, Font font, int baseX, int baseY, int w) {
         int h = phoneH();
         int navH = navH();
         boolean shot = cameraShot != null;
 
-        // 顶部导航（不透明，保证返回/标题可读）
+        // 顶部导航（不透明，保证返回/标题可读）—— 两个状态共用
         g.fill(baseX, baseY, baseX + w, baseY + navH, 0xFFDE7E7E);
         // 顶栏左右两段文字：左「< 返回 <返回键名>」，右「拍照」；
         // **已拍成时右段改成「长按<确认键名>保存」**（保存只有长按这一个入口，
-        // 相机界面又不画光标、放不了可点的按钮，所以只能把这条手势写在标题位上）。
+        // 所以只能把这条手势写在标题位上）。
         // 键名是玩家绑定的、可能很长，所以两段**共用同一个缩放**：宁可一起缩，也不让它们撞在一起。
         String backHint = "< 返回 " + cameraKeyHint(false);
         String title = shot ? ("长按" + cameraKeyHint(true) + "保存") : "拍照";
@@ -1696,6 +1684,18 @@ public class ChatPage implements PhoneCameraHost {
         drawScaledText(g, font, title, baseX + w - UiFont.sh(6) - font.width(title) * barTs,
                 barTextY, 0xFFFFFFFF, barTs);
 
+        if (shot) {
+            renderShotPreview(g, font, baseX, baseY, w, h, navH);
+        } else {
+            renderViewfinder(g, font, baseX, baseY, w, h, navH);
+        }
+    }
+
+    /**
+     * 取景中：透明取景框（游戏画面透出来）+ 四角边框 + 十字准星 + 底部控件条
+     * （左「上一张」预览、中圆形快门）。
+     */
+    private void renderViewfinder(GuiGraphics g, Font font, int baseX, int baseY, int w, int h, int navH) {
         int viewTop = baseY + navH + UiFont.sh(8);
         int viewBottom = baseY + cameraViewBottom();
         int cx = baseX + w / 2;
@@ -1719,57 +1719,106 @@ public class ChatPage implements PhoneCameraHost {
         // 底部控件条：半透明黑，衬托控件可读
         g.fill(baseX, viewBottom, baseX + w, baseY + h, 0x88000000);
 
-        int[] L = cameraBarLayout(w, shot);
+        int[] L = cameraBarLayout(w);
         int thumbX = L[2], thumbY = L[3], thumbSize = L[4];
         int shutterX = L[5], shutterY = L[6], shutterD = L[7];
-        int confirmX = L[8], confirmY = L[9], confirmW = L[10], confirmH = L[11];
 
-        // 左侧：上一张图片预览 —— 取景中与拍成后**都存在**。
-        // 取景中显示的是"上一次拍到的那张"（cameraShot 为空时用 __camshot__ 缓存里的旧图）。
-        String thumbKey = shot ? "__camshot__" : lastCamShotKey;
-        if (thumbKey != null) {
-            ResourceLocation tex = PhotoLibrary.getOrLoadTexture(thumbKey);
-            if (tex != null) {
+        // 左侧：上一张图片预览（"上一次拍到的那张"；没拍过时 lastCamShotKey 为 null，不画）
+        if (lastCamShotKey != null) {
+            ResourceLocation tex = PhotoLibrary.getOrLoadTexture(lastCamShotKey);
+            int[] d = PhotoLibrary.getTextureSize(lastCamShotKey);
+            if (tex != null && d != null) {
                 int tx = baseX + thumbX;
                 int ty = baseY + thumbY;
                 UiShapes.fillRoundedRect(g, tx, ty, thumbSize, thumbSize, UiFont.sh(3), 0xCCFFFFFF);
-                int[] d = PhotoLibrary.getTextureSize(thumbKey);
                 g.blit(tex, tx, ty, thumbSize, thumbSize, 0.0f, 0.0f, d[0], d[1], d[0], d[1]);
             }
         }
 
-        if (!shot) {
-            // 取景中：圆形快门（白圈 + 粉芯），**圆内写玩家绑定的确认键名**。
-            // 直径只有上一版的一半，所以键名要自适应字号：以圆的内接矩形为可用区
-            // （宽 ≈ 0.86d、高 ≈ 0.52d），两个方向同时收缩取小；倍率随全局字体倍率走，
-            // 玩家用 3 倍 GUI 时这些逻辑像素会整体放大，所以这个比例是可读的（用户拍板）。
-            int sx = baseX + shutterX;
-            int sy = baseY + shutterY;
-            int ring = Math.max(2, shutterD / 10);
-            UiShapes.fillRoundedRect(g, sx, sy, shutterD, shutterD, shutterD / 2, 0xFFFFFFFF);
-            int inner = shutterD - ring * 2;
-            UiShapes.fillRoundedRect(g, sx + ring, sy + ring, inner, inner, inner / 2, 0xFFDE7E7E);
+        // 中间：圆形快门（白圈 + 粉芯），**圆内写玩家绑定的确认键名**。
+        // 直径只有上一版的一半，所以键名要自适应字号：以圆的内接矩形为可用区
+        // （宽 ≈ 0.86d、高 ≈ 0.52d），两个方向同时收缩取小；倍率随全局字体倍率走，
+        // 玩家用 3 倍 GUI 时这些逻辑像素会整体放大，所以这个比例是可读的（用户拍板）。
+        int sx = baseX + shutterX;
+        int sy = baseY + shutterY;
+        int ring = Math.max(2, shutterD / 10);
+        UiShapes.fillRoundedRect(g, sx, sy, shutterD, shutterD, shutterD / 2, 0xFFFFFFFF);
+        int inner = shutterD - ring * 2;
+        UiShapes.fillRoundedRect(g, sx + ring, sy + ring, inner, inner, inner / 2, 0xFFDE7E7E);
 
-            String key = cameraKeyHint(true);
-            int keyW = Math.max(1, font.width(key));
-            // 以**粉芯**（inner）为可用区而不是整个圆：白圈还要占 ring 像素，
-            // 键名压到白圈上会糊在一起
-            float ts = Math.min(inner * 0.86f / keyW, inner * 0.52f / Math.max(1f, font.lineHeight));
-            ts = Math.max(0.20f, Math.min(ts, 0.70f));
-            drawScaledText(g, font, key, sx + (shutterD - keyW * ts) / 2f,
-                    sy + (shutterD - font.lineHeight * ts) / 2f, 0xFFFFFFFF, ts);
-        } else {
-            // 已拍成：右侧「按<键名>确认」胶囊，**1 倍默认字号**（布局先按 1 倍字号撑开胶囊、
-    // 再让左侧缩略图让位，所以默认设置下这里恒为 1 倍；只有超大全局字体/超长键名才退让）
-            int ax = baseX + confirmX;
-            int ay = baseY + confirmY;
-            UiShapes.fillRoundedRect(g, ax, ay, confirmW, confirmH, confirmH / 2, 0xECFFFFFF);
-            String label = confirmLabel();
-            float ts = Math.min(UiFont.sc(1.0f), (confirmW - 4f) / Math.max(1f, (float) font.width(label)));
-            float tw = font.width(label) * ts;
-            drawScaledText(g, font, label, ax + (confirmW - tw) / 2f,
-                    ay + (confirmH - font.lineHeight * ts) / 2f, 0xFFDE7E7E, ts);
+        String key = cameraKeyHint(true);
+        int keyW = Math.max(1, font.width(key));
+        // 以**粉芯**（inner）为可用区而不是整个圆：白圈还要占 ring 像素，
+        // 键名压到白圈上会糊在一起
+        float ts = Math.min(inner * 0.86f / keyW, inner * 0.52f / Math.max(1f, font.lineHeight));
+        ts = Math.max(0.20f, Math.min(ts, 0.70f));
+        drawScaledText(g, font, key, sx + (shutterD - keyW * ts) / 2f,
+                sy + (shutterD - font.lineHeight * ts) / 2f, 0xFFFFFFFF, ts);
+    }
+
+    /**
+     * 已拍成：<b>全屏</b>铺刚拍的这张照片让玩家确认效果，底部给「重拍 / 发送」两颗按钮。
+     *
+     * <h2>为什么是"全屏铺"而不是"缩略图 + 确认胶囊"（旧版）</h2>
+     * 旧版把照片缩成左下角 {@code THUMB_SHOT}(24px) 的一小块，右边再放一颗「按…确认」胶囊 ——
+     * 玩家要确认的恰恰是<b>照片本身</b>，结果它最小。真机相机/QQ 的拍照成功页都是
+     * <b>把刚拍的那张放大到满屏</b>让你决定"要还是不要"，这里改成一样的做法。
+     * <p>
+     * 这个状态<b>不能透明</b>（见 {@link #cameraScreenTransparent()}），
+     * 也不能连拍 —— 照片已经占据整块内容区，取景框和快门都不在了。
+     *
+     * @param navH 顶栏高度；照片从顶栏下沿铺到内容区底沿
+     */
+    private void renderShotPreview(GuiGraphics g, Font font, int baseX, int baseY, int w, int h, int navH) {
+        int top = baseY + navH;
+        int bottom = baseY + h;
+
+        // 照片铺满顶栏以下的整块内容区。用 cover（居中裁切）而不是拉伸：
+        // 截图比例和手机屏比例几乎不会一致，拉伸会把画面压扁。
+        ResourceLocation tex = PhotoLibrary.getOrLoadTexture(CAM_SHOT_KEY);
+        int[] dim = PhotoLibrary.getTextureSize(CAM_SHOT_KEY);
+        // 底色兜底：纹理万一没加载出来，也要挡住背后的世界（否则又变成"能看到背后的场景"）
+        g.fill(baseX, top, baseX + w, bottom, 0xFF101010);
+        if (tex != null && dim != null) {
+            PhoneImages.drawCover(g, tex, baseX, top, w, bottom - top, dim[0], dim[1]);
         }
+
+        // 照片与按钮之间压一条渐变式的暗带：按钮是压在照片上的，没有它，
+        // 照片内容一花按钮就糊得看不清（这是全屏预览相对于缩略图版新引入的问题）。
+        int[] L = shotBarLayout(w, h);
+        int scrimTop = L[1] - UiFont.sh(6);
+        g.fill(baseX, scrimTop, baseX + w, bottom, 0x66000000);
+
+        // 左「重拍」（次要：白底红字） / 右「发送」（主操作：红底白字）
+        drawActionPill(g, font, baseX + L[0], baseY + L[1], L[2], L[3],
+                0xECFFFFFF, 0xFFDE7E7E, "重拍 " + cameraKeyHint(false));
+        drawActionPill(g, font, baseX + L[4], baseY + L[5], L[6], L[7],
+                0xFFDE7E7E, 0xFFFFFFFF, "发送 " + cameraKeyHint(true));
+    }
+
+    /** 画一颗动作胶囊：底色 + 居中文字；文字字号自适应胶囊宽度（键名可能很长）。 */
+    private void drawActionPill(GuiGraphics g, Font font, int x, int y, int w, int h,
+                                int bgColor, int textColor, String label) {
+        UiShapes.fillRoundedRect(g, x, y, w, h, h / 2, bgColor);
+        float ts = Math.min(UiFont.sc(1.0f), (w - UiFont.sh(6)) / Math.max(1f, (float) font.width(label)));
+        ts = Math.max(0.35f, ts);
+        float tw = font.width(label) * ts;
+        drawScaledText(g, font, label, x + (w - tw) / 2f,
+                y + (h - font.lineHeight * ts) / 2f, textColor, ts);
+    }
+
+    /**
+     * 已拍成页底部两颗按钮的布局（渲染与命中共用同一份，避免两处各写一套导致脱节）。
+     *
+     * @return {retakeX, retakeY, retakeW, retakeH, sendX, sendY, sendW, sendH}，内容区相对坐标
+     */
+    private int[] shotBarLayout(int w, int h) {
+        int margin = UiFont.sh(8);
+        int gap = UiFont.sh(6);
+        int btnH = Math.max(UiFont.sh(20), Math.round(h * 0.085f));
+        int btnW = Math.max(UiFont.sh(30), (w - margin * 2 - gap) / 2);
+        int y = h - UiFont.sh(8) - btnH;
+        return new int[]{margin, y, btnW, btnH, margin + btnW + gap, y, btnW, btnH};
     }
 
     /**
@@ -1787,11 +1836,16 @@ public class ChatPage implements PhoneCameraHost {
     }
 
     /**
-     * 相机模式的鼠标点击处理。
+     * 相机界面的鼠标点击处理。
      * <p>
-     * <b>命中区必须与 {@link #renderCameraMode} 的排版一致</b>：侧键是"合成点击"到按钮中心的，
-     * 两者一旦脱节就会出现"侧键点了个空"或"点到了隔壁按钮"。
-     * 所以这里复用与渲染完全相同的两行布局参数。
+     * <b>命中区必须与渲染的排版一致</b>：布局参数复用与渲染完全相同的
+     * {@link #shotBarLayout} / {@link #cameraBarLayout}，两处一旦脱节就会出现
+     * "点了个空"或"点到了隔壁按钮"。
+     * <p>
+     * ⚠ 当前相机界面是<b>独占输入</b>的（不画光标、Overlay 层就把点击吞掉了），
+     * 所以这条通路实际走不到 —— 但保留它并让它与渲染对齐，是为了让将来
+     * "允许在已拍成页用光标点按钮"（见 {@code PhoneCameraHost#cameraInputExclusive}）
+     * 只需要把那个判据改一行，而不用重新补一套命中逻辑。
      */
     private boolean handleCameraClick(double relX, double relY, int w) {
         // 左上角返回（含 nav 条左侧那颗"返回 <键名>"）
@@ -1799,30 +1853,32 @@ public class ChatPage implements PhoneCameraHost {
             cameraBackAction();
             return true;
         }
-        int[] L = cameraBarLayout(w, cameraShot != null);
+        if (cameraShot != null) {
+            // 已拍成：底部「重拍 / 发送」两颗按钮
+            int[] L = shotBarLayout(w, phoneH());
+            if (hit(relX, relY, L[0], L[1], L[2], L[3])) {
+                cameraBackAction();      // 重拍 = 丢弃这张、回取景
+                return true;
+            }
+            if (hit(relX, relY, L[4], L[5], L[6], L[7])) {
+                cameraPrimaryAction();   // 发送 = 选中这张、回聊天
+                return true;
+            }
+            return true;
+        }
+        int[] L = cameraBarLayout(w);
         int barTop = L[0];
         int thumbX = L[2], thumbY = L[3], thumbSize = L[4];
         int shutterX = L[5], shutterY = L[6], shutterD = L[7];
-        int confirmX = L[8], confirmY = L[9], confirmW = L[10], confirmH = L[11];
-        boolean shot = cameraShot != null;
 
         // 左侧预览：点它 = 取消/返回（与侧键 5 同义，鼠标用户也有出路）
         if (lastCamShotKey != null && hit(relX, relY, thumbX, thumbY, thumbSize, thumbSize)) {
             cameraBackAction();
             return true;
         }
-        if (relY >= barTop) {
-            if (!shot) {
-                // 取景中：中间圆形快门
-                if (hit(relX, relY, shutterX, shutterY, shutterD, shutterD)) {
-                    cameraPrimaryAction();
-                    return true;
-                }
-            } else if (hit(relX, relY, confirmX, confirmY, confirmW, confirmH)) {
-                // 拍成后：右侧「按<键名>确认」
-                cameraPrimaryAction();
-                return true;
-            }
+        // 取景中：中间圆形快门
+        if (relY >= barTop && hit(relX, relY, shutterX, shutterY, shutterD, shutterD)) {
+            cameraPrimaryAction();
             return true;
         }
         return true;
@@ -1835,9 +1891,9 @@ public class ChatPage implements PhoneCameraHost {
         PhoneOverlay.requestWorldCapture(png -> {
             if (png != null) {
                 cameraShot = png;
-                PhotoLibrary.registerCapturedBytes("__camshot__", png);
+                PhotoLibrary.registerCapturedBytes(CAM_SHOT_KEY, png);
                 // 记下这一张，供"取景中也能看到上一张"的预览使用
-                lastCamShotKey = "__camshot__";
+                lastCamShotKey = CAM_SHOT_KEY;
             }
         });
     }
@@ -1846,7 +1902,7 @@ public class ChatPage implements PhoneCameraHost {
     /** 确认：进入选中（待发送），不持久化 → 返回聊天 */
     private void confirmPhoto() {
         if (cameraShot != null) {
-            selectedImageKey = "__camshot__";
+            selectedImageKey = CAM_SHOT_KEY;
             selectedImageBytes = cameraShot;
         }
         exitCameraMode();
@@ -1945,7 +2001,7 @@ public class ChatPage implements PhoneCameraHost {
             int indY = itemY + UiFont.sh(2);
             g.fill(indX, indY, indX + indSize, indY + indSize, selected ? 0xFFDE7E7E : 0x40000000);
             // 左下角删除小红叉（仅已持久化的图库照片；临时 __camshot__ 不显示）：红底 + 白 X
-            if (!key.startsWith("__camshot__")) {
+            if (!key.startsWith(CAM_SHOT_KEY)) {
                 int delX = x + UiFont.sh(2);
                 int delY = itemY + itemSize - indSize - UiFont.sh(2);
                 g.fill(delX, delY, delX + indSize, delY + indSize, 0xFFE53935);
@@ -2008,7 +2064,7 @@ public class ChatPage implements PhoneCameraHost {
         int delSize = Math.max(1, itemSize / 4);
         for (int i = 0; i < items.size(); i++) {
             String key = items.get(i);
-            if (key.startsWith("__camshot__")) {
+            if (key.startsWith(CAM_SHOT_KEY)) {
                 continue; // 临时照无删除
             }
             int x = startX + i * (itemSize + gap);

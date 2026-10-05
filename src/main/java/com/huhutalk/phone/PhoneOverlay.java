@@ -480,7 +480,7 @@ public class PhoneOverlay {
         PhoneScreenTarget.markDirty();
         // 相机模式：整条绕开光标，直接用侧键驱动 (见 cameraSideButton)。
         // 于是"抬头取景"和"按下拍照"不再抢同一个鼠标：视角照常自由转，动作交给侧键。
-        if (isCameraMode()) {
+        if (isCameraSideKeysActive()) {
             cameraSideButton(clickButton, action);
             return;
         }
@@ -517,7 +517,7 @@ public class PhoneOverlay {
         }
         // 相机模式不吃独立光标：见 {@link onPhoneSideButton} 的说明 ——
         // 那个界面全程用侧键操作，光标既不画也不参与命中，鼠标位移全部留给视角。
-        if (isCameraMode()) {
+        if (isCameraInputExclusive()) {
             return false;
         }
         return handleMouseClicked(relX + phoneX, relY + renderedPhoneY, button, action);
@@ -603,7 +603,7 @@ public class PhoneOverlay {
      * 否则玩家按住超过 350ms 就会「长按没动作、轻点也被吞」——按了没反应。
      */
     public static void tickCameraHold() {
-        if (!isCameraMode() || cameraHoldButton != 1 || cameraHoldFired) {
+        if (!isCameraSideKeysActive() || cameraHoldButton != 1 || cameraHoldFired) {
             return;
         }
         IPhonePage page = getCurrentPage();
@@ -644,7 +644,7 @@ public class PhoneOverlay {
     private static void renderCursor(GuiGraphics graphics, int baseX, int baseY) {
         // 相机模式不画光标：那个界面全程侧键操作（见 cameraSideButton），
         // 画出来只会让玩家误以为可以挪过去点
-        if (isCameraMode()) {
+        if (isCameraInputExclusive()) {
             return;
         }
         int cx = baseX + Math.round(cursorLocalX());
@@ -815,22 +815,38 @@ public class PhoneOverlay {
     }
 
     /**
-     * 当前页面是否处于「相机模式」。
+     * 当前页面是不是一台相机（主开关）。<b>现在只剩"取景姿态"在用这个判据。</b>
      * <p>
-     * 单独抽出来是因为它有两个<b>跨模块</b>的用途，且都必须与页面逻辑保持一致：
-     * <ul>
-     *   <li>{@link #render}：相机模式下手机体背景透明（{@code cameraTransparent}），让游戏画面从取景框透出；</li>
-     *   <li>{@link ProPhoneHandRenderer}：相机模式下换用擦除版纹理的手机模型，
-     *       让 3D 机壳在玩家侧直接透出真实场景（见 {@code ItemPhoneCamera}）。</li>
-     * </ul>
-     * 两处必须同源，否则会出现"透明屏上仍是机壳"或"机壳透了但页面还是不透明"这类半边生效的怪象。
+     * 外观（透明/擦除机壳）、侧键归属、输入归属各自有更细的判据，见下面三个方法 ——
+     * 它们默认都等于本方法，所以单状态相机只实现 {@link PhoneCameraHost#isCameraMode()} 就够，
+     * 只有多状态相机（例如"取景中 / 已拍成"要区别对待）才需要覆盖。
      * <p>
-     * <b>判据是公开接口 {@link PhoneCameraHost}，不是具体的页面类</b>：
-     * 任何页面（含附属模组的相机页）只要实现它并返回 true，上面这些行为就全部自动生效。
-     * 早先这里写死 {@code instanceof ChatPage}，把"相机"这件能力锁在了内置聊天页上。
+     * 判据是公开接口 {@link PhoneCameraHost} 而不是具体页面类：任何页面（含附属模组的相机页）
+     * 只要实现它，这些行为就全部自动生效。早先这里写死 {@code instanceof ChatPage}，
+     * 把"相机"这件能力锁在了内置聊天页上。
      */
     public static boolean isCameraMode() {
         return getCurrentPage() instanceof PhoneCameraHost host && host.isCameraMode();
+    }
+
+    /**
+     * 手机体是否透明（+ 3D 机壳是否用擦除版纹理），让游戏画面从取景框透出来。
+     * <p>
+     * 与 {@link #isCameraMode()} 分开是因为"已拍成页要显示全屏照片"这类状态：
+     * 它仍然是相机（侧键照旧），但<b>绝对不能透明</b>，否则照片半透、世界穿过来。
+     */
+    public static boolean isCameraScreenTransparent() {
+        return getCurrentPage() instanceof PhoneCameraHost host && host.cameraScreenTransparent();
+    }
+
+    /** 侧键 4/5 此刻是否归属于相机（路由到相机的动作方法 + 长按手势生效）。 */
+    public static boolean isCameraSideKeysActive() {
+        return getCurrentPage() instanceof PhoneCameraHost host && host.cameraSideKeysActive();
+    }
+
+    /** 相机此刻是否独占输入（不画独立光标 + 吞掉鼠标点击），把鼠标完整留给"转视角取景"。 */
+    public static boolean isCameraInputExclusive() {
+        return getCurrentPage() instanceof PhoneCameraHost host && host.cameraInputExclusive();
     }
 
     /**
@@ -1365,8 +1381,11 @@ public class PhoneOverlay {
 
         // 当前页面
         IPhonePage page = getCurrentPage();
-        // 相机模式（聊天页📷）：手机体透明化，让游戏画面从取景框透出来
-        boolean cameraTransparent = isCameraMode();
+        // 相机取景：手机体透明化，让游戏画面从取景框里透出来。
+        // ⚠ 判据用 isCameraScreenTransparent() 而不是 isCameraMode()：相机的「已拍成页」仍然是相机
+        //   （侧键照旧、姿态照旧），但那时要显示全屏照片，**绝不能透明** ——
+        //   否则照片半透、背后的世界直接穿过来，正是这一轮要修的毛病。
+        boolean cameraTransparent = isCameraScreenTransparent();
 
         // 手机背景（圆角：上圆角=状态栏高，下圆角=水印栏高）。相机模式下透明，露出游戏画面
         fillRoundedRect(graphics, phoneX, ry, phoneWidth, totalHeight, UiFont.sh(STATUSBAR_H), UiFont.sh(WATERMARK_H),

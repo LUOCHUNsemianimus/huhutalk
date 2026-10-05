@@ -263,8 +263,10 @@ HuhuTalk 内置了一个自检 App，**默认关闭**，用下面任一方式打
    **「自检·文字」**（文字/emoji 图标通路）、**「自检·贴图」**（贴图图标通路）、
    **「自检·骨架」**（`PhonePage` + `PhoneList`）、**「自检·滚动」**（`PhonePage` 自管滚动）、
    **「自检·控件」**（四种控件 + `PhoneRow`）、**「自检·图片」**（`PhoneImages` 四种画法）；
-   > 这 6 个都没指定 `.slot()`，会依次填掉内置 App 没占的空槽（内置只占 0/2/5，
-   > 所以它们落在 1、3、4、6、7、8），全部应该可见；日志里每个 App 一条注册记录。
+   > 这 6 个都没指定 `.slot()`，会按注册顺序填掉空槽。**桌面只有 9 格**：内置占 0 / 2 / 5，
+   > 相机 App 占 1，于是只剩 `3、4、6、7、8` 五个空位 —— 6 个自检 App 里会有 **1 个**
+   > 因「桌面已满」被 WARN 拒绝。**这是预期行为，不是 bug**（日志里能看到那条 WARN）。
+   > 想同时看到 6 个，可以临时把相机 App 的注册注释掉再试。
 3. 六个都点得开、右键都能返回桌面；滚动页、控件页、图片页各自的表现符合预期 → 全链路正常；
 4. 日志里会有一行 `[HuhuTalk/PhoneApp] 已注册桌面 App：...`（每个 App 一条）。
 
@@ -332,8 +334,12 @@ HuhuTalk 内置了一个自检 App，**默认关闭**，用下面任一方式打
 | `src/main/java/com/huhutalk/api/phone/PhoneAppRegisterEvent.java` | 注册事件（推荐入口） |
 | `src/main/java/com/huhutalk/api/phone/ui/PhonePage.java` | **页面骨架**（顶栏/返回/滚动/裁剪/命中/主题） |
 | `src/main/java/com/huhutalk/api/phone/ui/PhoneList.java` | **虚拟化行列表**（渲染与命中共用单一映射） |
-| `src/main/java/com/huhutalk/phone/pages/MainPage.java` | 桌面：内置 + 外部 App 合并、排布、渲染、命中 |
+| `src/main/java/com/huhutalk/phone/pages/MainPage.java` | 桌面：内置 + 外部 App 合并、**槽位排布**、渲染、命中 |
+| `src/main/java/com/huhutalk/api/phone/camera/PhoneCameraHost.java` | **相机能力接口**（做相机页实现它） |
+| `src/main/java/com/huhutalk/api/phone/camera/PhoneCameraPage.java` | **桌面相机 App 的页面**（参考实现） |
+| `src/main/java/com/huhutalk/client/CameraAppRegistration.java` | 桌面相机 App 的注册（公开通路的示例） |
 | `src/main/java/com/huhutalk/client/debug/PhoneAppSelfTest.java` | 自检 App 与骨架示例页（默认关闭） |
 | [phone-page-skeleton.md](phone-page-skeleton.md) | **页面骨架文档** |
+| [phone-camera-api.md](phone-camera-api.md) | **相机能力 API**（`PhoneCameraHost` / 抓图 / 存盘 / 踩坑） |
 | [douyin-webview-verification-report.md](douyin-webview-verification-report.md) | 抖音验证结论（含三个必踩的坑） |
 | [douyin-webview-feasibility-handoff.md](douyin-webview-feasibility-handoff.md) | 完整技术调研与 API 清单 |

@@ -392,7 +392,9 @@ public final class ProPhoneHandRenderer {
      * 既依赖版本相关的构造器签名，又绕过原版缓存。多一个隐藏物品是更小的代价。
      */
     private static ItemStack stackForMode(Minecraft mc, ItemStack held) {
-        if (PhoneOverlay.isCameraMode()) {
+        // 只有「透明取景」时才换擦除版纹理。相机的「已拍成页」仍是相机（姿态不变），
+        // 但那时屏幕上是一张全屏照片，机壳要是还被擦掉就会从照片背后透出世界。
+        if (PhoneOverlay.isCameraScreenTransparent()) {
             return new ItemStack(HuhuTalkItems.PHONE_CAMERA.get());
         }
         return held;

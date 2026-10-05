@@ -224,25 +224,37 @@ public final class GalleryPage extends PhonePage {
 - **注意**：`SettingsPage` 里那个"配色方案：珍珠粉 / 切换"的行，`cycleNext()` 已经接通，直接搬。
 - 桌面的「设置」图标**目前指向 `ManualPage`（手册）**。作者计划：届时把这个图标改名/换图标叫「手册」，再新增一个「设置」App。**这一步是后续工作，本轮没动。**
 
-### 8.2 相机 App
+### 8.2 相机 App —— ✅ **已完成（独立相机）**
 
-> **状态更新（本轮定稿的落点，优先于下面的旧建议）**
-> - 桌面排布已改为**槽位制**（见 §9.1），`相机` 预定 **槽位 1**。
-> - 相机的桌面图标**走 `PhoneAppRegistry` 自己注册自己**（纯公开 API 通路，`id = huhutalk:camera`），
->   不再往 `MainPage` 内置表里塞。注册必须放在**客户端初始化**里（直接 `register`），
->   而不是订阅 `PhoneAppRegisterEvent` —— 这样它在外部列表里排第一个，能抢到槽位 1；
->   附属模组是事件触发时注册的，排在它后面。
-> - 独立相机与聊天内相机**不共享状态机**：独立相机**没有「已拍成页」**，按下即存相册、留在取景；
->   聊天内相机保留「已拍成页」，且本轮要改成**全屏铺照片**（见下）。
-> - 需要新增的公开能力：`PhoneCameraHost` 接口（把 `PhoneOverlay` 里写死的 `instanceof ChatPage`
->   泛化为接口判定）。这是附属模组将来做自己相机页的前提。
+> **已落地**
+> - **公开接口** `api/phone/camera/PhoneCameraHost.java`：一个页面实现它，就自动获得
+>   「透明取景框 + 擦除机壳 + 取景姿态 + 不画光标 + 吞鼠标点击 + 侧键接管」。
+>   `PhoneOverlay` 里原先写死的 `instanceof ChatPage` 已全部改成接口判定（ChatPage 方法体一行未动）。
+> - **公开页面** `api/phone/camera/PhoneCameraPage.java`：桌面「相机」App 的实现。
+>   **只有取景态**（按下即拍 + 存相册 + 留在取景），没有"已拍成页"，拍照成功**不弹气泡**；
+>   版面与聊天内相机逐项一致（含底部黑边——那条黑边是用来遮住模型没掏空的那条带子的）。
+> - **注册** `client/CameraAppRegistration.java`：走**公开注册通路**（`PhoneAppRegisterEvent`）+ `.slot(1)`
+>   + `.order(-100)`（保证先于附属模组拿到槽位 1）。图标暂用 📷 emoji，底色深灰 `#424242`，
+>   像素图标到位后改 `.icon(...)` 即可。
+> - **文档**：[phone-camera-api.md](phone-camera-api.md)（新建，含契约表、踩坑、参考实现）。
 
-- 抓图链路已经现成：`PhoneOverlay.requestWorldCapture(Consumer<byte[]>)` + `PhotoLibrary.captureMainTargetPng()` / `saveToGallery(byte[])` / `registerCaptured(byte[])`。
-- 取景预览可以复用 `ChatPage` 里那套擦除纹理逻辑（搜 `PhoneOverlay.requestWorldCapture` 的调用点）。
+- 抓图链路：`PhoneOverlay.requestWorldCapture(Consumer<byte[]>)` + `PhotoLibrary.saveToGallery(byte[])`。
 - 新页面用 `PhonePage` 的 `showTopBar()` / `renderContent` 画取景框。
   ⚠ 相机页**不要**继承 `PhonePage`：它的 `render` 是 `final` 且必定用 `pageBackground()` 铺满内容区，
-  会把取景框整个盖死。相机页直接 `implements IPhonePage` 自绘。
-- **不要**改 `ChatPage` 里的相机逻辑，直接把可复用部分抽出来或复制到新页。
+  会把取景框整个盖死。相机页直接 `implements PhoneCameraHost` 自绘。
+
+### 8.2.1 聊天内相机的「已拍成页」重做（**待办**）
+
+现状：`renderCameraMode` 在 `shot == true` 时**照样画透明取景框**，照片只在左下角 24px 缩略图里，
+与真机/QQ 的"全屏放大刚才那张让人确认"不符。
+
+要做的事：
+1. 已拍成时内容区**不透明**，用 `PhoneImages.drawCover` 全屏铺那张照片，底部叠「重拍 / 发送」两颗按钮。
+2. 这要求把 `isCameraMode()` 目前承担的**三个职责拆开**：手机体透明 / 取景姿态 / 输入归属（侧键 + 光标）。
+   否则要么全屏照片"透"出背后的世界，要么光标画不出来（玩家点不到那两颗按钮）。
+   计划在 `PhoneCameraHost` 上追加 3 个带默认值的判据（默认 = `isCameraMode()`，不破坏已有实现）。
+3. 拆完记得回来更新 [phone-camera-api.md](phone-camera-api.md) §6「多状态页怎么写」——
+   那里现在写着"当前限制"，拆开后改为正式的推荐写法。
 
 ### 8.3 图库 App
 

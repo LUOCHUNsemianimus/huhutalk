@@ -41,24 +41,77 @@ import com.huhutalk.phone.IPhonePage;
  * （它已经继承了 {@link IPhonePage}），自己画取景框。
  *
  * <h2>两个状态的页怎么办</h2>
- * 聊天页的相机就是这样：取景中是一个状态，"已拍成"是另一个状态。
- * 那种页让 {@link #isCameraMode()} 只在<b>需要透明取景</b>的状态返回 true 即可；
- * 已拍成页若想显示全屏照片、还想让玩家用光标点按钮，
- * 就应该让 {@code isCameraMode()} 返回 false（否则光标不画、点击也被吞掉）。
+ * 聊天页的相机就是这样：取景中是一个状态，"已拍成"是另一个状态。做法是
+ * <b>{@link #isCameraMode()} 全程返回 true</b>（两个状态都是相机），再按需关掉细分判据：
+ * <ul>
+ *   <li>已拍成要显示<b>全屏照片</b> → {@link #cameraScreenTransparent()} 返回 false，
+ *       否则照片是半透的、背后的世界会直接穿过来；</li>
+ *   <li>已拍成还想让玩家用<b>光标点按钮</b> → 把 {@link #cameraSideKeysActive()} 与
+ *       {@link #cameraInputExclusive()} <b>一起</b>返回 false
+ *       （只关一个没有用：侧键不关的话，键事件在路由那一步就被消费了，光标永远点不到东西）。</li>
+ * </ul>
+ * HuhuTalk 自己的聊天相机<b>只做了第一条</b>：侧键 4 = 发送 / 侧键 5 = 重拍是玩家的肌肉记忆，
+ * 换成"挪光标去点按钮"反而更难用，所以它在已拍成状态仍然不画光标。
+ * <p>
+ * ⚠ <b>不要</b>用"让某个状态的 {@code isCameraMode()} 返回 false"来实现第二条 ——
+ * 那会把侧键一起关掉，玩家的侧键 4/5 就不再是"发送/重拍"了。
  *
  * @see com.huhutalk.phone.PhoneOverlay#isCameraMode()
  */
 public interface PhoneCameraHost extends IPhonePage {
 
     /**
-     * 当前<b>是否处于取景界面</b>。
+     * 主开关：当前<b>是否处于相机界面</b>。
      * <p>
-     * 返回 true 时：手机体透明 + 3D 机壳用擦除纹理 + 不画光标 + 不吃鼠标点击 +
-     * 侧键路由到本接口的三个动作方法 + 手机摆到取景姿态。
+     * 返回 true 时，下面三个细分判据（{@link #cameraScreenTransparent()} /
+     * {@link #cameraSideKeysActive()} / {@link #cameraInputExclusive()}）默认也全部返回 true，
+     * 于是这台相机会拿到"手机体透明 + 擦除机壳 + 侧键接管 + 不画光标"的整套行为。
      * <p>
-     * 页面内有多级状态时（如聊天页的「取景中 / 已拍成」），只在该透明取景的状态返回 true。
+     * <b>单状态相机（如桌面「相机」App）只需要实现这一个方法。</b>
+     * 页内有多级状态、需要给不同状态不同待遇时，再按需覆盖下面三个。
      */
     boolean isCameraMode();
+
+    /**
+     * 手机体是否<b>透明</b>（同时 3D 机壳换用擦除版纹理），让游戏画面从取景框里透出来。
+     * 默认跟随 {@link #isCameraMode()}。
+     * <p>
+     * <b>什么时候需要单独关掉它</b>：相机有一个"显示全屏照片"的状态时。
+     * 那个状态要是还透明，照片就会半透、背后的世界直接穿过来。
+     * 聊天内相机（{@code ChatPage}）就是这么用的：
+     * {@code cameraActive && cameraShot == null}。
+     * <p>
+     * ⚠ 它<b>只管外观</b>：关掉它不会让光标回来、也不会改变侧键含义。
+     */
+    default boolean cameraScreenTransparent() {
+        return isCameraMode();
+    }
+
+    /**
+     * 侧键 4 / 5 是否路由到 {@link #cameraPrimaryAction()} / {@link #cameraBackAction()}
+     * （以及「长按 = 保存」手势是否生效）。默认跟随 {@link #isCameraMode()}。
+     * <p>
+     * <b>什么时候需要单独关掉它</b>：某个状态想让玩家用<b>光标点按钮</b>而不是按侧键。
+     * 侧键 4 在手机里就是"左键单击"，只要它还路由给相机，玩家的光标就永远点不到东西
+     * （键事件在路由那一步就被消费掉了）。所以"能点按钮的状态"必须
+     * {@code cameraSideKeysActive() == false} 且 {@code cameraInputExclusive() == false} 一起成立。
+     */
+    default boolean cameraSideKeysActive() {
+        return isCameraMode();
+    }
+
+    /**
+     * 是否<b>独占输入</b>：不画独立光标 + 吞掉鼠标点击。默认跟随 {@link #isCameraMode()}。
+     * <p>
+     * 取景界面通常要保持独占 —— 玩家的鼠标要完整留给"转视角取景"，
+     * 画个光标出来只会让人误以为能挪过去点。
+     * <p>
+     * 想让某个状态可点，就把它返回 false（并同时关掉 {@link #cameraSideKeysActive()}，
+     * 理由见那个方法的说明），然后正常实现 {@link IPhonePage#mouseClicked} 做命中判定。
+     */
+    default boolean cameraInputExclusive() {
+        return isCameraMode();
+    }
 
     /**
      * 「主操作」——对应玩家绑定的<b>屏幕确认键</b>（默认鼠标侧键 4）轻点。
