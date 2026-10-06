@@ -137,6 +137,11 @@ UV 直接 `(0,0)..(1,1)` 即可；**额外加 V 翻转会导致整页旋转 180�
 
 ## 5. 给 HuhuTalk 工作区的下一步建议
 
+> **✅ 已落地**：下方这套"先做最小验证、再做完整集成"的路线已经执行完毕，
+> 附属模组建成在独立工程 `D:\Moddevelop\huhutalk-douyin\`。
+> 过程、证据与本轮新踩的坑见 **[douyin-addon-handoff.md](douyin-addon-handoff.md)**。
+> 本体侧的唯一改动是新增 `PhoneOverlay.requestRedraw()`（+19 行，纯新增）。
+
 **阶段 3 的第一步不要做完整虚拟光标集成**，先做半天的最小验证：
 
 > 用 `PhoneOverlay` 已有的光标坐标 → 调 `browser.sendMousePress/sendMouseRelease`

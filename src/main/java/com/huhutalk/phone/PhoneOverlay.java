@@ -1284,6 +1284,25 @@ public class PhoneOverlay {
 
     // ==================== 渲染 ====================
 
+    /**
+     * 附属模组请求「下一帧模型屏必须重绘」。
+     *
+     * <h2>什么时候需要</h2>
+     * 页面内容<b>每帧都在变</b>且这个变化<b>不由 MC 输入驱动</b>时——典型是内嵌浏览器/视频类 App
+     * （抖音网页 App）：CEF 的帧一直在更新，但 {@link PhoneScreenTarget#update} 有一条
+     * 「静止时 100ms 才重绘一次」的省电策略，不主动标脏的话模型屏上只有 ~10fps。
+     *
+     * <h2>怎么用</h2>
+     * 在自己的 {@code IPhonePage.render(...)} 里每帧调一次即可：那一帧恰好是在
+     * {@code PhoneScreenTarget.update()} 内部被调用的，标脏落在 {@code dirty=false} 之后，
+     * 于是下一帧必定重绘，形成一个自持的每帧刷新环。悬浮窗模式本来每帧都画，不受影响。
+     *
+     * <p>对不调用它的页面行为<b>零影响</b>。
+     */
+    public static void requestRedraw() {
+        PhoneScreenTarget.markDirty();
+    }
+
     public static void render(GuiGraphics graphics, float partialTick) {
         boolean external = externalH > 0;
 
