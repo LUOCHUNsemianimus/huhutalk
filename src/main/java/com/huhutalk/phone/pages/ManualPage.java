@@ -25,6 +25,12 @@ import java.util.List;
  * <p>
  * 背景色 {@link #PAGE_BG}（#f5ebf2）、黑色字体。二级列表与正文滚动区用 scissor 限定在内容区，
  * 不越出顶栏/手机边界。图片 PNG 放 {@code gameDir/huhutalk/manual/}，条目通过 {@code imageKey} 引用。
+ *
+ * <h2>附属模组怎么往这里追加说明</h2>
+ * 调 {@link #registerSection(String, String, java.util.List)}（纯新增的公开通路），
+ * 你注册的栏目会<b>追加在内置栏目之后</b>，内置的顺序与内容不受影响。
+ * 本页每次打开都会新建一个 {@code ManualPage}，所以"注册之后下一次打开手册"一定能看到；
+ * 而注册本身在任何早于"玩家打开手册"的时机做都可以（模组构造期最省心）。
  */
 public class ManualPage implements IPhonePage {
 
@@ -39,6 +45,90 @@ public class ManualPage implements IPhonePage {
     /** 条目卡片底色 */
     private static final int CARD_BG = 0xFFFFFFFF;
 
+    // =============================================================================================
+    // 附属模组追加的栏目（公开注册通路）
+    // =============================================================================================
+
+    /**
+     * 由附属模组 {@linkplain #registerSection(String, String, java.util.List) 注册} 进来的栏目。
+     * <p>
+     * 它是一份<b>进程内全局</b>的表，与"当前打开着哪一个 ManualPage 实例"无关 ——
+     * 每次构造 {@code ManualPage} 时把它的快照追加到实例自己的 {@link #sections} 里。
+     * 这样"什么时候注册"就不敏感了：注册晚于某一次打开，下一次打开照样能看到。
+     */
+    private static final List<ManualSection> EXTERNAL_SECTIONS = new ArrayList<>();
+    /** 去重键（{@code ownerModId + 标题}），防止同一个模组因为重复注册而出现两节一样的说明。 */
+    private static final java.util.Set<String> EXTERNAL_KEYS = new java.util.LinkedHashSet<>();
+
+    /**
+     * {@code true} = 已经有人注册过（用于把"首次注册"打进日志，便于排查"我注册了但手册里没有"）。
+     */
+    private static boolean externalLogged;
+
+    /**
+     * 往手机手册里追加一节说明。这是给附属模组用的公开入口。
+     *
+     * <h2>怎么用</h2>
+     * <pre>{@code
+     * ManualPage.registerSection("mymod", "我的功能", List.of(
+     *         new ManualPage.ManualEntry("标题", "正文（\n 可换行，会自动折行）", null)));
+     * }</pre>
+     *
+     * <h2>时机</h2>
+     * 在<b>玩家打开手册之前</b>的任何时候都可以，模组构造期最省心 ——
+     * 本方法不依赖任何加载顺序，注册表是静态的，而手册每次打开都会重新读一遍。
+     * 也因此<b>重复调用是安全的</b>（同一个 {@code ownerModId + title} 只生效第一次）。
+     *
+     * <h2>为什么不抛异常</h2>
+     * 附属模组的注册出问题不该把玩家的手册（乃至手机）搞没：参数非法一律记一条警告后返回 false。
+     *
+     * @param ownerModId 注册方模组 id，只用于日志与去重；不要留空
+     * @param title      一级栏目名（手册首页那一行文字）；不要留空，太长会顶到卡片右边界
+     * @param entries    该栏目下的二级条目；空列表 = 注册了也看不见，所以会被拒绝
+     * @return true = 本次注册生效；false = 被忽略（参数非法 / 重复 / 非客户端）
+     */
+    public static boolean registerSection(String ownerModId, String title, List<ManualEntry> entries) {
+        if (ownerModId == null || ownerModId.isBlank() || title == null || title.isBlank()) {
+            com.huhutalk.HuhuTalk.LOGGER.warn("[HuhuTalk/Manual] 注册手册栏目时 ownerModId/title 为空，已忽略");
+            return false;
+        }
+        if (entries == null || entries.isEmpty()) {
+            com.huhutalk.HuhuTalk.LOGGER.warn("[HuhuTalk/Manual] 手册栏目「{}」（{}）没有任何条目，已忽略", title, ownerModId);
+            return false;
+        }
+        // 手册是纯客户端的东西，服务端注册没有意义 —— 与 PhoneAppRegistry 一致，挡掉而不是抛异常
+        if (net.neoforged.fml.loading.FMLEnvironment.dist != net.neoforged.api.distmarker.Dist.CLIENT) {
+            com.huhutalk.HuhuTalk.LOGGER.warn("[HuhuTalk/Manual] 非客户端环境尝试注册手册栏目「{}」，已忽略", title);
+            return false;
+        }
+        String key = ownerModId + "\u0000" + title;
+        // 条目列表整体复制一份：调用方之后改自己的 list 不该影响已经注册进来的内容
+        ManualSection section = new ManualSection(title, List.copyOf(entries));
+        synchronized (ManualPage.class) {
+            if (!EXTERNAL_KEYS.add(key)) {
+                com.huhutalk.HuhuTalk.LOGGER.warn("[HuhuTalk/Manual] 手册栏目「{}」（{}）重复注册，已忽略后一次",
+                        title, ownerModId);
+                return false;
+            }
+            EXTERNAL_SECTIONS.add(section);
+            if (!externalLogged) {
+                externalLogged = true;
+                com.huhutalk.HuhuTalk.LOGGER.info(
+                        "[HuhuTalk/Manual] 已支持附属模组追加手册栏目（首次来自 {} 的「{}」）", ownerModId, title);
+            } else {
+                com.huhutalk.HuhuTalk.LOGGER.info("[HuhuTalk/Manual] 已注册手册栏目「{}」（{}）", title, ownerModId);
+            }
+        }
+        return true;
+    }
+
+    /** 当前由附属模组追加进来的栏目快照（诊断用；手册渲染不直接调它）。 */
+    public static List<ManualSection> externalSections() {
+        synchronized (ManualPage.class) {
+            return List.copyOf(EXTERNAL_SECTIONS);
+        }
+    }
+
     /** 二级条目：标题 + 正文（支持 \n 换行、自动折行）+ 可选图片文件名 */
     public record ManualEntry(String title, String body, String imageKey) {}
     /** 一级大栏目：标题 + 其下二级条目列表 */
@@ -49,6 +139,17 @@ public class ManualPage implements IPhonePage {
     private ManualSection currentSection = null;
     /** 当前打开的二级条目；null = 二级列表 */
     private ManualEntry currentEntry = null;
+    /**
+     * 一级栏目的滚动偏移。
+     * <p>
+     * 一级列表和二级列表是两套独立的滚动位置（{@link #sectionScroll} 属于二级），
+     * 所以这里必须是另一个字段：从二级退回一级时，一级应该还停在玩家离开时的那一屏。
+     * <p>
+     * <b>为什么一级列表也需要滚动</b>：内置栏目已经 11 节，加上附属模组追加的会更多，
+     * 而手机内容区默认只放得下 4 行左右（`(h - 页眉 - 留白) / (行高 + 行距)`）——
+     * 没有滚动的话第 5 节往后<b>既不显示也点不到</b>，附属模组的栏目更是永远看不见。
+     */
+    private float rootScroll = 0f;
     /** 二级列表滚动偏移 */
     private float sectionScroll = 0f;
     /** 正文滚动偏移 */
@@ -131,6 +232,12 @@ public class ManualPage implements IPhonePage {
         sections.add(sec("写在最后",
                 entry("写在最后", "本模组由我（罗春）使用AI工作流协助开发，如果有任何不足，烦请反映至Anirtual@gmail.com，谢谢！\n"
                         + "还有——感谢你们的下载与体验，我爱你们！")));
+
+        // 附属模组追加的栏目：**一定放在最后**，内置栏目的顺序与内容是玩家已经看惯的，
+        // 不该因为装了什么附属模组而变化。（注册通路见 registerSection）
+        synchronized (ManualPage.class) {
+            sections.addAll(EXTERNAL_SECTIONS);
+        }
     }
 
     private static ManualSection sec(String title, ManualEntry... entries) {
@@ -169,7 +276,20 @@ public class ManualPage implements IPhonePage {
                 baseY + (headerH - lineH(font)) / 2, 0xFFFFFFFF, UiFont.sc(0.85f));
     }
 
-    /** 一级大栏目列表（内容不多，不滚动） */
+    /**
+     * 一级大栏目列表。
+     *
+     * <h2>为什么要滚动（第 7 轮改的）</h2>
+     * 原实现是"装不下就 break"：既没有 scissor、也没有滚动。
+     * 内置栏目已经有 11 节，而手机内容区默认只放得下 4 行左右，
+     * 于是第 5 节起<b>既不显示也点不到</b> —— 附属模组追加的栏目永远看不到，
+     * 「模组兼容」「物品与方块」这些内置栏目也一样。
+     * 现在照抄二级列表那套已经验证过的写法（clamp + scissor + 滚动偏移）。
+     *
+     * <p>注意它与 {@link #renderSectionList}、{@link #mouseClicked}、
+     * {@link #mouseScrolled} 必须共用同一份几何（top/bottom/rowH/gap/maxScroll），
+     * 否则就会出现"看到的位置和点到的位置不一样"。
+     */
     private void renderSectionRoot(GuiGraphics g, int baseX, int baseY) {
         int w = PhoneOverlay.getPhoneWidth();
         int h = PhoneOverlay.getPhoneHeight();
@@ -180,12 +300,19 @@ public class ManualPage implements IPhonePage {
         int pad = UiFont.sh(8);
         int top = baseY + headerH + UiFont.sh(6);
         int bottom = baseY + h - UiFont.sh(6);
-        g.enableScissor(baseX, top, baseX + w, bottom);
         int rowH = UiFont.sh(34);
         int gap = UiFont.sh(4);
-        int cy = top;
+        int viewH = bottom - top;
+        int contentH = sections.size() * (rowH + gap);
+        int maxScroll = Math.max(0, contentH - viewH);
+        rootScroll = clamp(rootScroll, maxScroll);
+
+        g.enableScissor(baseX, top, baseX + w, bottom);
+        int cy = top - (int) rootScroll;
         for (ManualSection s : sections) {
-            if (cy + rowH > bottom) break;
+            // 被滚出上边界的那几行直接跳过（继续累加 cy，不能 break —— 下面的行还有可能露出来）
+            if (cy + rowH < top) { cy += rowH + gap; continue; }
+            if (cy > bottom) break;
             UiShapes.fillRoundedRect(g, baseX + pad, cy, w - pad * 2, rowH, UiFont.sh(8), CARD_BG);
             drawScaledText(g, font, "›  " + s.title(), baseX + pad + UiFont.sh(10),
                     cy + (rowH - lineH(font)) / 2, TEXT_COLOR, UiFont.sc(0.9f));
@@ -337,10 +464,15 @@ public class ManualPage implements IPhonePage {
             }
             return false;
         }
-        // 一级列表
-        int cy = top;
+        // 一级列表（可滚动：几何必须与 renderSectionRoot 完全一致）
+        int viewH = bottom - top;
+        int contentH = sections.size() * (rowH + gap);
+        int maxScroll = Math.max(0, contentH - viewH);
+        rootScroll = clamp(rootScroll, maxScroll);
+        int cy = top - (int) rootScroll;
         for (ManualSection s : sections) {
-            if (cy + rowH > bottom) break;
+            if (cy + rowH < top) { cy += rowH + gap; continue; }
+            if (cy > bottom) break;
             if (relX >= pad && relX <= w - pad && relY >= cy && relY <= cy + rowH) {
                 currentSection = s;
                 currentEntry = null;
@@ -380,7 +512,19 @@ public class ManualPage implements IPhonePage {
             sectionScroll += (float) (-scrollDelta * UiFont.sh(10));
             return true;
         }
-        return false;
+        // 一级列表（第 7 轮补的）：装得下就什么都不做，保持改动前的行为；
+        // 装不下才滚，否则第 5 节往后的栏目永远够不着。
+        int h = PhoneOverlay.getPhoneHeight();
+        int top = UiFont.sh(22) + UiFont.sh(6);
+        int bottom = h - UiFont.sh(6);
+        int rowH = UiFont.sh(34);
+        int gap = UiFont.sh(4);
+        int maxScroll = Math.max(0, sections.size() * (rowH + gap) - (bottom - top));
+        if (maxScroll <= 0) {
+            return false;
+        }
+        rootScroll = clamp(rootScroll + (float) (-scrollDelta * UiFont.sh(10)), maxScroll);
+        return true;
     }
 
     // ==================== 工具 ====================

@@ -486,6 +486,20 @@ public class PhoneOverlay {
         if (!isVisible()) {
             return;
         }
+        // ⚠ 有 Screen 打开时不驱动手机。
+        //
+        // 理由（真 bug，不是洁癖）：本模组（huhutalk_douyin）的透明输入屏开着打字时，
+        // 玩家按一下「手机返回」（侧键5）想把键盘收掉 —— 那是手机上最自然的手势 ——
+        // 但那时侧键5 会一路走到这里的 handlePhoneLocalMouse → 页面 → onBackPressed()，
+        // 把整个抖音页弹掉、连带关掉 CEF 浏览器：**打到一半的字全丢了**。
+        //
+        // 为什么"拦掉"是安全的：Screen 一打开，原版 MouseHandler 就不再调用 turnPlayer，
+        // 而独立光标只在那里被喂增量（见 MouseHandlerMixin 的类注释），
+        // 所以此刻光标本来就是冻结的、"点下去"也没有可点的意义 —— 这条输入本来就没用。
+        // 需要"Screen 里也能收键盘"的模块请自己注册键映射轮询（见该模组的 PhoneInput）。
+        if (Minecraft.getInstance().screen != null) {
+            return;
+        }
         PhoneScreenTarget.markDirty();
         // 相机模式：整条绕开光标，直接用侧键驱动 (见 cameraSideButton)。
         // 于是"抬头取景"和"按下拍照"不再抢同一个鼠标：视角照常自由转，动作交给侧键。
