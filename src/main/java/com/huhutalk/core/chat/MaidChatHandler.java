@@ -18,6 +18,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
 import net.neoforged.neoforge.network.PacketDistributor;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -108,6 +109,21 @@ public class MaidChatHandler {
      * [SYSTEM 离线汇总] [SYSTEM 设定] [SYSTEM 摘要(可选)] [历史] [USER 引导回应]
      */
     public static void handleSystemInjection(ServerPlayer player, String stableId, String systemText) {
+        handleSystemInjection(player, stableId, systemText, null, false);
+    }
+
+    /**
+     * 主动播报系统事件（可定制排布与收尾语）。
+     *
+     * @param closingUserText 收尾的 USER 消息；{@code null} = 沿用默认那句"主人就站在你面前…"
+     * @param systemTextLast  {@code true} = 把 {@code systemText} 放到人设卡与历史<b>之后</b>。
+     *                        模型对越靠后的 system 越敏感；"刚刚发生的事"这类即时事件若排在 0 号位
+     *                        （人设卡之前）容易被当成背景设定读掉。同时收尾 USER 消息也必须能改 ——
+     *                        默认那句写死了"主人就站在你面前"，对"隔着手机远程救援"这种场景是错的。
+     *                        {@code false} = 沿用旧排法（适配 P→M 物品提示那种补充说明性质的内容）。
+     */
+    public static void handleSystemInjection(ServerPlayer player, String stableId, String systemText,
+                                             @Nullable String closingUserText, boolean systemTextLast) {
         EntityMaid maid = findMaidByStableId(player.getServer(), stableId);
         if (maid == null) return;
         MaidAIChatManager manager = maid.getAiChatManager();
@@ -115,7 +131,9 @@ public class MaidChatHandler {
         if (site == null || !site.enabled()) return;
 
         List<LLMMessage> messages = new ArrayList<>();
-        messages.add(LLMMessage.systemChat(maid, systemText));
+        if (!systemTextLast) {
+            messages.add(LLMMessage.systemChat(maid, systemText));
+        }
         manager.getSetting().ifPresent(setting -> {
             String language = manager.getChatLanguage();
             String settingText = setting.getSetting(maid, language);
@@ -123,7 +141,11 @@ public class MaidChatHandler {
         });
         manager.getHistorySummaryManager().appendSummaryMessage(messages);
         manager.getHistory().getDeque().descendingIterator().forEachRemaining(messages::add);
-        messages.add(LLMMessage.userChat(maid, "主人就站在你面前，正期待着你的反应。请综合以上所有信息，给他一个自然的、发自内心的回应。"));
+        if (systemTextLast) {
+            messages.add(LLMMessage.systemChat(maid, systemText));
+        }
+        messages.add(LLMMessage.userChat(maid, closingUserText != null ? closingUserText
+                : "主人就站在你面前，正期待着你的反应。请综合以上所有信息，给他一个自然的、发自内心的回应。"));
 
         HuhuTalkChatCallback callback = new HuhuTalkChatCallback(manager, messages, player, stableId);
         site.client().chat(callback);

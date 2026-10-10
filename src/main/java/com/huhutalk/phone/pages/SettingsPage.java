@@ -4,6 +4,7 @@ import com.huhutalk.client.settings.HuhuTalkClientSettings;
 import com.huhutalk.client.theme.ColorScheme;
 import com.huhutalk.client.theme.ThemeManager;
 import com.huhutalk.network.C2SSOSPacket;
+import com.huhutalk.network.C2SPotionRescueSettingPacket;
 import com.huhutalk.phone.IPhonePage;
 import com.huhutalk.phone.PhoneOverlay;
 import com.huhutalk.phone.UiFont;
@@ -84,6 +85,17 @@ public class SettingsPage implements IPhonePage {
     public SettingsPage() {
     }
 
+    /**
+     * 每次打开设置页都把「药水复活」偏好同步一次。
+     * <p>服务端只在会话内缓存它（见 {@code RescueSettings}），所以重连后必须重新告知；
+     * 这里同时兜住"登录同步包因故没发出去"的极端情况 —— 玩家只要开过设置页就一定同步过。
+     */
+    @Override
+    public void onOpen() {
+        PacketDistributor.sendToServer(
+                new C2SPotionRescueSettingPacket(HuhuTalkClientSettings.isPotionRescueEnabled()));
+    }
+
     // ==================== 布局 ====================
 
     private static final class Layout {
@@ -91,6 +103,8 @@ public class SettingsPage implements IPhonePage {
         int sosY, sosH;
         int msgTitleY, msgRectY, msgRectH;
         int[] msgRow = new int[3]; // 消息免打扰 / 女仆悄悄话 / 沉浸式聊天
+        int rescueTitleY, rescueRectY, rescueRectH;
+        int rescueRow; // 药水复活开关
         int animTitleY, animRectY, animRectH;
         int[] animRow = new int[4]; // 消息动画 / 每字耗时 / 单句上限 / 切屏动画(全局总开关)
         int colorTitleY, colorRectY, colorRectH;
@@ -123,6 +137,16 @@ public class SettingsPage implements IPhonePage {
         L.msgRectY = L.msgRow[0] - rectPad();
         L.msgRectH = (L.msgRow[2] + rowH()) - L.msgRectY + rectPad();
         y = L.msgRow[2] + rowH() + rectPad();
+        y += groupTitleTop();
+
+        // 救援 分组（1 行）：药水复活开关
+        L.rescueTitleY = y;
+        y += titleH + cardGap();
+        L.rescueRow = y;
+        y += rowH();
+        L.rescueRectY = L.rescueRow - rectPad();
+        L.rescueRectH = (L.rescueRow + rowH()) - L.rescueRectY + rectPad();
+        y = L.rescueRow + rowH() + rectPad();
         y += groupTitleTop();
 
         // 动画 分组（4 行）
@@ -195,6 +219,7 @@ public class SettingsPage implements IPhonePage {
 
         renderSosButton(g, font, L, baseX, baseY);
         renderMsgGroup(g, font, L, baseX, baseY);
+        renderRescueGroup(g, font, L, baseX, baseY);
         renderAnimGroup(g, font, L, baseX, baseY);
         renderColorGroup(g, font, L, baseX, baseY);
         renderDisplayGroup(g, font, L, baseX, baseY);
@@ -229,6 +254,21 @@ public class SettingsPage implements IPhonePage {
         // 沉浸式聊天：手机聊天时女仆回复不出现在左下角公屏聊天栏
         int rowY2 = ly(L, baseY, L.msgRow[2]);
         drawToggleRow(g, font, rectX, rectW, rowY2, "沉浸式聊天", HuhuTalkClientSettings.isImmersiveChatEnabled());
+    }
+
+    /**
+     * 救援 分组（1 行）：药水复活开关。
+     * <p>关掉它 = 死亡后不再触发女仆远程送药，也就不会因为这件事调用一次 AI（省 token）。
+     * 拨动时会立刻把新值同步给服务端，因为判定发生在服务端。
+     */
+    private void renderRescueGroup(GuiGraphics g, Font font, Layout L, int baseX, int baseY) {
+        int rectX = baseX + UiFont.sh(10);
+        int rectW = PhoneOverlay.getPhoneWidth() - UiFont.sh(20);
+        drawScaledText(g, font, "救援", baseX + UiFont.sh(12), ly(L, baseY, L.rescueTitleY),
+                GROUP_TITLE_COLOR, UiFont.sc(GROUP_SCALE));
+        UiShapes.fillRoundedRect(g, rectX, ly(L, baseY, L.rescueRectY), rectW, L.rescueRectH, CARD_R, CARD_BG);
+        int rowY = ly(L, baseY, L.rescueRow);
+        drawToggleRow(g, font, rectX, rectW, rowY, "药水复活", HuhuTalkClientSettings.isPotionRescueEnabled());
     }
 
     private void renderAnimGroup(GuiGraphics g, Font font, Layout L, int baseX, int baseY) {
@@ -528,6 +568,14 @@ public class SettingsPage implements IPhonePage {
         // 消息：沉浸式聊天
         if (hit(relX, ly, rectX, L.msgRow[2], rectW, rowH())) {
             HuhuTalkClientSettings.setImmersiveChatEnabled(!HuhuTalkClientSettings.isImmersiveChatEnabled());
+            return true;
+        }
+
+        // 救援：药水复活开关。判定在服务端（死亡瞬间），所以改完立刻同步新值
+        if (hit(relX, ly, rectX, L.rescueRow, rectW, rowH())) {
+            boolean next = !HuhuTalkClientSettings.isPotionRescueEnabled();
+            HuhuTalkClientSettings.setPotionRescueEnabled(next);
+            PacketDistributor.sendToServer(new C2SPotionRescueSettingPacket(next));
             return true;
         }
 

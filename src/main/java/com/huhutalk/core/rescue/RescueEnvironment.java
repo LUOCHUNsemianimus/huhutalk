@@ -5,6 +5,8 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.tags.FluidTags;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.level.block.state.BlockState;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.util.Set;
 
@@ -20,8 +22,12 @@ import java.util.Set;
  * </ol>
  * 判据用<b>伤害类型的 msgId 字符串</b>而不是 {@code DamageTypes} 常量引用：
  * 原版这些 id 是稳定的，而引用比较在部分模组包装过伤害源时容易漏判。
+ * <p>另外还负责把"主人到底是怎么死的"翻译成一句人话（{@link #describeDeath}），
+ * 供女仆叙事使用。
  */
 public final class RescueEnvironment {
+
+    private static final Logger LOGGER = LoggerFactory.getLogger("huhutalk.rescue_environment");
 
     /** 虚空系伤害类型（原版 id） */
     private static final Set<String> VOID_DAMAGE_IDS = Set.of(
@@ -56,6 +62,41 @@ public final class RescueEnvironment {
             return true;
         }
         return player.getY() < player.serverLevel().getMinBuildHeight() - VOID_Y_MARGIN;
+    }
+
+    /**
+     * 取「服务器原始死亡提示」文案 —— 就是原版聊天栏里那句，例如「咲夜试图在岩浆里游泳」。
+     *
+     * <p><b>为什么用它而不是自己维护死法清单</b>：原版这句是伤害类型 × 场景 × 凶手的完整组合，
+     * 天然覆盖所有死法（含模组自定义伤害类型），并且自带主人的名字，女仆一听就知道发生了什么事。
+     * 我们只需要把它原样转达，不需要（也不该）枚举"岩浆/虚空/摔死…"。
+     *
+     * <p><b>已知退化点</b>：专用服务器上不加载客户端语言文件，
+     * {@code Component#getString()} 可能返回未翻译的键名（形如 {@code death.attack.lava}）。
+     * 检测到该情况就退回一句"够用但不漂亮"的描述并打日志；真正的本地化留待与模组翻译工作一起做。
+     * 单机 / 局域网（集成服务器与客户端同 JVM）不受影响，拿到的就是中文原句。
+     */
+    public static String describeDeath(ServerPlayer player, DamageSource source) {
+        if (player == null || source == null) {
+            return "";
+        }
+        try {
+            String localized = source.getLocalizedDeathMessage(player).getString();
+            if (localized != null && !localized.isBlank() && !isUntranslated(localized)) {
+                return localized;
+            }
+        } catch (Exception ignored) {
+            // 落到下面的兜底
+        }
+        String msgId = source.getMsgId();
+        LOGGER.warn("[HuhuTalk][救援] 死亡提示未本地化（msgId={}），改用兜底描述。"
+                + "专用服务器属预期情况，单机若出现请反馈。", msgId);
+        return "因「" + msgId + "」而死";
+    }
+
+    /** 未翻译时 {@code Component#getString()} 会直接返回翻译键，原版死亡键一律以 {@code death.} 开头。 */
+    private static boolean isUntranslated(String text) {
+        return text.startsWith("death.");
     }
 
     /**

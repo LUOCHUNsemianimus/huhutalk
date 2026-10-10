@@ -20,6 +20,7 @@ import com.huhutalk.network.C2SMaidChatPacket;
 import com.huhutalk.network.C2SMaidImageChatPacket;
 import com.huhutalk.network.C2SClaimTransferPacket;
 import com.huhutalk.network.C2SPhoneTypingDonePacket;
+import com.huhutalk.network.C2SPotionRescueSettingPacket;
 import com.huhutalk.network.C2SDeleteContactPacket;
 import com.huhutalk.network.C2SDropTransferInboxPacket;
 import com.huhutalk.network.C2SMaidChatWithItemsPacket;
@@ -117,6 +118,8 @@ public class HuhuTalk {
         registrar.playToServer(C2SSyncWaypointsPacket.TYPE, C2SSyncWaypointsPacket.STREAM_CODEC, C2SSyncWaypointsPacket::handle);
         // 客户端 → 服务端：本条回复的逐条打字显示已播完（关闭手机来源窗口 → 动画放下段）
         registrar.playToServer(C2SPhoneTypingDonePacket.TYPE, C2SPhoneTypingDonePacket.STREAM_CODEC, C2SPhoneTypingDonePacket::handle);
+        // 客户端 → 服务端：同步「药水复活」开关（服务端只在会话内缓存该偏好）
+        registrar.playToServer(C2SPotionRescueSettingPacket.TYPE, C2SPotionRescueSettingPacket.STREAM_CODEC, C2SPotionRescueSettingPacket::handle);
         // 注意：S2C 包在 ClientPayloadSetup 中注册
     }
 }

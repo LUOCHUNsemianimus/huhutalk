@@ -31,10 +31,16 @@ public final class PendingRescue {
     private final float xRot;
     /** 死亡现场是否需要额外一瓶抗火药水（岩浆/火焰系死亡） */
     private final boolean needFireResistance;
+    /**
+     * 服务器原始死亡提示（例如「咲夜试图在岩浆里游泳」），供女仆叙事使用。
+     * <p>在 T+0 就抓下来：{@link net.minecraft.world.damagesource.DamageSource} 不属于我们持有，
+     * 而死亡提示必须逐字还原"当场发生了什么"。
+     */
+    private final String deathMessage;
     /** 到这一 tick（服务端 {@code getTickCount()}）就执行 */
     private final long executeAtTick;
 
-    public PendingRescue(ServerPlayer dead, boolean needFireResistance, long executeAtTick) {
+    public PendingRescue(ServerPlayer dead, boolean needFireResistance, long executeAtTick, String deathMessage) {
         this.playerId = dead.getUUID();
         this.playerName = dead.getName().getString();
         this.dimension = dead.level().dimension();
@@ -44,6 +50,7 @@ public final class PendingRescue {
         this.yRot = dead.getYRot();
         this.xRot = dead.getXRot();
         this.needFireResistance = needFireResistance;
+        this.deathMessage = deathMessage == null ? "" : deathMessage;
         this.executeAtTick = executeAtTick;
     }
 
@@ -81,6 +88,11 @@ public final class PendingRescue {
 
     public boolean needFireResistance() {
         return needFireResistance;
+    }
+
+    /** 服务器原始死亡提示（可能为空串 = 取不到）。 */
+    public String deathMessage() {
+        return deathMessage;
     }
 
     public long executeAtTick() {

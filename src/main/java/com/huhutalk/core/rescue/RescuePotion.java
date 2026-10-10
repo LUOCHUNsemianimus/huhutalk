@@ -130,6 +130,12 @@ public final class RescuePotion {
         return stack == null || stack.isEmpty() ? "" : stack.getHoverName().getString();
     }
 
+    /** 药水液色（用于在死亡坐标喷药水粒子）。非药水返回 -1。 */
+    public static int colorOf(@Nullable ItemStack stack) {
+        PotionContents contents = contentsOf(stack);
+        return contents == null ? -1 : contents.getColor();
+    }
+
     // ==================== 内部 ====================
 
     @Nullable

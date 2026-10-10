@@ -78,16 +78,18 @@ public class PlayerRescueHook {
         event.setCopyOriginalSpawnPosition(true);
     }
 
-    /** 玩家登出：清掉他的待救援与统计，避免长开服内存累积。 */
+    /** 玩家登出：清掉他的待救援、统计与偏好缓存，避免长开服内存累积。 */
     @SubscribeEvent
     public void onPlayerLoggedOut(PlayerEvent.PlayerLoggedOutEvent event) {
         PendingRescueManager.onPlayerGone(event.getEntity().getUUID());
+        RescueSettings.clear(event.getEntity().getUUID());
     }
 
     /** 服务器停止：内存态全清。 */
     @SubscribeEvent
     public void onServerStopping(ServerStoppingEvent event) {
         PendingRescueManager.clearAll();
+        RescueSettings.clearAll();
     }
 
     /** 每 tick 对账待救援窗口。 */

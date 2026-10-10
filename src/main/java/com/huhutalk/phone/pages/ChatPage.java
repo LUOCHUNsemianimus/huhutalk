@@ -1191,9 +1191,48 @@ public class ChatPage implements PhoneCameraHost {
         return 6 + itemBox() + 5 + textH * 2 + 6;
     }
 
-    /** 由预览数据还原一个仅用于渲染图标的 ItemStack（未知物品返回 EMPTY）。 */
+    /**
+     * 预览 SNBT -> 已还原 ItemStack 的渲染缓存。
+     * <p>
+     * {@link #previewToStack} 在<b>每一帧</b>每个物品气泡上都会被调用，而 SNBT 解析 +
+     * 组件反序列化并不便宜（每个气泡每帧一次会明显拖慢聊天页）。
+     * 同一个预览串在一整个会话里是稳定的，所以按串缓存；超过上限直接清空重建。
+     * <p>只在客户端渲染线程访问，无需并发容器。
+     */
+    private static final java.util.Map<String, ItemStack> PREVIEW_STACK_CACHE = new java.util.HashMap<>();
+    private static final int PREVIEW_STACK_CACHE_MAX = 256;
+
+    /**
+     * 由预览数据还原一个仅用于渲染图标的 ItemStack（未知物品返回 EMPTY）。
+     * <p>
+     * <b>优先走完整组件还原</b>：服务端推气泡时会把物品栈序列化成 SNBT 一起带过来，
+     * 这样药水才能画出正确的模型与液色 —— 只按 registry id 重建的话，
+     * {@code POTION_CONTENTS} 会丢，所有药水都会退化成同一个"水瓶"图标。
+     * 老存档没有该字段（或用的是旧版服务端）时自动退回"ID + 数量"渲染。
+     */
     private static ItemStack previewToStack(com.huhutalk.phone.ItemTransfer.Preview p) {
-        if (p == null || p.itemId == null || p.itemId.isEmpty()) {
+        if (p == null) {
+            return ItemStack.EMPTY;
+        }
+        // 1) 有组件串：走缓存还原（返回副本，绝不让调用方改到缓存本体）
+        String key = p.stackNbt;
+        if (key != null && !key.isEmpty()) {
+            ItemStack cached = PREVIEW_STACK_CACHE.get(key);
+            if (cached == null) {
+                if (PREVIEW_STACK_CACHE.size() >= PREVIEW_STACK_CACHE_MAX) {
+                    PREVIEW_STACK_CACHE.clear();
+                }
+                cached = com.huhutalk.phone.ItemTransfer.Preview.decodeStack(key);
+                PREVIEW_STACK_CACHE.put(key, cached);
+            }
+            if (!cached.isEmpty()) {
+                ItemStack out = cached.copy();
+                out.setCount(Math.max(1, p.count));
+                return out;
+            }
+        }
+        // 2) 兜底：只按物品 ID + 数量重建（旧存档 / 编码失败 / 未知物品）
+        if (p.itemId == null || p.itemId.isEmpty()) {
             return ItemStack.EMPTY;
         }
         try {
@@ -1247,8 +1286,14 @@ public class ChatPage implements PhoneCameraHost {
         // 说明行（第二行 / 第三行），长度决定气泡在图标行之外还需多宽
         int hidden = Math.max(0, payload.total - shown);
         String lineA = hidden > 0 ? "和剩余 " + hidden + " 个文件" : "";
-        String lineB = payload.claimed() ? "✓ 已接收"
-                : (payload.pending > 0 ? "待领取 " + payload.pending + " 个文件" : "");
+        // used=true 的「特殊发送」（远程救援）：物品已被直接用掉，只展示效果文案，没有领取状态
+        String lineB;
+        if (payload.used) {
+            lineB = (payload.effectText == null || payload.effectText.isEmpty()) ? "已使用" : payload.effectText;
+        } else {
+            lineB = payload.claimed() ? "✓ 已接收"
+                    : (payload.pending > 0 ? "待领取 " + payload.pending + " 个文件" : "");
+        }
         float capTs = 0.7f;
         // 气泡宽度贴合内容：图标行宽 与 说明最长一行 取大，封顶到 maxW（不再堆满整屏）
         int iconRowW = 2 * padX + shown * ib + Math.max(0, shown - 1) * 6;
@@ -1256,7 +1301,9 @@ public class ChatPage implements PhoneCameraHost {
         int bubbleW = Math.min(maxW, Math.max(iconRowW, Math.max(capW, ib + 2 * padX)));
         if (bubbleW > maxW) bubbleW = maxW;
         int radius = Math.max(2, bubbleH / 5);
-        UiShapes.fillRoundedRect(g, bubbleLeft, yTop, bubbleW, bubbleH, radius, 0xFF525A6E);
+        // 已使用的特殊发送换一个底色（墨绿），与普通待领取文件气泡（蓝灰）一眼可辨
+        UiShapes.fillRoundedRect(g, bubbleLeft, yTop, bubbleW, bubbleH, radius,
+                payload.used ? 0xFF4E6B5A : 0xFF525A6E);
 
         // 第一行：预览图标（最多 shown 个）
         int iconCenterY = yTop + 6 + ib / 2;
@@ -1285,7 +1332,7 @@ public class ChatPage implements PhoneCameraHost {
         }
         // 第三行：领取状态
         int stateY = textY + textH;
-        int stateColor = payload.claimed() ? 0xFF7FE08A : 0xFFFFE08A;
+        int stateColor = payload.used ? 0xFF9FE6B4 : (payload.claimed() ? 0xFF7FE08A : 0xFFFFE08A);
         drawScaledText(g, font, lineB, textX, stateY, stateColor, capTs);
 
         if (showAvatar) {
@@ -2486,7 +2533,8 @@ public class ChatPage implements PhoneCameraHost {
             if (relY >= y - totalBubble && relY <= y) {
                 ChatMessage m = messages.get(i);
                 var p = m.item();
-                if (p != null && !p.claimed()) {
+                // claimable() 已排除 used=true 的特殊发送：物品早被用掉了，点击不该发领取包
+                if (p != null && p.claimable()) {
                     claimItemTransfer(p.transferId);
                     return true;
                 }

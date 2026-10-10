@@ -444,12 +444,12 @@ public final class MaidTransferService {
         java.util.List<com.huhutalk.phone.ItemTransfer.Preview> previews = new ArrayList<>();
         int shown = Math.min(3, files.size());
         for (int i = 0; i < shown; i++) {
-            ItemStack f = files.get(i);
-            net.minecraft.resources.ResourceLocation id = BuiltInRegistries.ITEM.getKey(f.getItem());
-            previews.add(new com.huhutalk.phone.ItemTransfer.Preview(id.toString(), f.getCount()));
+            // Preview.of() 会带上完整组件，药水等"图标取决于组件"的物品才画得对
+            previews.add(com.huhutalk.phone.ItemTransfer.Preview.of(files.get(i)));
         }
         PacketDistributor.sendToPlayer(player,
-                new com.huhutalk.network.S2CMaidItemTransferPacket(stableId, tid, previews, files.size(), files.size()));
+                new com.huhutalk.network.S2CMaidItemTransferPacket(
+                        stableId, tid, previews, files.size(), files.size(), false, ""));
         return true;
     }
 

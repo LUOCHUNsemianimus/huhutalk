@@ -44,6 +44,11 @@ public final class HuhuTalkClientSettings {
     private static boolean maidWhisperEnabled = false;
     /** 「沉浸式聊天」：开启后通过手机唤起聊天时，女仆回复不出现在左下角公屏聊天栏（默认关） */
     private static boolean immersiveChatEnabled = false;
+    /**
+     * 「药水复活」：死亡时由女仆远程送药救人（默认开）。
+     * <p>每次触发都会让女仆走一次 AI 叙事，因此对在意 token 消耗的玩家提供关闭入口。
+     */
+    private static boolean potionRescueEnabled = true;
     /** 是否已看过手机内置手册（设置 APP）：首次未看时主界面该 APP 右上角标小红点，点击后消除 */
     private static boolean manualSeen = false;
     /** 消息断句动画开关 */
@@ -87,6 +92,8 @@ public final class HuhuTalkClientSettings {
     public static boolean isDndEnabled() { return dndEnabled; }
     public static boolean isMaidWhisperEnabled() { return maidWhisperEnabled; }
     public static boolean isImmersiveChatEnabled() { return immersiveChatEnabled; }
+    /** 「药水复活」开关：关闭后死亡不会触发女仆远程送药（也就不消耗 AI token） */
+    public static boolean isPotionRescueEnabled() { return potionRescueEnabled; }
     public static boolean isManualSeen() { return manualSeen; }
     public static boolean isMessageAnimationEnabled() { return messageAnimation; }
     /** 「切屏动画」全局界面动画总开关 */
@@ -223,6 +230,17 @@ public final class HuhuTalkClientSettings {
         save();
     }
 
+    /**
+     * 设置「药水复活」开关。
+     * <p><b>注意</b>：判定发生在服务端（死亡瞬间），所以调用方改完这里后必须把值同步给服务端
+     * （见 {@code ClientModEvents.pushPotionRescueSetting} / {@code SettingsPage}）。
+     * 本方法只负责本地持久化。
+     */
+    public static void setPotionRescueEnabled(boolean enabled) {
+        potionRescueEnabled = enabled;
+        save();
+    }
+
     /** 标记已看过手册（消除首次红点） */
     public static void setManualSeen(boolean seen) {
         manualSeen = seen;
@@ -350,6 +368,9 @@ public final class HuhuTalkClientSettings {
             dndEnabled = data.dndEnabled;
             maidWhisperEnabled = data.maidWhisperEnabled;
             immersiveChatEnabled = data.immersiveChatEnabled;
+            // 用「可空 Boolean + 缺失时按 true」而不是裸 boolean：
+            // 否则老配置文件里没有该字段，Gson 会解析成 false，把默认开启的功能静默关掉
+            potionRescueEnabled = data.potionRescueEnabled == null ? true : data.potionRescueEnabled;
             manualSeen = data.manualSeen;
             messageAnimation = data.messageAnimation;
             uiAnimation = data.uiAnimation;
@@ -399,6 +420,7 @@ public final class HuhuTalkClientSettings {
             data.dndEnabled = dndEnabled;
             data.maidWhisperEnabled = maidWhisperEnabled;
             data.immersiveChatEnabled = immersiveChatEnabled;
+            data.potionRescueEnabled = potionRescueEnabled;
             data.manualSeen = manualSeen;
             data.messageAnimation = messageAnimation;
             data.uiAnimation = uiAnimation;
@@ -436,6 +458,8 @@ public final class HuhuTalkClientSettings {
         boolean dndEnabled;
         boolean maidWhisperEnabled;
         boolean immersiveChatEnabled;
+        /** 可空：缺失时默认开启（老配置文件没有该字段） */
+        Boolean potionRescueEnabled;
         boolean manualSeen;
         boolean messageAnimation;
         boolean uiAnimation;

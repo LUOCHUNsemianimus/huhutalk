@@ -2,6 +2,8 @@ package com.huhutalk.event;
 
 import com.huhutalk.client.render.PhoneScreenTarget;
 import com.huhutalk.client.render.ProPhoneHandRenderer;
+import com.huhutalk.client.settings.HuhuTalkClientSettings;
+import com.huhutalk.network.C2SPotionRescueSettingPacket;
 import com.huhutalk.phone.PhoneOverlay;
 import com.huhutalk.phone.IPhonePage;
 import com.huhutalk.phone.pages.ChatPage;
@@ -13,11 +15,13 @@ import net.neoforged.api.distmarker.Dist;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.client.event.CalculatePlayerTurnEvent;
+import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
 import net.neoforged.neoforge.client.event.ClientTickEvent;
 import net.neoforged.neoforge.client.event.RegisterGuiLayersEvent;
 import net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent;
 import net.neoforged.neoforge.client.event.RenderFrameEvent;
 import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
+import net.neoforged.neoforge.network.PacketDistributor;
 import org.lwjgl.glfw.GLFW;
 
 @EventBusSubscriber(value = Dist.CLIENT)
@@ -47,6 +51,23 @@ public class ClientModEvents {
         event.register(QUICK_VOICE);
         event.register(PHONE_CLICK);
         event.register(PHONE_BACK);
+    }
+
+    /**
+     * 登录（进入世界 / 重连）时把本机的「药水复活」偏好同步给服务端。
+     * <p>
+     * 服务端只在<b>会话内</b>缓存这份偏好（见 {@code RescueSettings}），所以每次登录都必须重新告知，
+     * 否则重连后开关会静默退回默认值。设置页打开时与拨动开关时还会各推一次，作为冗余保障。
+     */
+    @SubscribeEvent
+    public static void onClientLoggingIn(ClientPlayerNetworkEvent.LoggingIn event) {
+        pushPotionRescueSetting();
+    }
+
+    /** 把本机的「药水复活」偏好推给服务端（幂等，可重复调用）。 */
+    public static void pushPotionRescueSetting() {
+        PacketDistributor.sendToServer(
+                new C2SPotionRescueSettingPacket(HuhuTalkClientSettings.isPotionRescueEnabled()));
     }
 
     /** 该鼠标按钮是否被玩家绑定为「手机左键」 */
