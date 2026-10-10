@@ -571,6 +571,29 @@ public final class MaidTransferService {
     }
 
     /**
+     * 统计女仆所有可交付来源里满足条件的物品<b>总个数</b>（只读，不移除）。
+     * <p>用于「她那边还剩几瓶治疗药水」这类判断（见
+     * {@link com.huhutalk.core.rescue.RescueStreakManager} 的濒危提醒）。
+     * 与 {@link #findBestMatching} 同样走 {@link #allRescueHandlers}（含隙间绑箱与主副手），
+     * 因此同样<b>不会</b>影响 {@code send_item} 的既有取物范围。
+     */
+    public static int countMatching(EntityMaid maid, Predicate<ItemStack> match) {
+        if (maid == null || match == null) {
+            return 0;
+        }
+        int total = 0;
+        for (IItemHandler handler : allRescueHandlers(maid)) {
+            for (int slot = 0; slot < handler.getSlots(); slot++) {
+                ItemStack in = handler.getStackInSlot(slot);
+                if (!in.isEmpty() && match.test(in)) {
+                    total += in.getCount();
+                }
+            }
+        }
+        return total;
+    }
+
+    /**
      * 同 {@link #findBestMatching}，但会把选中的那一份<b>从来源真正取走</b>并返回（每次只取 1 个）。
      * <p>救援只需要一瓶，所以这里固定取 1，不做"取完一整栈"。
      */

@@ -23,14 +23,16 @@ import java.util.UUID;
  * 本类的所有入口（{@code LivingDeathEvent} / {@code PlayerRespawnPositionEvent} /
  * {@code ServerTickEvent.Post} / 玩家登出）都发生在<b>服务端主线程</b>，
  * 因此内部直接用 {@link HashMap}，无需并发容器。
+ *
+ * <h2>不再管"反复死亡统计"</h2>
+ * 原先这里有一个 10 分钟滑窗计数器（{@code countRescue}），现已由
+ * {@link RescueStreakManager} 的「连续复活事件」模型取代 ——
+ * 滑窗的语义（"10 分钟内第几次"）与事件的语义（"连续 3 分钟不死即结束"）会互相打架。
  */
 public final class PendingRescueManager {
 
     /** 死亡到救援之间的等待（tick）：5 秒 */
     public static final int DELAY_TICKS = 5 * 20;
-
-    /** 「短时间反复死亡」的统计窗口（tick）：10 分钟。用于让女仆吐槽主人怎么老在死。 */
-    private static final long REPEAT_WINDOW_TICKS = 10L * 60L * 20L;
 
     /** 玩家 UUID -> 待救援登记 */
     private static final Map<UUID, PendingRescue> PENDING = new HashMap<>();
@@ -42,11 +44,6 @@ public final class PendingRescueManager {
      * 处理完之间的极短窗口内存活，用完即清 —— 这样玩家<b>正常</b>点重生按钮时不会被误重定向。
      */
     private static final Map<UUID, PendingRescue> RESPAWN_REDIRECT = new HashMap<>();
-
-    /** 玩家 UUID -> 统计窗口起点 tick */
-    private static final Map<UUID, Long> REPEAT_WINDOW_START = new HashMap<>();
-    /** 玩家 UUID -> 窗口内已被救援次数 */
-    private static final Map<UUID, Integer> REPEAT_COUNT = new HashMap<>();
 
     private PendingRescueManager() {
     }
@@ -81,16 +78,12 @@ public final class PendingRescueManager {
         }
         PENDING.remove(playerId);
         RESPAWN_REDIRECT.remove(playerId);
-        REPEAT_WINDOW_START.remove(playerId);
-        REPEAT_COUNT.remove(playerId);
     }
 
     /** 服务器停止：全清（内存态，随进程结束即可）。 */
     public static void clearAll() {
         PENDING.clear();
         RESPAWN_REDIRECT.clear();
-        REPEAT_WINDOW_START.clear();
-        REPEAT_COUNT.clear();
     }
 
     // ==================== tick 对账 ====================
@@ -144,27 +137,5 @@ public final class PendingRescueManager {
     @Nullable
     public static PendingRescue consumeRespawnRedirect(UUID playerId) {
         return playerId == null ? null : RESPAWN_REDIRECT.remove(playerId);
-    }
-
-    // ==================== 反复死亡统计 ====================
-
-    /**
-     * 记一次成功救援，返回<b>统计窗口内这是第几次</b>（首次返回 1）。
-     * <p>用于在注入给女仆的系统消息里追加一句吐槽（"主人你怎么一直在死啊"）。
-     * 超过窗口则重新开窗计数。
-     */
-    public static int countRescue(UUID playerId, long nowTick) {
-        if (playerId == null) {
-            return 1;
-        }
-        Long start = REPEAT_WINDOW_START.get(playerId);
-        if (start == null || nowTick - start > REPEAT_WINDOW_TICKS) {
-            REPEAT_WINDOW_START.put(playerId, nowTick);
-            REPEAT_COUNT.put(playerId, 1);
-            return 1;
-        }
-        int next = REPEAT_COUNT.getOrDefault(playerId, 0) + 1;
-        REPEAT_COUNT.put(playerId, next);
-        return next;
     }
 }

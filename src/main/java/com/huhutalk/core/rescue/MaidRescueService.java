@@ -49,7 +49,8 @@ import java.util.UUID;
  *   <li>补挂<b>非瞬间</b>效果（瞬间治疗已在第 3 步直接结算，再挂一次会双倍）。</li>
  *   <li>死亡坐标播破碎音效 + 药水粒子（不生成 ThrownPotion，同上避免双倍）。</li>
  *   <li>聊天页留痕：参与救援的每位女仆各一条「已使用」气泡。</li>
- *   <li><b>最后</b>才注入 system 消息触发 LLM 叙事（见 {@link RescueNarrative}）——
+ *   <li><b>最后</b>才处理叙事与记账：走 {@link RescueStreakManager} 的「连续复活事件」闸门 ——
+ *       前 3 次各注入一次 LLM 叙事，第 4 次起只记账不调 AI。
  *       这样即使主人在 5 秒内自己点了重生，也不会出现"刚发消息说救了，人却自己活了"的错位，
  *       同时避免为一次作废的救援白烧 token。</li>
  * </ol>
@@ -181,11 +182,29 @@ public final class MaidRescueService {
                 healer.getName().getString(),
                 firefighter == null ? "-" : firefighter.getName().getString());
 
-        // 8) 【最后一步】复活已落定，此时才注入 system 消息触发 LLM 叙事。
+        // 8) 【最后一步】复活已落定，此时才处理叙事与记账。
         //    放在最后是刻意的：若主人在 5 秒窗口内自己点了重生，救援根本走不到这里，
         //    也就不会出现"女仆刚被通知救了人，人却自己活了"的错位，也不会白烧 token。
-        int repeatCount = PendingRescueManager.countRescue(revived.getUUID(), server.getTickCount());
-        RescueNarrative.inject(revived, rescue, plan, healPotion, firePotion, restored, repeatCount);
+        //
+        //    「连续复活事件」（RescueStreakManager）：第 1/2/3 次各唤一次 LLM；
+        //    第 4 次起【完全静默】——不调 LLM、不写记忆，只记账；3 分钟静默后再发一条总结。
+        int seq = RescueStreakManager.onRescue(revived, server.getTickCount(), plan.isCooperative());
+        if (seq <= RescueStreakManager.NARRATE_LIMIT) {
+            RescueNarrative.inject(revived, rescue, plan, healPotion, firePotion, restored, seq);
+            return;
+        }
+        // 记账区间：登记这次消耗掉了什么、是谁出的（不产生任何消息）
+        RescueStreakManager.recordDelivery(revived, healer, healPotion);
+        boolean coopPotion = firefighter != null && !firePotion.isEmpty() && firefighter != healer;
+        if (coopPotion) {
+            RescueStreakManager.recordDelivery(revived, firefighter, firePotion);
+        }
+        // 1.3：记账区间内治疗药水见底 → 破例让她提醒主人一次（整个事件内只说一次）
+        RescueStreakManager.LowPotionNotice notice =
+                RescueStreakManager.lowPotionNotice(server, revived, healer);
+        if (notice != null) {
+            RescueNarrative.injectLowPotionWarning(revived, notice);
+        }
     }
 
     // ==================== 内部 ====================

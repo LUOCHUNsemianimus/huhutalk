@@ -44,6 +44,9 @@ public class PlayerRescueHook {
             return;
         }
         MaidRescueService.trySchedule(server, player, event.getSource());
+        // 「连续复活事件」计时：<b>任何</b>死亡（含最终没救成的）都刷新 3 分钟静默计时，
+        // 事件不在跑时这里是空操作（事件由"第一次成功救援"开启，不是由死亡开启）。
+        RescueStreakManager.onDeath(player, server.getTickCount());
     }
 
     /**
@@ -78,10 +81,11 @@ public class PlayerRescueHook {
         event.setCopyOriginalSpawnPosition(true);
     }
 
-    /** 玩家登出：清掉他的待救援、统计与偏好缓存，避免长开服内存累积。 */
+    /** 玩家登出：清掉他的待救援、连续复活事件与偏好缓存，避免长开服内存累积。 */
     @SubscribeEvent
     public void onPlayerLoggedOut(PlayerEvent.PlayerLoggedOutEvent event) {
         PendingRescueManager.onPlayerGone(event.getEntity().getUUID());
+        RescueStreakManager.onPlayerGone(event.getEntity().getUUID());
         RescueSettings.clear(event.getEntity().getUUID());
     }
 
@@ -89,12 +93,14 @@ public class PlayerRescueHook {
     @SubscribeEvent
     public void onServerStopping(ServerStoppingEvent event) {
         PendingRescueManager.clearAll();
+        RescueStreakManager.clearAll();
         RescueSettings.clearAll();
     }
 
-    /** 每 tick 对账待救援窗口。 */
+    /** 每 tick 对账待救援窗口，以及"连续 3 分钟没再死"的连续复活事件结算。 */
     @SubscribeEvent
     public void onServerTick(ServerTickEvent.Post event) {
         PendingRescueManager.tick(event.getServer());
+        RescueStreakManager.tick(event.getServer());
     }
 }

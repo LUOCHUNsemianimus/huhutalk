@@ -10,7 +10,9 @@ import net.minecraft.world.phys.Vec3;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 救援成功后的「事后叙事」（服务端，须在主线程调用）。
@@ -35,6 +37,15 @@ import java.util.List;
  *       被注入 —— 如果这里带上"主动发一条消息"之类指令，她以后会莫名其妙又汇报一次。</li>
  *   <li>{@link MaidChatHandler#handleSystemInjection}：事实 + 语气引导 + 收尾语，<b>只用于本次</b>
  *       即时触发。系统文本放在人设与历史之后（模型权重最高），免得被当背景设定读掉。</li>
+ * </ul>
+ *
+ * <h2>「连续复活事件」里的三条叙事（见 {@link RescueStreakManager}）</h2>
+ * <ul>
+ *   <li>{@link #inject}：事件内第 1/2/3 次救援的即时叙事，<b>每只参与女仆各一次</b>；</li>
+ *   <li>{@link #injectLowPotionWarning}：记账区间内药水见底的提醒（需求 1.3），整个事件只一次；</li>
+ *   <li>{@link #injectStreakSummary}：事件以"连续 3 分钟没再死"结束后，作为<b>最后一条消息</b>
+ *       发给<b>一只</b>参与女仆的统计总结（需求 1.1 / 1.2）——其他参与者只在文案里被提到，
+ *       不各自再调一次 LLM，这正是要避免的 token 浪费。</li>
  * </ul>
  */
 public final class RescueNarrative {
@@ -66,11 +77,11 @@ public final class RescueNarrative {
      * @param healPotion  实际用掉的治疗药水
      * @param firePotion  实际用掉的抗火药水；没用上则为 {@link ItemStack#EMPTY}
      * @param restored    实际恢复到玩家身上的生命点数
-     * @param repeatCount 统计窗口内这是第几次救援（首次为 1；≥2 时追加"说他两句"的提示）
+     * @param rescueSeq   本次连续复活事件内这是第几次救援（1 起；≥2 时追加"说他两句"的提示）
      */
     public static void inject(ServerPlayer revived, PendingRescue rescue, RescueMaidPicker.Plan plan,
                               ItemStack healPotion, ItemStack firePotion,
-                              int restored, int repeatCount) {
+                              int restored, int rescueSeq) {
         if (revived == null || rescue == null || plan == null) {
             return;
         }
@@ -91,13 +102,149 @@ public final class RescueNarrative {
                 // 即时触发：事实 + 语气引导 + 距离相符的收尾语
                 MaidChatHandler.handleSystemInjection(revived, stableId,
                         buildPrompt(plan, selfIsHealer, rescue.deathMessage(), healPotion, firePotion,
-                                restored, band, repeatCount),
+                                restored, band, rescueSeq),
                         closingLine(band),
                         true);
             } catch (Exception e) {
                 LOGGER.error("[HuhuTalk][救援] 注入叙事失败 maid={}", maid.getName().getString(), e);
             }
         }
+    }
+
+    // ==================== 计数区间：濒危提醒与收尾总结 ====================
+
+    /**
+     * 收尾 USER 语（濒危提醒）。
+     * <p>这两条消息本质都是"隔着手机"发的，所以不沿用 {@link #closingLine}（那是按死亡时的距离分档）。
+     */
+    private static final String LOW_POTION_CLOSING =
+            "你现在是隔着手机在跟主人说话，他刚刚才被你从鬼门关拉回来。";
+
+    /** 收尾 USER 语（收尾总结）。 */
+    private static final String STREAK_CLOSING =
+            "你现在是隔着手机在跟主人说话，他刚缓过来，这一连串事故总算停下来了。";
+
+    /**
+     * 需求 1.3：记账区间内"治疗药水快见底"的提醒，让女仆主动告诉主人别再死了。
+     * <p>整个连续复活事件内只会走到这里一次（由 {@link RescueStreakManager} 把关）。
+     */
+    public static void injectLowPotionWarning(ServerPlayer player,
+                                              RescueStreakManager.LowPotionNotice notice) {
+        if (player == null || notice == null || notice.speaker() == null) {
+            return;
+        }
+        try {
+            String stableId = MaidStableIdHelper.getOrCreateStableId(notice.speaker());
+            if (stableId == null || stableId.isBlank()) {
+                return;
+            }
+            MaidChatHandler.handleSystemInjection(player, stableId,
+                    buildLowPotionWarning(notice), LOW_POTION_CLOSING, true);
+        } catch (Exception e) {
+            LOGGER.error("[HuhuTalk][救援] 注入濒危提醒失败 maid={}",
+                    notice.speaker().getName().getString(), e);
+        }
+    }
+
+    /**
+     * 需求 1.1 / 1.2：连续复活事件结束时的统计总结，作为<b>最后一条消息</b>发给一只参与女仆。
+     * <p>全程只此一次 LLM 调用：其他参与救援的女仆只在文案里被提到（"我和 xx 一块救了你 x 次"），
+     * 不会各自再烧一次 token。
+     */
+    public static void injectStreakSummary(ServerPlayer player, RescueStreak streak, EntityMaid speaker) {
+        if (player == null || streak == null || speaker == null) {
+            return;
+        }
+        try {
+            String stableId = MaidStableIdHelper.getOrCreateStableId(speaker);
+            if (stableId == null || stableId.isBlank()) {
+                return;
+            }
+            MaidChatHandler.handleSystemInjection(player, stableId,
+                    buildStreakSummary(streak, speaker), STREAK_CLOSING, true);
+        } catch (Exception e) {
+            LOGGER.error("[HuhuTalk][救援] 注入计数区间总结失败 maid={}", speaker.getName().getString(), e);
+        }
+    }
+
+    /** 濒危提醒正文：点名"我/我和 xx"，并报<b>实际</b>剩几瓶（不写死 3）。 */
+    private static String buildLowPotionWarning(RescueStreakManager.LowPotionNotice notice) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("【紧要的事】主人这段时间一直在拿命折腾，");
+        sb.append(groupName(notice.otherNames())).append("背包里能用的治疗药水");
+        if (notice.remaining() <= 0) {
+            sb.append("已经一瓶都不剩了。\n");
+        } else {
+            sb.append("加起来只剩 ").append(notice.remaining()).append(" 瓶了。\n");
+        }
+        sb.append("说点什么吧：按你自己的性子来，把这件事提醒他——再这么死下去，下次可能就真的救不回来了。");
+        return sb.toString();
+    }
+
+    /** 收尾总结正文：只统计记账区间（第 4 次起）内的死亡 / 救援 / 消耗，并点名其他出过药水的女仆。 */
+    private static String buildStreakSummary(RescueStreak streak, EntityMaid speaker) {
+        List<String> others = otherParticipantNames(streak, speaker);
+        StringBuilder sb = new StringBuilder();
+        sb.append("【这段时间的事】主人刚刚经历了一连串意外——");
+        sb.append("从你第四次出手算起，他又死了 ").append(streak.deathCount()).append(" 次");
+        if (streak.rescueCount() > 0) {
+            sb.append("，");
+            if (others.isEmpty()) {
+                sb.append("你一共把他救回来 ").append(streak.rescueCount()).append(" 次");
+            } else {
+                sb.append("你和").append(String.join("、", others)).append("一共把他救回来 ")
+                        .append(streak.rescueCount()).append(" 次");
+                if (streak.coopRescueCount() > 0) {
+                    sb.append("（其中 ").append(streak.coopRescueCount()).append(" 次是你们一起动的手）");
+                }
+            }
+        }
+        sb.append("。\n");
+        sb.append("· 为了救他，你们一共用掉了：").append(describeConsumption(streak)).append("。\n");
+        sb.append("说点什么吧：按你自己的性子来——主人这段时间死得实在太勤了，"
+                + "你大可以好好吐槽他一下，问问他到底在干什么。");
+        return sb.toString();
+    }
+
+    /** 「我」「我和 xx」「我和 xx 他们」——按实际一起出过药水的女仆数取名，不虚构同伴。 */
+    private static String groupName(List<String> otherNames) {
+        if (otherNames == null || otherNames.isEmpty()) {
+            return "你";
+        }
+        if (otherNames.size() == 1) {
+            return "你和" + otherNames.getFirst();
+        }
+        return "你和" + otherNames.getFirst() + "他们";
+    }
+
+    /** 本段记账区间里除开口者之外，还投递过药水的女仆名（顺序稳定，去重）。 */
+    private static List<String> otherParticipantNames(RescueStreak streak, EntityMaid speaker) {
+        String selfId = MaidStableIdHelper.getOrCreateStableId(speaker);
+        List<String> names = new ArrayList<>();
+        for (Map.Entry<String, String> entry : streak.participants().entrySet()) {
+            if (entry.getKey().equals(selfId)) {
+                continue;
+            }
+            String name = entry.getValue();
+            if (name != null && !name.isBlank() && !names.contains(name)) {
+                names.add(name);
+            }
+        }
+        return names;
+    }
+
+    /** 消耗明细："治疗药水 ×3、抗火药水 ×1"。 */
+    private static String describeConsumption(RescueStreak streak) {
+        StringBuilder sb = new StringBuilder();
+        boolean first = true;
+        for (Map.Entry<String, Integer> entry : streak.consumption().entrySet()) {
+            if (!first) {
+                sb.append('、');
+            }
+            first = false;
+            sb.append(entry.getKey()).append(" ×").append(entry.getValue());
+        }
+        return first ? "（什么都没用上）" : sb.toString();
     }
 
     // ==================== 距离分档 ====================
@@ -176,7 +323,7 @@ public final class RescueNarrative {
     /** 即时触发用的系统文本：事实 + 距离 + 分工 + 语气引导。刻意不提"担忧/悲伤"，也不提"主人会复活"。 */
     private static String buildPrompt(RescueMaidPicker.Plan plan, boolean selfIsHealer,
                                       String deathMessage, ItemStack healPotion, ItemStack firePotion,
-                                      int restored, DistanceBand band, int repeatCount) {
+                                      int restored, DistanceBand band, int rescueSeq) {
         String healName = RescuePotion.displayName(healPotion);
         String fireName = firePotion.isEmpty() ? "" : RescuePotion.displayName(firePotion);
         boolean hasFire = !firePotion.isEmpty();
@@ -221,11 +368,13 @@ public final class RescueNarrative {
             }
             sb.append('。');
         }
-        // 语气引导：明确"不用端着"，并避开"担忧/悲伤"这类过重的词
-        sb.append("\n说点什么吧：按你自己的性子来——调侃他、损他两句、念叨他、或者表示一下关心都行，不用端着。");
-        if (repeatCount >= 2) {
-            sb.append("\n（顺带一提：这是他最近第 ").append(repeatCount)
-                    .append(" 次被你救回来了——你完全可以借机说他两句。）");
+        // 语气引导：只给"按自己性子来"和几种可能的方向，避开"担忧/悲伤"这类过重的词。
+        // 刻意不写"不用端着/不用瞒着"之类"要坦率"的要求 —— 那会破坏玩家给女仆设的
+        // 「口是心非」「傲娇」人设，等于拿系统提示去覆盖人设卡。
+        sb.append("\n说点什么吧：按你自己的性子来——调侃他、损他两句、念叨他、或者表示一下关心都行。");
+        if (rescueSeq >= 2) {
+            sb.append("\n（顺带一提：这是他最近第 ").append(rescueSeq)
+                    .append(" 次被你救回来了——你可以借机吐槽一下他为什么总是在死。）");
         }
         return sb.toString();
     }
