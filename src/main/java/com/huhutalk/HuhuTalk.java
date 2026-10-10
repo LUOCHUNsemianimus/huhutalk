@@ -11,6 +11,7 @@ import com.huhutalk.core.chat.PhoneChatSourceController;
 import com.huhutalk.core.chat.SignalDelayManager;
 import com.huhutalk.core.load.TicketManager;
 import com.huhutalk.core.move.MaidMoveData;
+import com.huhutalk.core.rescue.PlayerRescueHook;
 import com.huhutalk.init.HuhuTalkBlocks;
 import com.huhutalk.init.HuhuTalkCreativeTabs;
 import com.huhutalk.init.HuhuTalkItems;
@@ -58,6 +59,8 @@ public class HuhuTalk {
         NeoForge.EVENT_BUS.register(new MaidScanTicker());
         NeoForge.EVENT_BUS.register(new MaidDeathHandler());
         NeoForge.EVENT_BUS.register(new MaidStatusTicker());
+        // 玩家死亡远程救援：死亡登记 + 5s 对账 + 重生位置重定向（服务端权威，多人可用）
+        NeoForge.EVENT_BUS.register(new PlayerRescueHook());
         NeoForge.EVENT_BUS.register(new TicketManager());
         NeoForge.EVENT_BUS.addListener(RegisterCommandsEvent.class, ModCommands::register);
         NeoForge.EVENT_BUS.addListener(ServerStoppingEvent.class, e -> MaidMoveData.restoreOnServerStop());

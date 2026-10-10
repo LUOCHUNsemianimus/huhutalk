@@ -27,6 +27,8 @@ import net.neoforged.neoforge.network.PacketDistributor;
 import javax.annotation.Nullable;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.function.Predicate;
+import java.util.function.ToIntFunction;
 
 /**
  * 「传文件」服务端核心逻辑（两个方向均须在服务端线程调用）。
@@ -516,6 +518,89 @@ public final class MaidTransferService {
             MaidChatHandler.handleSystemInjection(player, stableId, sys);
         }
         return null;
+    }
+
+    // ==================== 通用："按最优一份"取物（救援补给用） ====================
+
+    /**
+     * 救援补给专用来源列表：可用背包 → 隙间(wireless_io)绑箱 → 主副手。
+     * <p>
+     * 与 {@link #allSourceHandlers}（send_item 用）<b>刻意分开</b>，这样本方法的存在
+     * 不会改变 send_item 的既有行为（现有 send_item 只搜背包与隙间）。
+     * <p>
+     * 主副手排在最后：从女仆手里把东西拿走是对她干扰最大的一种取物方式，
+     * 只有在背包和隙间都找不到时才动。
+     */
+    private static List<IItemHandler> allRescueHandlers(EntityMaid maid) {
+        List<IItemHandler> list = new ArrayList<>(allSourceHandlers(maid));
+        IItemHandler hands = toHandlerOrNull(maid.getHandsInvWrapper());
+        if (hands != null) {
+            list.add(hands);
+        }
+        return list;
+    }
+
+    /**
+     * 在女仆所有可交付来源里找出"打分最高"的匹配栈（<b>只读，不移除</b>）。
+     * <p>用于"她到底有没有这瓶药水"这类预判。找不到返回 {@link ItemStack#EMPTY}。
+     *
+     * @param match 匹配条件（例如"是治疗药水"）
+     * @param score 打分函数（例如"能回多少血"）；分数最高者胜出，相同分数取先遇到的
+     */
+    public static ItemStack findBestMatching(EntityMaid maid, Predicate<ItemStack> match,
+                                             @Nullable ToIntFunction<ItemStack> score) {
+        if (maid == null || match == null) {
+            return ItemStack.EMPTY;
+        }
+        ItemStack best = ItemStack.EMPTY;
+        int bestScore = Integer.MIN_VALUE;
+        for (IItemHandler handler : allRescueHandlers(maid)) {
+            for (int slot = 0; slot < handler.getSlots(); slot++) {
+                ItemStack in = handler.getStackInSlot(slot);
+                if (in.isEmpty() || !match.test(in)) {
+                    continue;
+                }
+                int value = score == null ? 0 : score.applyAsInt(in);
+                if (value > bestScore) {
+                    bestScore = value;
+                    best = in;
+                }
+            }
+        }
+        return best;
+    }
+
+    /**
+     * 同 {@link #findBestMatching}，但会把选中的那一份<b>从来源真正取走</b>并返回（每次只取 1 个）。
+     * <p>救援只需要一瓶，所以这里固定取 1，不做"取完一整栈"。
+     */
+    public static ItemStack takeBestMatching(EntityMaid maid, Predicate<ItemStack> match,
+                                             @Nullable ToIntFunction<ItemStack> score) {
+        if (maid == null || match == null) {
+            return ItemStack.EMPTY;
+        }
+        IItemHandler bestHandler = null;
+        int bestSlot = -1;
+        int bestScore = Integer.MIN_VALUE;
+        for (IItemHandler handler : allRescueHandlers(maid)) {
+            for (int slot = 0; slot < handler.getSlots(); slot++) {
+                ItemStack in = handler.getStackInSlot(slot);
+                if (in.isEmpty() || !match.test(in)) {
+                    continue;
+                }
+                int value = score == null ? 0 : score.applyAsInt(in);
+                if (value > bestScore) {
+                    bestScore = value;
+                    bestHandler = handler;
+                    bestSlot = slot;
+                }
+            }
+        }
+        if (bestHandler == null || bestSlot < 0) {
+            return ItemStack.EMPTY;
+        }
+        ItemStack taken = bestHandler.extractItem(bestSlot, 1, false);
+        return taken == null ? ItemStack.EMPTY : taken;
     }
 
     // ==================== 小工具 ====================
