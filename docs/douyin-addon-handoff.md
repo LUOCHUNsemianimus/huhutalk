@@ -15,13 +15,19 @@
 ## 0. 一句话状态
 
 **HuhuTalk 手机桌面上多了一个「抖音」App：点开就是真实的抖音网页版，
-用独立光标点、拖动刷视频、扫码登录。本体多出来的东西都是增量：
+用独立光标点、拖动刷视频、扫码登录，**底边一条带子里左右拖可以平移页面**。
+本体多出来的东西都是增量：
 两个纯新增的公开方法（`PhoneOverlay.requestRedraw()`、`ManualPage.registerSection(...)`）、
-一个 `Screen` 守卫（修 bug）、以及手册一级列表的滚动（修老 bug）。**
+一个 `Screen` 守卫（修 bug）、手册一级列表的滚动（修老 bug）、
+以及第 9 轮的 `IPhonePage.dragAxisBoth()` / `onDragAxisResolved(...)`（纯新增 default 方法 + 一个短路分支）。**
+
+> ★ **第 9 轮（横向拖动）已竣工**：结项报告在
+> `D:\Moddevelop\huhutalk-douyin\PLAN-horizontal-drag.md`（含四轮实测数据、两次失败的取证、
+> 原方案作废的段落、以及两个踩出来的坑）。§1.5 是本体那一处改动的形状。
 
 ---
 
-## 1. 对 HuhuTalk 本体的改动（**共四处**：两处纯新增公开方法、一处修 bug、一处修老 bug）
+## 1. 对 HuhuTalk 本体的改动（**共五处**：三处纯新增、两处修 bug）
 
 ### 1.1 `PhoneOverlay.requestRedraw()` —— 让模型屏能逐帧刷新（第 1 轮）
 
@@ -166,6 +172,41 @@ DYD_MANUAL 手册追加栏目：count=1 titles=[抖音] 抖音条目数=7
 **没做**：滚动条指示器（与二级列表现状一致，要加就两处一起加）。
 
 **人眼验收**：手册首页能滚；列表最后有「抖音」；点进去 7 条；退回首页仍停在原来那一屏。
+
+### 1.5 `IPhonePage.dragAxisBoth()` / `onDragAxisResolved(...)` —— 让页面按本次手势分派主轴（第 9 轮）
+
+新增 **2 个 default 方法**（纯新增，既有页面行为一字不变）+ `PhoneOverlay.moveCursor`
+latch 那一段约 12 行：
+
+```java
+// IPhonePage
+/** true = 本页同时接受横向与纵向拖动；主模组改为"按本次手势的真实主轴分派"。 */
+default boolean dragAxisBoth() { return false; }
+
+/** 本次拖动被判为哪个轴（仅 dragAxisBoth() 为 true 时回调，早于同一帧的 mouseScrolled）。 */
+default void onDragAxisResolved(boolean horizontal, double relX, double relY) { }
+```
+
+**为什么非改不可**：旧契约是"整页一个静态主轴"（`dragAxisHorizontal()`），
+而那个主轴**同时兼任**"这次拖动算不算滚动"的判据
+（`primary = horizontal ? dragTotalX : dragTotalY`，必须 `|primary| > |cross|` 才 latch）。
+对一个"横竖都要收"的页面（网页看视频 + 平移页面）它返回什么都坏事：
+返回 true ⇒ 一次以纵向为主的拖动永远 latch 不上，**竖向刷视频当场报废**；返回 false ⇒ 收不到横向增量。
+
+**形状**：`dragAxisBoth()==true` 时，latch 那一刻按 `|dragTotalX| >= |dragTotalY|` 定轴，
+回调 `onDragAxisResolved`，之后 `mouseScrolled` 收到的就是那个轴的增量；
+`both==false` 的路径与旧行为**逐字节等价**（代码上就是一个短路 `if`）。
+
+**与当初批准草案的唯一差异**：回调多带 `relX/relY`（latch 时刻的内容区坐标）。
+理由：附属模组要按**位置**划分一块"滚动条操作带"，而拖动期间主模组不转发 `mouseMoved`，
+只给一个布尔值页面无从知道"这次拖动从哪开始"。
+
+**⚠ 下游必须自己记住轴**：附属模组原来的 `horizontalDrag` 字段是 `dragAxisHorizontal()`
+顺手写入的，改走新钩子之后那个方法不再被调用 —— 漏了赋值就会出现
+"拖底边却上下滚页面"（日志特征：`接管本次拖动` 有、`DYD_PAN_JS` 一条没有）。实测踩过。
+
+**没有动的东西**：`dragAxisHorizontal()` 保持原样（既有页面继续用它）；没有任何
+`both==false` 的代码路径被改动。
 
 ---
 
@@ -596,6 +637,19 @@ zoom 的本质是"CSS 视口变窄"，**不是"让内容变宽"**。所以除非
 **反过来绝不切** —— 因为切轴会同时换掉"刷视频"的判定轴，在没有可拖内容时切轴只会毁掉刷视频，
 比不实现更糟。
 
+> ### ⛔ 上面这段的结论在第 9 轮被推翻了 —— 保留它作为现场记录
+>
+> 1. **`over = 0` 是假阴性**：那个探针把一个元素的 `scrollWidth` 减了另一个元素的 `clientWidth`
+>    （`max(html.sw,body.sw) - max(html.cw,body.cw)`），把真实存在的 107px 溢出抹平了。
+> 2. **真正"切轴会毁掉刷视频"的原因不是 `over`，而是契约本身**：latch 的判据用的就是那个主轴。
+>    所以修法不是"判据更准"，而是**换成按本次手势分派** —— 见 §1.5 与 `PLAN-horizontal-drag.md`。
+> 3. **第 9 轮实测**：档位 4/5/6 上"把横向增量当滚轮喂给 CEF"和"合成原生 press→move→release"
+>    **两条路全部 `moved=false`**；唯一有效的是**直接写 `documentElement.scrollLeft`**
+>    （三个档位全部 `moved=true`）。最终实现就是走这条 + 内容区底边的一条"滚动条操作带"。
+>
+> **`dragAxisHorizontal` 及其判据现在对抖音页不再被调用**（`dragAxisBoth()` 返回 true 之后，
+> 主模组走新分支）。重写与注释都保留了，方便回退与查阅。
+
 **`over` 这个布尔值是怎么从页面回到 Java 的**（CEF 没有回调式返回值）：
 
 新增 `BrowserHost.addConsoleListener(ConsoleListener)`，由 `McefBrowserHost` 通过
@@ -913,7 +967,9 @@ public static boolean hasModelScreen() {
 
 | 项 | 说明 |
 |---|---|
-| **拖动期间不转发 `mouseMove`** | HuhuTalk 在按下期间把移动整体解释成滚动（`dragIsScroll`），页面收不到 `mouseMoved`。对刷视频正好；代价是网页内**滑块类拖拽**不可用 |
+| **拖动期间不转发 `mouseMove`** | HuhuTalk 在按下期间把移动整体解释成滚动（`dragIsScroll`），页面收不到 `mouseMoved`。对刷视频正好；代价是网页内**滑块类拖拽**不可用（例如**拖动视频进度条**）。**第 9 轮没有改这一点**：横向平移走的是"按 1:1 写 `documentElement.scrollLeft`"，不需要指针事件 |
+| **横向平移只在底边带里生效** | 内容区底部默认 5 个 GUI 单位（`-Dhuhutalk_douyin.bandHeight`）。带外横拖**什么都不做** —— 这是刻意的：页面内的横向手势（图文轮播、进度条）保持原样。方向 = 滚动条语义（`-Dhuhutalk_douyin.panSign=±1`），幅度 `-Dhuhutalk_douyin.panScale` |
+| **横向平移的可行边界（第 9 轮实测）** | 视口的横向溢出被 `body{overflow-x:hidden}` 传播封死 ⇒ **不画滚动条、也不接受用户滚动**，只能由 JS 写 `scrollLeft`；真正能滚的量只有 `maxX`（档位 4/5/6 上依次 107/194/267 CSS px），**一屏就到底**。喂滚轮与合成原生拖拽**两条路都实测无效**，别再试 |
 | **音频不受 MC 音量控制** | CEF 直出系统音频。收起手机时会注入一次 `pause`；可用 `-Dhuhutalk_douyin.pauseWhenHidden=false` 关掉（"手机放兜里还继续听"也是一种合理用法） |
 | **强杀 JVM 残留 `cef_server`** | 独立进程，任务管理器强杀 MC 会留下约 425 MB。正常退出干净 |
 | 分辨率 | 渲染宽度默认 **1080**（≈2.7× 显示像素），`-Dhuhutalk_douyin.renderWidth=<px>` 可调。对着实测反馈"像素有点低"调的（原 720 ≈1.8×）。**它只决定清晰度，不决定字号**（见 §5.4） |
@@ -999,6 +1055,10 @@ copy /y build\libs\huhutalk-1.0.0.jar D:\Moddevelop\huhutalk-douyin\libs\
 5. 桌面图标换成真贴图。
 6. 量化帧率影响（模型屏每帧重绘 + CEF 出帧的代价）。
 7. 可选：把"浏览器式 Ctrl + +/- 调字号"作为独立入口加回来（要接受它会冻结虚拟光标）。
+8. ~~**横向拖动**~~：✅ **第 9 轮竣工并人工验收通过**，见 §1.5 与
+   `D:\Moddevelop\huhutalk-douyin\PLAN-horizontal-drag.md`（结项报告：四轮实测、两次失败的取证、两个踩出来的坑）。
+   **这条线到此为止** —— 除非玩家提观感问题，改 `bandHeight` / `panSign` / `panScale` 三个系统属性即可。
+   **已知没做**：拖动视频进度条（见 §8"拖动期间不转发 `mouseMove`"）；页面内滑块的拖拽同理。
 
 ---
 

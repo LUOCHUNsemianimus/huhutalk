@@ -42,6 +42,39 @@ public interface IPhonePage {
     default boolean dragAxisHorizontal(double relX, double relY) { return false; }
 
     /**
+     * 本页是否<b>同时</b>接受横向与纵向拖动（默认 false = 维持 {@link #dragAxisHorizontal} 的旧语义）。
+     *
+     * <h2>为什么需要它</h2>
+     * 旧契约是"<b>整页一个静态主轴</b>"，而那个主轴还兼任"这次拖动算不算滚动"的判据
+     * （{@code PhoneOverlay.moveCursor}：{@code primary = horizontal ? dragTotalX : dragTotalY}，
+     * 必须 {@code |primary| > |cross|} 才 latch）。所以对一个"横竖都要收"的页面来说，
+     * 无论 {@link #dragAxisHorizontal} 返回什么都会坏事：返回 true 则一次以纵向为主的拖动
+     * 永远 latch 不上（竖向手势当场报废），返回 false 则永远收不到横向增量。
+     *
+     * <p>返回 true 时主模组改成"<b>按本次手势的真实主轴分派</b>"：latch 那一刻按
+     * {@code |dragTotalX| >= |dragTotalY|} 定轴，并回调
+     * {@link #onDragAxisResolved(boolean, double, double)}；之后 {@code mouseScrolled}
+     * 收到的就是那个轴的增量。此时 {@link #dragAxisHorizontal} 不再被调用。
+     *
+     * <p>⚠ {@code both == false} 的路径与旧行为<b>逐字节等价</b>，所以既有页面一个字都不用改。
+     */
+    default boolean dragAxisBoth() { return false; }
+
+    /**
+     * 本次拖动被判为哪个轴（只有 {@link #dragAxisBoth()} 为 true 时才会回调）。
+     *
+     * <p>时机：latch 成立的那一帧，<b>早于</b>同一帧随后派发的 {@code mouseScrolled}。
+     * 一次拖动只回调一次。
+     *
+     * @param horizontal true = 本次手势以横向为主（{@code mouseScrolled} 收到的将是 X 增量）
+     * @param relX       latch 时刻的手机<b>内容区</b>坐标（与 {@link #mouseClicked} 同一坐标系）。
+     *                   它用来回答"这次拖动是从哪一块区域开始的" —— 网页类页面要按区域决定
+     *                   要不要接管（例如只接管内容区底边那条"滚动条操作带"）。
+     * @param relY       同上
+     */
+    default void onDragAxisResolved(boolean horizontal, double relX, double relY) { }
+
+    /**
      * 右键返回。页面可在此处理"多级返回"（如手册子栏目逐级回退）。
      * 返回 true 表示已消费该右键（上层不再执行 popPage/关闭手机）；false 则交给上层默认逻辑。
      */

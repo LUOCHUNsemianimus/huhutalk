@@ -438,10 +438,22 @@ public class PhoneOverlay {
             dragTotalY += dy;
             // 主轴由页面决定：图库是横向画廊，其余（消息列表、表情网格）都是纵向列表。
             // 坐标与 mouseClicked/mouseScrolled 一致：内容区相对坐标（扣掉顶部状态栏）。
+            //
+            // ★ 两条语义在这里分岔（见 IPhonePage#dragAxisBoth）：
+            //   · 默认（dragAxisBoth()==false）：维持"整页一个静态主轴"，由 dragAxisHorizontal 说了算。
+            //   · dragAxisBoth()==true：静态主轴没有意义 —— 它同时兼任"这次拖动算不算滚动"的判据，
+            //     一旦它返回 true，一次以纵向为主的拖动就永远 latch 不上、竖向刷视频当场报废。
+            //     这种页面改成"按本次手势的真实主轴分派"，并在 latch 那一刻回调它。
             boolean horizontal = false;
+            boolean both = false;
             IPhonePage curPage = getCurrentPage();
+            double pageRelX = cursorLocalX();
+            double pageRelY = cursorLocalY() - UiFont.sh(STATUSBAR_H);
             if (curPage != null) {
-                horizontal = curPage.dragAxisHorizontal(cursorLocalX(), cursorLocalY() - UiFont.sh(STATUSBAR_H));
+                both = curPage.dragAxisBoth();
+                horizontal = both
+                        ? Math.abs(dragTotalX) >= Math.abs(dragTotalY)
+                        : curPage.dragAxisHorizontal(pageRelX, pageRelY);
             }
             // 方向判定：主轴位移占优才升级为滚动（横向面板比较 X，纵向面板比较 Y）
             if (!dragIsScroll) {
@@ -450,6 +462,10 @@ public class PhoneOverlay {
                 if (Math.abs(primary) > DRAG_SCROLL_THRESHOLD && Math.abs(primary) > Math.abs(cross)) {
                     dragIsScroll = true;
                     dragHorizontal = horizontal;
+                    if (both) {
+                        // 时机：latch 成立的那一帧，**早于**同一帧随后派发的 mouseScrolled
+                        curPage.onDragAxisResolved(horizontal, pageRelX, pageRelY);
+                    }
                 }
             }
             if (dragIsScroll) {
