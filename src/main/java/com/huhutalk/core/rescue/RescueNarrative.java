@@ -76,12 +76,10 @@ public final class RescueNarrative {
      * @param plan        本次救援的分工（含参与的女仆）
      * @param healPotion  实际用掉的治疗药水
      * @param firePotion  实际用掉的抗火药水；没用上则为 {@link ItemStack#EMPTY}
-     * @param restored    实际恢复到玩家身上的生命点数
      * @param rescueSeq   本次连续复活事件内这是第几次救援（1 起；≥2 时追加"说他两句"的提示）
      */
     public static void inject(ServerPlayer revived, PendingRescue rescue, RescueMaidPicker.Plan plan,
-                              ItemStack healPotion, ItemStack firePotion,
-                              int restored, int rescueSeq) {
+                              ItemStack healPotion, ItemStack firePotion, int rescueSeq) {
         if (revived == null || rescue == null || plan == null) {
             return;
         }
@@ -102,7 +100,7 @@ public final class RescueNarrative {
                 // 即时触发：事实 + 语气引导 + 距离相符的收尾语
                 MaidChatHandler.handleSystemInjection(revived, stableId,
                         buildPrompt(plan, selfIsHealer, rescue.deathMessage(), healPotion, firePotion,
-                                restored, band, rescueSeq),
+                                band, rescueSeq),
                         closingLine(band),
                         true);
             } catch (Exception e) {
@@ -118,11 +116,11 @@ public final class RescueNarrative {
      * <p>这两条消息本质都是"隔着手机"发的，所以不沿用 {@link #closingLine}（那是按死亡时的距离分档）。
      */
     private static final String LOW_POTION_CLOSING =
-            "你现在是隔着手机在跟主人说话，他刚刚才被你从鬼门关拉回来。";
+            "你隔着手机跟主人说着话。";
 
     /** 收尾 USER 语（收尾总结）。 */
     private static final String STREAK_CLOSING =
-            "你现在是隔着手机在跟主人说话，他刚缓过来，这一连串事故总算停下来了。";
+            "你隔着手机跟主人说着话，不知道主人成功没有，你可以稍微问一句。";
 
     /**
      * 需求 1.3：记账区间内"治疗药水快见底"的提醒，让女仆主动告诉主人别再死了。
@@ -170,14 +168,16 @@ public final class RescueNarrative {
     /** 濒危提醒正文：点名"我/我和 xx"，并报<b>实际</b>剩几瓶（不写死 3）。 */
     private static String buildLowPotionWarning(RescueStreakManager.LowPotionNotice notice) {
         StringBuilder sb = new StringBuilder();
-        sb.append("【紧要的事】主人这段时间一直在拿命折腾，");
-        sb.append(groupName(notice.otherNames())).append("背包里能用的治疗药水");
+        sb.append("【提醒】主人似乎正在激烈的战斗/处于危险地形，");
+        sb.append(groupName(notice.otherNames())).append("手上能用的治疗药水");
         if (notice.remaining() <= 0) {
-            sb.append("已经一瓶都不剩了。\n");
+            sb.append("已经一瓶都不剩了，下次只能靠你自己了。\n");
         } else {
-            sb.append("加起来只剩 ").append(notice.remaining()).append(" 瓶了。\n");
+            sb.append("只剩 ").append(notice.remaining())
+                    .append(" 瓶了，得告诉主人省着点用——再这么下去，下次就没法给他补血了。\n");
         }
-        sb.append("说点什么吧：按你自己的性子来，把这件事提醒他——再这么死下去，下次可能就真的救不回来了。");
+        sb.append("说点什么吧：按你自己的性子来，轻松地敲打他两句就行"
+                + "——再不打赢/从危险地点走出来，下次他得自己复活回出生点了。");
         return sb.toString();
     }
 
@@ -185,24 +185,19 @@ public final class RescueNarrative {
     private static String buildStreakSummary(RescueStreak streak, EntityMaid speaker) {
         List<String> others = otherParticipantNames(streak, speaker);
         StringBuilder sb = new StringBuilder();
-        sb.append("【这段时间的事】主人刚刚经历了一连串意外——");
-        sb.append("从你第四次出手算起，他又死了 ").append(streak.deathCount()).append(" 次");
-        if (streak.rescueCount() > 0) {
-            sb.append("，");
-            if (others.isEmpty()) {
-                sb.append("你一共把他救回来 ").append(streak.rescueCount()).append(" 次");
-            } else {
-                sb.append("你和").append(String.join("、", others)).append("一共把他救回来 ")
-                        .append(streak.rescueCount()).append(" 次");
-                if (streak.coopRescueCount() > 0) {
-                    sb.append("（其中 ").append(streak.coopRescueCount()).append(" 次是你们一起动的手）");
-                }
-            }
+        sb.append("【这段时间的事】主人刚连着翻车了 ").append(streak.deathCount()).append(" 次，");
+        if (others.isEmpty()) {
+            sb.append("你一共把他捞回来 ").append(streak.rescueCount()).append(" 次");
+        } else {
+            sb.append("你和").append(String.join("、", others)).append("一共把他捞回来 ")
+                    .append(streak.rescueCount()).append(" 次");
         }
-        sb.append("。\n");
-        sb.append("· 为了救他，你们一共用掉了：").append(describeConsumption(streak)).append("。\n");
-        sb.append("说点什么吧：按你自己的性子来——主人这段时间死得实在太勤了，"
-                + "你大可以好好吐槽他一下，问问他到底在干什么。");
+        if (streak.coopRescueCount() > 0) {
+            sb.append("（其中 ").append(streak.coopRescueCount()).append(" 次是一起动手的）");
+        }
+        sb.append("，用掉了：").append(describeConsumption(streak)).append("。\n");
+        sb.append("说点什么吧：按你自己的性子来，轻松点——可以好好笑他一下，"
+                + "问问他到底在忙什么。话不用多，一两句就够。");
         return sb.toString();
     }
 
@@ -264,31 +259,46 @@ public final class RescueNarrative {
         return DistanceBand.VIA_PHONE;
     }
 
-    private static String distanceLine(DistanceBand band) {
-        return switch (band) {
-            case IN_SIGHT -> "· 位置：主人倒下的时候，你就在他眼前";
-            case NEARBY -> "· 位置：主人倒下时你在附近，远远地看到了他出事";
-            case VIA_PHONE -> "· 位置：你当时离得很远，是隔着手机才发现主人出事的";
-        };
-    }
-
     /**
      * 收尾的 USER 消息：只交代"当下这一幕"，把指令留在系统文本里。
      * <p>旧版写死的"主人就站在你面前"只在 ≤10 格时成立，远距离救援时会把她带偏。
+     * <p>文案已按需求方定稿改成"游戏化 / 轻量化"口径（去掉 眼前 / 看着你 / 鬼门关 这类重词）。
      */
     private static String closingLine(DistanceBand band) {
         return switch (band) {
-            case IN_SIGHT -> "主人现在就站在你眼前，正看着你。";
-            case NEARBY -> "主人就在附近不远处，刚刚从鬼门关回来。";
-            case VIA_PHONE -> "你是隔着手机远程做完这一切的，主人并不在你身边。";
+            case IN_SIGHT -> "主人精神饱满的站了起来。";
+            case NEARBY -> "你就在不远处。";
+            case VIA_PHONE -> "你是隔着手机跟他说这些话的。";
         };
     }
 
     // ==================== 文案 ====================
 
-    /** 用药动作：饮用型是"喂"，喷溅/滞留型是"砸"（与实际的用药方式一致）。 */
-    private static String actionOf(ItemStack potion) {
-        return RescuePotion.usageOf(potion) == RescuePotion.Usage.DRINK ? "喂给他喝下" : "砸在他身上";
+    /** 语气引导：只给"按自己性子来"和几种可能的方向，避开"担忧/悲伤"这类过重的词。 */
+    private static final String TONE_GUIDE =
+            "说点什么吧：按你自己的性子来，轻松点——打游戏磕磕碰碰很正常，不用搞得像生离死别。"
+                    + "给他打打气，说一句你还会帮他，顺带关心他一句也行。";
+
+    /** 长度约束：主人多半正在交战/跑图，消息刷屏是干扰。 */
+    private static final String BREVITY_LINE =
+            "话要短：一两句就够（主人多半正忙着打架，消息刷屏反而碍事）。";
+
+    /**
+     * 各距离档的"你的操作"整句（已含用药方式差异）。
+     * <p>需求方定稿：远 = 隔着手机发过去；近 = 朝他嘴里扔；身边 = 顺手喂；
+     * 喷溅 / 滞留型则把"喂 / 扔"换成"砸在他身上"（与实际的用药方式一致）。
+     */
+    private static String actionLine(DistanceBand band, String healName, ItemStack potion) {
+        boolean splash = RescuePotion.usageOf(potion) != RescuePotion.Usage.DRINK;
+        return switch (band) {
+            case VIA_PHONE -> "你隔着手机发了一瓶「" + healName + "」过去，他的状态又切回了在线。";
+            case NEARBY -> splash
+                    ? "你就在附近，把一瓶「" + healName + "」砸在他身上，他朝你示意他状态很好。"
+                    : "你就在附近，朝他嘴里扔了一瓶「" + healName + "」，他朝你示意他状态很好。";
+            case IN_SIGHT -> splash
+                    ? "你就在旁边，顺手把一瓶「" + healName + "」砸在他身上，他翻身爬了起来。"
+                    : "你就在旁边，顺手喂了他一瓶「" + healName + "」，他翻身爬了起来。";
+        };
     }
 
     /**
@@ -304,26 +314,29 @@ public final class RescueNarrative {
         boolean remote = band == DistanceBand.VIA_PHONE;
 
         StringBuilder sb = new StringBuilder();
-        sb.append("【记忆】主人死过一次（死因：").append(cause).append("）");
+        sb.append("【记忆】").append(cause).append("——");
         if (plan.isCooperative()) {
             String otherName = (selfIsHealer ? plan.fireRes().maid() : plan.healer().maid()).getName().getString();
-            sb.append("，是你和").append(otherName).append("一起").append(remote ? "隔着手机远程" : "")
-                    .append("救回来的——");
+            sb.append("是你和").append(otherName).append(remote ? "隔着手机一起：" : "一起：");
             sb.append(selfIsHealer
-                    ? "你出的是「" + healName + "」，" + otherName + "出的是「" + fireName + "」"
-                    : "你出的是「" + fireName + "」，" + otherName + "出的是「" + healName + "」");
+                    ? "你出「" + healName + "」，" + otherName + "出「" + fireName + "」"
+                    : "你出「" + fireName + "」，" + otherName + "出「" + healName + "」");
         } else {
-            sb.append("，是你").append(remote ? "隔着手机用" : "用").append("「").append(healName)
-                    .append("」").append(remote ? "远程" : "").append("救活了他");
+            sb.append("你").append(remote ? "隔着手机" : "").append("用「").append(healName).append("」给他补了血");
         }
-        sb.append("。");
+        sb.append('。');
         return sb.toString();
     }
 
-    /** 即时触发用的系统文本：事实 + 距离 + 分工 + 语气引导。刻意不提"担忧/悲伤"，也不提"主人会复活"。 */
+    /**
+     * 即时触发用的系统文本：一句事实 + 语气引导 + 长度约束 + 能力说明。
+     * <p>结构已按需求方定稿压扁：不再有"死因 / 位置 / 操作 / 结果"四段清单，距离并进动作句里。
+     * <p>刻意不提"担忧/悲伤"这类过重的词，也不写"不用端着/不用瞒着"之类"要坦率"的要求
+     * —— 那等于拿系统提示去覆盖玩家给女仆设的「口是心非」「傲娇」人设。
+     */
     private static String buildPrompt(RescueMaidPicker.Plan plan, boolean selfIsHealer,
                                       String deathMessage, ItemStack healPotion, ItemStack firePotion,
-                                      int restored, DistanceBand band, int rescueSeq) {
+                                      DistanceBand band, int rescueSeq) {
         String healName = RescuePotion.displayName(healPotion);
         String fireName = firePotion.isEmpty() ? "" : RescuePotion.displayName(firePotion);
         boolean hasFire = !firePotion.isEmpty();
@@ -334,13 +347,9 @@ public final class RescueNarrative {
         String cause = deathMessage == null || deathMessage.isBlank() ? "（死因未知）" : deathMessage;
 
         StringBuilder sb = new StringBuilder();
-        sb.append("【刚刚发生的事】主人刚刚死了一次，是")
-                .append(coop ? "你和" + otherName + "一起" : "你")
-                .append("把他救回来的。\n");
-        sb.append("· 死因（服务器原始死亡提示）：").append(cause).append('\n');
-        sb.append(distanceLine(band)).append('\n');
+        sb.append("【刚刚的事】").append(cause).append('。');
         if (coop) {
-            sb.append("· 分工：你和").append(otherName).append("商量好了——");
+            sb.append("你和").append(otherName).append("一起动的手——");
             if (selfIsHealer) {
                 sb.append("你出「").append(healName).append("」，").append(otherName)
                         .append("出「").append(fireName).append("」");
@@ -348,60 +357,19 @@ public final class RescueNarrative {
                 sb.append(otherName).append("出「").append(healName).append("」，你出「")
                         .append(fireName).append("」");
             }
-            sb.append('\n');
-            sb.append("· 结果：").append(coopDelivery(band));
-            if (selfIsHealer) {
-                sb.append("他回了约 ").append(restored).append(" 点血，又站了起来");
-                if (hasFire) {
-                    sb.append("；").append(otherName).append("补的抗火让他没被接着烧");
-                }
-            } else {
-                sb.append("回血靠的是").append(otherName).append("那瓶「").append(healName)
-                        .append("」（约 ").append(restored).append(" 点），你补的抗火让他没被接着烧");
-            }
-            sb.append('。');
+            sb.append("，主人正在自己爬出危险。");
         } else {
-            sb.append(soloActionLine(band, healName, healPotion, fireName)).append('\n');
-            sb.append("· 结果：他回了约 ").append(restored).append(" 点血，又站了起来");
+            sb.append(actionLine(band, healName, healPotion));
             if (hasFire) {
-                sb.append("，身上的火也被压住了");
+                sb.append("顺带还补了一瓶「").append(fireName).append("」，免得他接着烧。");
             }
-            sb.append('。');
         }
-        // 语气引导：只给"按自己性子来"和几种可能的方向，避开"担忧/悲伤"这类过重的词。
-        // 刻意不写"不用端着/不用瞒着"之类"要坦率"的要求 —— 那会破坏玩家给女仆设的
-        // 「口是心非」「傲娇」人设，等于拿系统提示去覆盖人设卡。
-        sb.append("\n说点什么吧：按你自己的性子来——调侃他、损他两句、念叨他、或者表示一下关心都行。");
+        sb.append('\n').append(TONE_GUIDE);
+        sb.append('\n').append(BREVITY_LINE);
         if (rescueSeq >= 2) {
-            sb.append("\n（顺带一提：这是他最近第 ").append(rescueSeq)
-                    .append(" 次被你救回来了——你可以借机吐槽一下他为什么总是在死。）");
+            sb.append("\n（顺带一提：这已经是这段时间第 ").append(rescueSeq)
+                    .append(" 次了——你可以拿这事打趣一下他的技术。）");
         }
         return sb.toString();
-    }
-
-    /** 单女仆时的"你的操作"整行：投送方式随距离变化，动词随药水类型变化。 */
-    private static String soloActionLine(DistanceBand band, String healName, ItemStack healPotion,
-                                        String fireName) {
-        String verb = actionOf(healPotion);
-        String head = switch (band) {
-            case IN_SIGHT -> "· 你的操作：你取出一瓶「" + healName + "」，当场" + verb;
-            case NEARBY -> "· 你的操作：你取出一瓶「" + healName + "」，就近送过去" + verb;
-            case VIA_PHONE -> "· 你的操作：你隔着手机把「" + healName + "」送过去，" + verb;
-        };
-        StringBuilder sb = new StringBuilder(head);
-        if (fireName != null && !fireName.isEmpty()) {
-            sb.append("；另外还补了一瓶「").append(fireName).append("」");
-        }
-        sb.append('。');
-        return sb.toString();
-    }
-
-    /** 双女仆时"你们一起"的投送描述（同样按距离分档）。 */
-    private static String coopDelivery(DistanceBand band) {
-        return switch (band) {
-            case IN_SIGHT -> "你们各自取出药水，当场一起用在了他身上——";
-            case NEARBY -> "你们各自取出药水，送过去一起用在了他身上——";
-            case VIA_PHONE -> "你们隔着手机把药水一起送过去，用在了他身上——";
-        };
     }
 }

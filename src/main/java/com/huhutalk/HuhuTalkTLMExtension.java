@@ -1,5 +1,6 @@
 package com.huhutalk;
 
+import com.github.tartaricacid.touhoulittlemaid.ai.agent.context.GameContextRegister;
 import com.github.tartaricacid.touhoulittlemaid.ai.agent.tool.ToolRegister;
 import com.github.tartaricacid.touhoulittlemaid.api.ILittleMaid;
 import com.github.tartaricacid.touhoulittlemaid.api.LittleMaidExtension;
@@ -7,6 +8,7 @@ import com.github.tartaricacid.touhoulittlemaid.client.renderer.entity.GeckoEnti
 import com.github.tartaricacid.touhoulittlemaid.entity.task.TaskManager;
 import com.github.tartaricacid.touhoulittlemaid.item.bauble.BaubleManager;
 import com.huhutalk.client.render.PhoneInHandLayer;
+import com.huhutalk.core.chat.MaidPhoneContexts;
 import com.huhutalk.core.chat.SendEmoteTool;
 import com.huhutalk.core.move.MoveToTool;
 import com.huhutalk.core.move.TaskMoveTo;
@@ -45,6 +47,16 @@ public class HuhuTalkTLMExtension implements ILittleMaid {
         register.register(new SendEmoteTool());
         // 传文件（M→P）：女仆把自己身上/隙间里的物品发给主人，主人聊天里点气泡领取
         register.register(new SendItemTool());
+    }
+
+    /**
+     * 女仆的「手机 / 远程支援」常识：注册进 TLM 的上下文知识库。
+     * <p>她因此<b>本来就知道</b>自己能远程支援主人，不需要在救援提示词里每次重讲一遍
+     * （重讲会把她的注意力拉到"让主人看消息"上）。详见 {@link MaidPhoneContexts}。
+     */
+    @Override
+    public void registerAIMaidContext(GameContextRegister register) {
+        MaidPhoneContexts.registerAll(register);
     }
 
     /**

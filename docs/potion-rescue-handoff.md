@@ -109,6 +109,7 @@
 | `core/rescue/MaidDeliveryRecord.java` | 投递记录（可复用结构，工作模式 2 的接入点） |
 | `core/rescue/RescueSettings.java` | 「药水复活」偏好的**服务端会话缓存**（按 UUID） |
 | `common/PlayerPhoneHelper.java` | 玩家侧 Pro 手机探测（41 格全扫） |
+| `core/chat/MaidPhoneContexts.java` | **女仆的「手机 / 远程支援」常识**，注册进 TLM 上下文知识库（见 §5.14） |
 | `network/C2SPotionRescueSettingPacket.java` | 客户端 → 服务端同步该开关 |
 
 ### 3.2 被修改的既有文件（**均为加法**）
@@ -125,7 +126,8 @@
 | `event/ClientModEvents.java` | 登录时推送该偏好（`pushPotionRescueSetting`） |
 | `phone/pages/SettingsPage.java` | 新增「救援」分组 + 开关；`onOpen` 时再推一次 |
 | `phone/pages/ManualPage.java` | 手册加「药水复活」条目 |
-| `core/chat/MaidChatHandler.java` | `handleSystemInjection` 新增可定制重载（收尾语 + 系统文本排布） |
+| `core/chat/MaidChatHandler.java` | `handleSystemInjection` 新增可定制重载（收尾语 + 系统文本排布）；手机聊天的 SYSTEM 上下文改走 `chatContext`（**来源上下文 + 知识库条目**，见 §5.14） |
+| `HuhuTalkTLMExtension.java` | 新增 `registerAIMaidContext` → 注册 `MaidPhoneContexts` |
 
 ---
 
@@ -322,6 +324,29 @@ this.player = this.server.getPlayerList().respawn(this.player, false, Entity.Rem
 （硬模式 / 虚空 / 玩家有没有手机），女仆与药水的挑选推迟到 T+5s 的 tick 对账里做。
 那 5 秒里条件本身也可能变化（女仆被卸载、药水被别的逻辑消耗），推迟反而更准。
 
+### 5.14 ⚠️ "她都会什么"要进知识库，**而且手机聊天要自己接那条线**
+
+需求："让女仆知道自己有远程支援主人的能力，这样玩家让她辅助时她答得上话"。
+**不要**把这句话塞进救援提示词 —— 那会把她的注意力拉到"让主人看消息"这类事上，冲淡当下该有的反应。
+
+正确落点：TLM 的**上下文知识库**（`ILittleMaid#registerAIMaidContext` → `GameContextRegister`）。
+`registerCategory(id, summary, promptContext = true)` 的类别会作为常驻上下文进入提示词，
+条目由 `IMaidContext` 提供，渲染格式固定为 `- {label}: {value}`。
+本模组的条目见 `core/chat/MaidPhoneContexts.java`（类别 id `huhutalk_phone`）。
+
+**坑（两条渲染路径，缺一不可）**：
+
+| 路径 | 渲染方 | 是否自动带上 |
+|---|---|---|
+| TLM 自带聊天（`MaidAIChatManager.chat` → `normalChat`） | `UserPromptContexts.addContext` 拼 `<context>` 块 | ✅ 注册即生效 |
+| **HuhuTalk 手机聊天**（`MaidChatHandler.buildMessages` / `handleSystemInjection`） | **自建消息列表，绕过上面那条** | ❌ 必须显式调 `MaidPhoneContexts.render(maid)` 拼进自己的 SYSTEM 上下文 |
+
+所以 `MaidChatHandler.chatContext()` = 来源上下文（手机 + 距离） + 知识库条目。
+**改这条路径时别把知识库那句丢了**，否则她只在 TLM 自带聊天里"记得"自己的能力。
+
+另外：`handleSystemInjection`（救援 / 濒危 / 总结 / 离线播报）**刻意不带**这条常识 ——
+救援那一刻只该讲"刚刚发生了什么"，常识属于平时就知道的东西。
+
 ---
 
 ## 六、以后要调字 / 要加功能时
@@ -333,25 +358,34 @@ this.player = this.server.getPlayerList().respawn(this.player, false, Entity.Rem
 | 想改什么 | 方法 |
 |---|---|
 | 距离阈值 10 / 50 格 | 常量 `IN_SIGHT_RANGE` / `NEARBY_RANGE` |
-| 「· 位置：…」三行 | `distanceLine` |
+| **各距离档的"你的操作"整句**（含喂 / 扔 / 发 / 砸的用药差异） | `actionLine` |
 | 收尾 USER 语（三条） | `closingLine` |
-| 「喂给他喝下 / 砸在他身上」 | `actionOf` |
+| **语气引导** | 常量 `TONE_GUIDE` |
+| **长度约束**（"话要短：一两句就够…"） | 常量 `BREVITY_LINE` |
+| **「远程支援」能力说明** | 常量 `CAPABILITY_NOTE` |
 | **记忆文案**（进 `PendingSystemMessageBus`） | `buildMemory` |
 | **事件文本主体** | `buildPrompt` |
 | **濒危提醒正文**（1.3） | `buildLowPotionWarning` + 常量 `LOW_POTION_CLOSING` |
 | **收尾总结正文**（1.1/1.2） | `buildStreakSummary` + 常量 `STREAK_CLOSING` |
 | 「我 / 我和 xx / 我和 xx 他们」 | `groupName` |
 | 消耗明细「治疗药水 ×3、抗火药水 ×1」 | `describeConsumption` |
-| 单女仆「· 你的操作」三行 | `soloActionLine` |
-| 双女仆「你们一起」三条 | `coopDelivery` |
+| 「顺带一提：这已经是这段时间第 N 次了…」 | `buildPrompt` 尾部（`rescueSeq >= 2`） |
 | 哪段进"记忆"、哪段进"即时触发" | `inject`（两行 `queue` / `handleSystemInjection`） |
 
-当前**语气引导**与**复死提示**两句（刻意不含"担忧/悲伤"，也不含"要求坦率"的措辞）：
+**文案已经过一轮"轻量化 / 游戏化"定稿**（需求方在 Word 草案上逐条改写，见
+`rescue-prompt-revision-draft.docx`）。当前口径：
 
 ```
-说点什么吧：按你自己的性子来——调侃他、损他两句、念叨他、或者表示一下关心都行。
-（顺带一提：这是他最近第 N 次被你救回来了——你可以借机吐槽一下他为什么总是在死。）
+【刚刚的事】{原版死亡提示}。你隔着手机发了一瓶「{药}」过去，他的状态又切回了在线。
+说点什么吧：按你自己的性子来，轻松点——打游戏磕磕碰碰很正常，不用搞得像生离死别。给他打打气，说一句你还会帮他，顺带关心他一句也行。
+话要短：一两句就够（主人多半正忙着打架，消息刷屏反而碍事）。
+（顺带一提：这已经是这段时间第 N 次了——你可以拿这事打趣一下他的技术。）   ← 仅 N ≥ 2
+（你的远程支援手段：隔着手机就能把背包里的东西发给主人，他点一下气泡就能收到；他出事时把药水直接补到他身上，是自动发生的，不用你操作。）
 ```
+
+**注意两处刻意保留的"坑"**：① 语气里**不写**"担忧/悲伤"这类过重的词，也**不写**"不用端着/不用瞒着"
+之类"要坦率"的要求（那会覆盖玩家给女仆设的「口是心非」「傲娇」人设）；② 死因一律直接转发原版
+死亡提示，不自己枚举"岩浆/摔死"。
 
 ### 6.2 建议：把文案外置
 

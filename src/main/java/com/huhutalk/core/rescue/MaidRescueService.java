@@ -190,7 +190,7 @@ public final class MaidRescueService {
         //    第 4 次起【完全静默】——不调 LLM、不写记忆，只记账；3 分钟静默后再发一条总结。
         int seq = RescueStreakManager.onRescue(revived, server.getTickCount(), plan.isCooperative());
         if (seq <= RescueStreakManager.NARRATE_LIMIT) {
-            RescueNarrative.inject(revived, rescue, plan, healPotion, firePotion, restored, seq);
+            RescueNarrative.inject(revived, rescue, plan, healPotion, firePotion, seq);
             return;
         }
         // 记账区间：登记这次消耗掉了什么、是谁出的（不产生任何消息）

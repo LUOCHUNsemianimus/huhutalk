@@ -308,12 +308,31 @@ public class MaidChatHandler {
     }
 
     /**
+     * 手机聊天用的上下文（SYSTEM）。
+     * <p>= 消息来源（手机 + 距离） + {@link MaidPhoneContexts} 的"手机 / 远程支援"常识。
+     * <p>后者必须在这里显式拼上：TLM 自带的聊天路径（{@code MaidAIChatManager.normalChat}）会调
+     * {@code UserPromptContexts.addContext} 自动带上知识库里的常驻上下文，而本模组的手机聊天是
+     * 自建消息列表、<b>绕过了</b>那条路径。
+     */
+    private static String chatContext(ServerPlayer player, EntityMaid maid) {
+        String source = MessageSourceContext.describe(player, maid);
+        String support = MaidPhoneContexts.render(maid);
+        if (support.isBlank()) {
+            return source;
+        }
+        if (source.isBlank()) {
+            return support;
+        }
+        return source + "\n" + support;
+    }
+
+    /**
      * 把消息来源上下文（手机 + 距离）作为 SYSTEM 消息插到消息列表最后一个元素之前
      * （即用户消息之前），避免排到用户消息后面。上下文为空时跳过。
      * <p>用于纯文本聊天（buildMessages 末尾即为用户消息）。
      */
     private static void prependSourceContext(List<LLMMessage> messages, ServerPlayer player, EntityMaid maid) {
-        String ctx = MessageSourceContext.describe(player, maid);
+        String ctx = chatContext(player, maid);
         if (ctx == null || ctx.isBlank()) {
             return;
         }
@@ -326,7 +345,7 @@ public class MaidChatHandler {
      * <p>用于图片聊天（调用时图片描述与用户消息尚未追加，追加后紧随其后的便是图片描述）。
      */
     private static void addSourceContext(List<LLMMessage> messages, ServerPlayer player, EntityMaid maid) {
-        String ctx = MessageSourceContext.describe(player, maid);
+        String ctx = chatContext(player, maid);
         if (ctx == null || ctx.isBlank()) {
             return;
         }
