@@ -26,10 +26,14 @@ Java 侧只多了三样东西:一个渲染层、一个 mixin、一处配饰同�
 | `assets/huhutalk/animation/huhutalk_phone.animation.json` | raise / hold / lower 三段动画 | 定稿（上一阶段） |
 | `client/render/PhoneInHandLayer.java` | 手机挂手渲染层 | 定稿，内含**未清理的诊断日志** |
 | `mixin/GeckoLayerMaidHeldMixin.java` | 用手机时压掉右手手持物 | 定稿 |
-| `init/ItemMaidPhone.java` | 手机物品 + `IMaidBauble` | 定稿，`syncClient` → true |
+| `init/ItemMaidPhone.java` | 手机物品 + `IMaidBauble` | 定稿，`syncClient` → true、`isFoil` → true、`stacksTo(1)` |
 | `docs/blockbench/huhutalk_phone.bbmodel` | Blockbench 可编辑源 | 定稿 |
+| `assets/huhutalk/models/item/phone_watch_3d.json` | **青春版电话手表** 3D 物品模型（20 element / 无 parent） | 定稿，见 §11 |
+| `assets/huhutalk/textures/item/phone_watch_3d.png` | 手表 128×128 贴图 | 定稿，sha256 `eda108ce…` |
 
-`phone_watch`(青春版电话手表)全程未动,仍是 32×32 平面图标。
+> `phone_watch`（青春版电话手表）**原先**是 32×32 平面图标，现已换成独立 3D 模型。
+> 它与手机是两套几何/贴图，但共用同一套 `display` 范式、同一条挂手渲染链路，
+> Java 侧连物品类都是同一个。踩过的坑与结论见 §11。
 
 ### 几何
 
@@ -42,8 +46,16 @@ Java 侧只多了三样东西:一个渲染层、一个 mixin、一处配饰同�
 ```
 thirdperson_righthand / lefthand : rotation [-25,-30,0]  translation [-1.31,1.71,0.25]  scale 1.35
 firstperson_righthand / lefthand : rotation [11.74,-3.18,3.92] translation [1,4.75,-0.25] scale 1.35
-ground / fixed / head / gui      : scale 1.8（gui 带 rotation [25,148,0]，head 带 translation [0,15,0]）
+ground                           : scale 0.6   ← 掉落实体专用，必须单独调小
+fixed / head / gui               : scale 1.8（gui 带 rotation [25,148,0]，head 带 translation [0,15,0]）
 ```
+
+> ⚠ **`ground` 和 `fixed` 不是一回事，别一起给 1.8。**
+> `ground` 是**掉在地上/扔出去**的那个实体用的；`fixed` 是**物品展示框**用的。
+> 渲染高度(方块) = 模型 y 跨度(单位) ÷ 16 × scale：
+> 手机几何高 5.43 单位，1.8 → 0.61 方块（勉强能接受）；手表高 7.6 单位，1.8 → **0.86 方块**，
+> 比一整块方块还高，实机观感就是"地上躺了块砖头"。手表现用 **0.6 → 0.29 方块**。
+> 这两个数只影响资源，改完 **F3+T** 就能看，不用重启、不用重编。
 
 `thirdperson` 的 `translation` 是**用户在实机里手调**的最终结果(我按公式算出的
 `[1.31, 1.71, 3.39]` 只作为初值)。**改之前先读 §4,那三个数不正交。**
@@ -394,3 +406,132 @@ M(世界映射) Rx(67.5°)
 握点公式    translation = -R · S · (G - 8)      // G = 手机重心
 沿手臂正向  translation.x += d                  // 正 = 手肘→手掌
 ```
+
+---
+
+## 11. 附:青春版电话手表(`phone_watch`)的 3D 化
+
+青春版手表原本是 32×32 平面图标,现已换成独立 3D 模型。它与手机**共用同一条挂手渲染链路**
+(`PhoneInHandLayer` → `ItemInHandRenderer`)和同一个物品类 `ItemMaidPhone`,
+但几何 / 贴图 / 模型 JSON 是另一套。
+
+### 11.1 交付物
+
+| 文件 | 说明 |
+|---|---|
+| `assets/huhutalk/models/item/phone_watch_3d.json` | 20 element / 120 面,自带全套 `display` |
+| `assets/huhutalk/textures/item/phone_watch_3d.png` | 128×128 RGBA,sha256 `eda108ce…` |
+| `assets/huhutalk/models/item/phone_watch.json` | `{"parent": "huhutalk:item/phone_watch_3d"}` |
+| `D:\Moddevelop\build_watch_all.js` | **唯一权威生成器**:一次产出贴图 PNG + 模组模型 JSON + `.bbmodel` |
+| `tools/check_watch_faces.js` | 120 面 UV/alpha 校验(可重跑;放 `tools/` 而不是 `build/`,因为 `gradlew clean` 会把 `build/` 清掉) |
+
+几何:机身 3.0×3.0×0.4 的十字主体 + 4 个 45° 钻石切角 = 八边形;双狐耳 45° 斜置;
+上下表带各两节;背面传感器台 + 像素狐尾贴花。
+bbox `x 6.25–9.75 / y 4.3–11.9 / z 7.58–8.19`,y 跨度 **7.6 单位**。
+
+### 11.2 ⚠️ 坑一:`135°` 让**整个模型**解析失败,表现为"一个黑方块"
+
+```
+Failed to load model huhutalk:models/item/phone_watch_3d.json
+com.google.gson.JsonParseException: Invalid rotation 135.0 found, only -45/-22.5/0/22.5/45 allowed
+	at BlockElement$Deserializer.getAngle(BlockElement.java:115)
+```
+
+`getAngle` 只放行 `±45 / ±22.5 / 0`。Blockbench 编辑器允许 135°,原版解析器不允许 ——
+**§8.1 早就写了这条,但生成器硬编码了 135**。只要有一个角度非法,整个 `elements` 解析失败,
+烘焙退化成 missing model,渲染成那个占位立方体(观感 = 一整块黑方块)。
+
+后面紧跟着的 `Unable to load model: … java.io.FileNotFoundException` 是**二次报错**,极具误导性:
+文件其实被找到并读进去了(否则走不到 `getAngle`)。**排查时别只 grep 含 `model` 的行** ——
+`Invalid rotation …` 这条消息里一个 "model"/"phone" 字样都没有,会被过滤掉,于是一整轮都在追不存在的路径问题。
+
+修法:`135 → 45`、`-135 → -45`。**几何等价**:那两个切角 cube 的 xy 截面是 0.5×0.5 正方形,
+旋转轴 Z、旋转原点恰好是自身中心;正方形绕中心转 90° 映射到自身,而 135 = 45 + 90。
+
+### 11.3 ⚠️ 坑二:生成器写死 `axis: 'z'`,吞掉了表带的 22.5° X 倾斜
+
+```js
+// 旧代码 —— defs[].rot 是 Blockbench 风格的三元组 [x,y,z],这里却只取 rot[2] 且写死 Z 轴
+if (d.rot) el.rotation = { angle: d.rot[2], axis: 'z', origin: d.org };
+```
+
+于是 `strap_top_tip`(`rot [22.5,0,0]`)与 `strap_buckle_tip`(`rot [-22.5,0,0]`)在模组 JSON 里
+变成了 `"angle": 0` —— **实机表带尾节是平的,而 Blockbench 源里是 22.5° 弧**。
+`.bbmodel` 走的是 `el.rotation = d.rot`,所以只有模组 JSON 错;正因为两边不一致,
+这个 bug 一直没被注意到。修法见 §11.5。
+
+### 11.4 `display` 与"掉在地上特别大"
+
+`display` 沿用手机的范式,但 **`ground` 必须单独调小**(手机几何高 5.43 单位,手表 7.6 单位):
+
+| 上下文 | scale | 实机渲染高度 |
+|---|---|---|
+| `thirdperson_*` | 1.35 | 0.64 方块(手持,故意放大) |
+| `ground` | **0.6** | **0.29 方块** |
+| `fixed` / `head` / `gui` | 1.8 | 0.86 方块 |
+
+> **渲染高度(方块) = 模型 y 跨度(单位) ÷ 16 × scale。**
+> 手表跨 7.6 单位 ⇒ scale 1.8 时是 **0.855 方块**,掉在地上比一整块方块还高,看着像块砖头。
+> 手机跨 5.43 单位 ⇒ 同样 1.8 时是 0.61 方块,所以"手机没事、手表特别大"。
+> **`ground`(掉落实体)和 `fixed`(物品展示框)是两个独立上下文,别一起给同一个数。**
+> 这个数纯资源,改完 **F3+T** 就能看,不用重启、不用重编。
+
+### 11.5 生成器现在的守卫(别再绕过)
+
+```js
+function rotSpec(rot) {                       // 三元组 → {axis, angle}
+  if (!rot) return null;
+  for (let i = 0; i < 3; i++) if (rot[i]) return { axis: ['x', 'y', 'z'][i], angle: rot[i] };
+  return null;
+}
+const LEGAL_ANGLES = new Set([-45, -22.5, 0, 22.5, 45]);
+defs.forEach(d => {
+  if (!d.rot) return;
+  if (d.rot.filter(a => a).length > 1) throw new Error('...must have exactly one non-zero axis...');
+  d.rot.forEach(a => { if (!LEGAL_ANGLES.has(a)) throw new Error('...illegal java_block rotation angle...'); });
+});
+```
+
+**非法角度现在会在生成阶段直接抛错**,不会再产出"装不上、实机变黑方块"的模型。
+
+### 11.6 120 面 UV/alpha 校验
+
+```
+node tools/check_watch_faces.js
+```
+
+结论:20 元素 / 120 面 / **非法旋转角 0**;120 面用到的 12 个图集区域里 **11 个 `minA=255`**。
+唯一带透明的是狐尾贴花区域 `[32,88,60,116]`,只被 **1 个面**用到
+(`back_sensor_plate` 的 `north` 面)—— 那是**故意的透明底贴花**:
+非 BlockItem 的物品走 `ItemBlockRenderTypes.getRenderType()` → `Sheets.translucentItemSheet()`,
+`alpha=0` 的含义是"透出后面的表壳",**不会渲染成黑色**。
+所以"贴图透明导致黑块"这个假设对这块表不成立,不需要拿醒目底色去试。
+
+### 11.7 物品属性:配饰 = 不堆叠 + 附魔光效
+
+```java
+// HuhuTalkItems —— 配饰本体,各自只有一件
+new Item.Properties().stacksTo(1)
+```
+
+```java
+// ItemMaidPhone —— 附魔光效恒开
+@Override public boolean isFoil(@NotNull ItemStack stack) { return true; }
+```
+
+**为什么覆写 `isFoil` 而不是用 `DataComponents.ENCHANTMENT_GLINT_OVERRIDE`:**
+`ItemStack.hasFoil()` 的判定是
+`get(GLINT_OVERRIDE) != null ? 它 : item.isFoil(stack)`。
+覆写后面这半个分支**不往物品栈上写组件**,存档里已存在的旧栈也同样发光,而且不会让
+`getRarity()` 升级(那是 `isEnchanted()`,看的是真实的 ENCHANTMENTS 组件)。
+
+三条渲染通路都读同一个 `hasFoil()`,因此自动全覆盖:
+
+| 通路 | 位置 |
+|---|---|
+| 女仆手上 | `PhoneInHandLayer` → 原版 `ItemInHandRenderer.renderItem` |
+| 玩家第一人称离屏屏幕 | `ProPhoneHandRenderer#renderPhoneBody`,自己拼 `getFoilBufferDirect(..., foil)` |
+| 地面掉落物 / GUI / 展示框 | 原版 `ItemRenderer` |
+
+> 相机模式的"透明取景"会临时换成 `PHONE_CAMERA` 栈,那**不是** `ItemMaidPhone`,
+> 所以取景框本身不会发光 —— 如果实机发现取景时也在闪,说明换栈那条路径没走到。

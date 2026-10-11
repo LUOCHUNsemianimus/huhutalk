@@ -59,6 +59,28 @@ public class ItemMaidPhone extends Item implements IMaidBauble {
         return true;
     }
 
+    /**
+     * 附魔光效（"附魔纹理"）恒开。
+     * <p>
+     * {@code ItemStack.hasFoil()} 的判定链是
+     * {@code get(DataComponents.ENCHANTMENT_GLINT_OVERRIDE) != null ? 它 : item.isFoil(stack)}，
+     * 我们覆写的是后半个分支，因此**不往物品栈上写任何组件**（存档里已有的旧栈也同样发光），
+     * 也不会让 {@code getRarity()} 升级（那是 {@code isEnchanted()}，看的是真实的 ENCHANTMENTS 组件）。
+     * <p>
+     * 覆盖到三条渲染通路，全部读同一个 {@code hasFoil()}：
+     * <ul>
+     *   <li>女仆手上的手机 —— {@code PhoneInHandLayer} → 原版 {@code ItemInHandRenderer}；</li>
+     *   <li>玩家第一人称的离屏屏幕 —— {@code ProPhoneHandRenderer#renderPhoneBody}
+     *       自己拼 {@code ItemRenderer.getFoilBufferDirect(..., foil)}；</li>
+     *   <li>地面掉落物 / GUI / 展示框 —— 原版 {@code ItemRenderer}。</li>
+     * </ul>
+     * 想临时关掉只改这一行（返回 {@code false}）即可。
+     */
+    @Override
+    public boolean isFoil(@NotNull ItemStack stack) {
+        return true;
+    }
+
     @Override
     public void appendHoverText(@NotNull ItemStack stack, @Nullable TooltipContext context,
                                 @NotNull List<Component> tooltipComponents, @NotNull TooltipFlag tooltipFlag) {

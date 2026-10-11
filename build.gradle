@@ -166,18 +166,48 @@ idea {
     }
 }
 
-// ── 开发环境资源同步 ─────────────────────────────────────────────────────────────
-// ModDevGradle 2.x 在本工程下把 SourceSet 根解析成了 build/classes/java/main，
-// 而 processResources 的输出在 build/resources/main —— 两者没有被并到一起，
-// 导致 runClient 里 assets/huhutalk/** 全部 404（表现：物品黑紫格子 + 日志里
-// FileNotFoundException: huhutalk:models/item/xxx.json）。
-// 这里在 processResources 之后把资源再镜像一份到 classes 目录，保证开发运行能读到。
-tasks.named("processResources").configure {
+// ── 开发环境资源镜像（runClient 用）─────────────────────────────────────────────
+// 为什么需要它（2026-10-11 用 FML 的 DEBUG 日志定案，不是猜的）：
+//   ModDevGradle 通过环境变量 MOD_CLASSES 把该模组的内容目录交给 FML，本工程是两个：
+//     huhutalk%%...\build\classes\java\main;huhutalk%%...\build\resources\main
+//   FML 只为**其中一个**目录建 mod file（即该模组的资源根），日志原文：
+//     Loading mod file ...\build\classes\java\main with languages [LanguageSpec[...javafml...]]
+//   资源根落在 classes 目录，而 processResources 的输出在 build/resources/main，
+//   于是 runClient 里 assets/huhutalk/** 读不到。
+//   ⚠ 注意别把这个和"黑方块"混为一谈：黑方块的直接原因是模型 JSON 解析失败
+//     （见 HuhuTalk_电话手表_交接文档 §10），与资源根无关。这个镜像只解决开发期资源可见性。
+//
+// 副作用与对策：classes 目录里于是有了 assets/data/META-INF 的第二份副本，而
+// jar 的内容来自 sourceSets.main.output（= classes 目录 + resources 目录），
+// 会报 "Entry huhutalk.mixins.json is a duplicate" —— 由下面的 duplicatesStrategy 兜住。
+//
+// ⚠⚠ 为什么这里**必须**写成 processResources 的 doLast，而不能注册成正式任务：
+//   Gradle 9 的 task-dependency validation 会对**每一个**把 build/classes/java/main
+//   当输入的任务报错，而且是一个一个冒出来的：
+//     注册成任务后，先打 :jar   -> "uses this output of task ':mirrorDevResources' without
+//                                    declaring an explicit dependency"
+//     给 jar 加 dependsOn 后，再打 :runClient ->
+//                "A problem was found with the configuration of task ':runClient' (type 'RunGameTask')
+//                 Gradle detected a problem with the following location: ...\build\classes\java\main"
+//   要"正确"就得给 jar / runClient / runServer / runData / runGameTestServer … 挨个加 dependsOn，
+//   而且今后每新增一个消费者都会重新踩一次。
+//   写成 doLast 里的普通文件写入、**不由任何任务声明为输出**，Gradle 就看不到这层目录重叠，
+//   于是不会报 —— 这也正是 §4 那版能跑通 runClient 的原因。
+//   代价：processResources 处于 UP-TO-DATE 时 doLast 不执行（镜像不自愈）。
+//   可接受：镜像内容只在资源变化后才需要更新，那时 processResources 必然重跑。
+tasks.named('processResources').configure {
     doLast {
         copy {
-            from layout.buildDirectory.dir("resources/main")
-            into layout.buildDirectory.dir("classes/java/main")
+            from layout.buildDirectory.dir('resources/main')
+            into layout.buildDirectory.dir('classes/java/main')
         }
     }
+}
+
+tasks.named('jar') {
+    // 镜像目录不是 jar 的正式内容来源，重复项取第一份即可（两份字节完全相同）。
+    // 没有这一行，gradlew build / jar 会直接失败：
+    //   > Entry huhutalk.mixins.json is a duplicate but no duplicate handling strategy has been set.
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 }
 
