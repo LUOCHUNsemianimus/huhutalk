@@ -166,3 +166,18 @@ idea {
     }
 }
 
+// ── 开发环境资源同步 ─────────────────────────────────────────────────────────────
+// ModDevGradle 2.x 在本工程下把 SourceSet 根解析成了 build/classes/java/main，
+// 而 processResources 的输出在 build/resources/main —— 两者没有被并到一起，
+// 导致 runClient 里 assets/huhutalk/** 全部 404（表现：物品黑紫格子 + 日志里
+// FileNotFoundException: huhutalk:models/item/xxx.json）。
+// 这里在 processResources 之后把资源再镜像一份到 classes 目录，保证开发运行能读到。
+tasks.named("processResources").configure {
+    doLast {
+        copy {
+            from layout.buildDirectory.dir("resources/main")
+            into layout.buildDirectory.dir("classes/java/main")
+        }
+    }
+}
+
