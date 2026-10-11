@@ -298,6 +298,7 @@ public class ContactListPage implements IPhonePage {
             case OFFLINE -> "离线";
             case DEAD -> "死亡";
             case SHUTDOWN -> "已关机";
+            case IN_CHARM -> "魂符内";
         };
     }
 

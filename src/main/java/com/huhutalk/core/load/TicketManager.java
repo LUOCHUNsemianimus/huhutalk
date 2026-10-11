@@ -101,7 +101,8 @@ public class TicketManager {
             if (seen.contains(entry.getStableId())) {
                 continue;
             }
-            if (entry.getStatus() == MaidStatus.DEAD) {
+            if (entry.getStatus() == MaidStatus.DEAD || entry.getStatus() == MaidStatus.IN_CHARM) {
+                // 死了 / 被收进魂符：都不需要为"保她在线"而强载她最后所在的区块
                 continue;
             }
             MaidPhoneTier tier = entry.getLastPhoneTier();

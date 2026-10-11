@@ -45,6 +45,8 @@ public final class MaidGroupHelper {
             case ONLINE -> GROUP_ONLINE;
             case DEAD -> GROUP_DEAD;
             case SHUTDOWN -> GROUP_SHUTDOWN;
+            // 魂符内：暂归入"离线"（她确实联系不上）。
+            // 若需求方要独立分组，需要同时加 GROUP_* 常量 + 设置页的默认分组名白名单。
             default -> GROUP_OFFLINE;
         };
     }

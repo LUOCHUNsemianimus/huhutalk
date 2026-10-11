@@ -73,6 +73,28 @@ public class MaidContactBook extends SavedData {
         }
     }
 
+    /**
+     * 标记女仆"被收进魂符/胶片"。
+     * <p>与死亡/离线不同：这是玩家<b>主动</b>把她收起来的，不该算"失联"——
+     * 她从魂符里出来时不能触发"你刚刚离开了信号范围"那套提示词（见 §5.16）。
+     */
+    public void markInCharm(String stableId, String name, String dimension,
+                            long gameTime, String ownerUuid) {
+        MaidContactEntry entry = entries.get(stableId);
+        if (entry == null) {
+            entries.put(stableId, new MaidContactEntry(stableId, name, MaidStatus.IN_CHARM,
+                    0, 0, dimension, gameTime, ownerUuid));
+            setDirty();
+            return;
+        }
+        entry.setName(name);
+        entry.setDimension(dimension);
+        entry.setLastSeenTime(gameTime);
+        entry.setOwnerUuid(ownerUuid);
+        entry.setStatus(MaidStatus.IN_CHARM);
+        setDirty();
+    }
+
     public void markDead(String stableId, String name, String dimension,
                          long gameTime, String ownerUuid) {
         MaidContactEntry entry = entries.get(stableId);

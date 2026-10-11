@@ -99,6 +99,24 @@ public class PendingSystemMessageBus {
         return broadcast;
     }
 
+    /**
+     * 是否存在<b>可播报</b>的积压条目（只读，不取走）。
+     * <p>供 {@link OfflineMessageDeliverer} 判断"她回来了到底有没有话要说"——
+     * 没有积压就不该为了空队列去打扰她。
+     */
+    public static boolean hasBroadcastable(String stableId) {
+        List<Entry> list = stableId == null ? null : PENDING.get(stableId);
+        if (list == null) {
+            return false;
+        }
+        for (Entry entry : list) {
+            if (!entry.silent()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** 清空全部（服务器关闭/世界退出时可调用，防御内存泄漏） */
     public static void clearAll() {
         PENDING.clear();
