@@ -7,6 +7,7 @@ import com.huhutalk.command.ModCommands;
 import com.huhutalk.core.event.FilmTransformHandler;
 import com.huhutalk.core.chat.ChatBannerMuteController;
 import com.huhutalk.core.chat.ImmersiveBubbleController;
+import com.huhutalk.core.chat.MaidNarrativeBus;
 import com.huhutalk.core.chat.PhoneChatSourceController;
 import com.huhutalk.core.chat.SignalDelayManager;
 import com.huhutalk.core.load.TicketManager;
@@ -88,6 +89,14 @@ public class HuhuTalk {
         NeoForge.EVENT_BUS.addListener(ServerTickEvent.Post.class, e -> PhoneChatSourceController.tick(e.getServer()));
         NeoForge.EVENT_BUS.addListener(ServerStoppingEvent.class, e -> PhoneChatSourceController.clearAll());
         NeoForge.EVENT_BUS.addListener(PlayerEvent.PlayerLoggedOutEvent.class, e -> PhoneChatSourceController.clearAll());
+
+        // 女仆叙事总线（任务 1 × 任务 2 的兼容层）：救援与补给的"要她说的话"在这里合并成同一轮注入。
+        // ⚠ 必须注册在 PlayerRescueHook / RemoteSupplyHook 之后：它们的 ServerTick 钩子会 submit 事件，
+        //   本监听器随后 flush，这样同一 tick 提交的事件就能被合并（见 §12）。
+        NeoForge.EVENT_BUS.addListener(ServerTickEvent.Post.class, e -> MaidNarrativeBus.tick(e.getServer()));
+        NeoForge.EVENT_BUS.addListener(ServerStoppingEvent.class, e -> MaidNarrativeBus.clearAll());
+        NeoForge.EVENT_BUS.addListener(PlayerEvent.PlayerLoggedOutEvent.class,
+                e -> MaidNarrativeBus.onPlayerGone(e.getEntity().getUUID()));
 
         modEventBus.addListener(RegisterPayloadHandlersEvent.class, this::setupPackets);
     }

@@ -6,6 +6,7 @@ import com.github.tartaricacid.touhoulittlemaid.api.task.IMaidTask;
 import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
 import com.huhutalk.HuhuTalk;
 import com.huhutalk.common.MaidStableIdHelper;
+import com.huhutalk.core.chat.MaidNarrativeBus;
 import com.huhutalk.core.move.MaidMoveData;
 import com.huhutalk.core.move.TaskMoveTo;
 import com.huhutalk.core.rescue.PendingRescueManager;
@@ -59,6 +60,8 @@ public class RemoteSupplyHook {
     private static final long DEATH_EVAL_DELAY = PendingRescueManager.DELAY_TICKS + 20L;
     /** 死亡记录的保留上限（tick）：5 分钟还没复活就丢弃 */
     private static final long DEATH_RECORD_TTL = 5L * 60L * 20L;
+    /** 死亡期间把"补给用尽"按住的上限（tick）：20 秒（死亡叙事约 6 秒就判定完，够用） */
+    private static final int USED_UP_HOLD_TICKS = 20 * 20;
 
     /** 玩家 UUID -> 一次待判定的死亡 */
     private record DeathNote(String deathMessage, long deathTick) {
@@ -211,19 +214,30 @@ public class RemoteSupplyHook {
             }
             done.add(playerId);
             if (PendingRescueManager.wasRescuedSince(playerId, note.deathTick())) {
-                continue; // 救回来了 —— 叙事归救援链路
+                // 救回来了 —— 叙事归救援链路。那条挂着的"补给用尽"也一并撤掉：
+                // 他刚被救活，此刻再补一句"没药了"只会让对话割裂（兼容层，见 §12）。
+                boolean dropped = MaidNarrativeBus.withdrawAny(playerId, MaidNarrativeBus.Kind.SUPPLY_USED_UP);
+                LOGGER.info("[HuhuTalk][补给] 已被救援，撤下待播的「补给用尽」：player={} 撤下={}",
+                        player.getName().getString(), dropped);
+                continue;
             }
             List<RemoteSupplySession> sessions = RemoteSupplySessions.ofPlayer(playerId);
             if (sessions.isEmpty()) {
+                MaidNarrativeBus.release(playerId, MaidNarrativeBus.Kind.SUPPLY_USED_UP);
                 continue; // 期间她已经被切走 / 掉线了，就别硬编
             }
             EntityMaid speaker = RemoteSupplyService.pickSpeaker(server, player, sessions);
             if (speaker == null) {
+                MaidNarrativeBus.release(playerId, MaidNarrativeBus.Kind.SUPPLY_USED_UP);
                 continue;
             }
-            LOGGER.info("[HuhuTalk][补给] 主人未撑到补给且未被救回：player={} 开口者={} 死因=\"{}\"",
-                    player.getName().getString(), speaker.getName().getString(), note.deathMessage());
-            RemoteSupplyNarrative.injectDiedWithoutRescue(player, speaker, note.deathMessage());
+            // 把还没播出去的"补给用尽"吸收进这条死亡叙事里：一件事只花一次 LLM（兼容层，见 §12）
+            boolean alsoRanOut =
+                    MaidNarrativeBus.withdrawAny(playerId, MaidNarrativeBus.Kind.SUPPLY_USED_UP);
+            LOGGER.info("[HuhuTalk][补给] 主人未撑到补给且未被救回：player={} 开口者={} 死因=\"{}\" 并入补给用尽={}",
+                    player.getName().getString(), speaker.getName().getString(),
+                    note.deathMessage(), alsoRanOut);
+            RemoteSupplyNarrative.injectDiedWithoutRescue(player, speaker, note.deathMessage(), alsoRanOut);
         }
         for (UUID id : done) {
             DEATHS.remove(id);
@@ -242,6 +256,9 @@ public class RemoteSupplyHook {
         }
         DEATHS.put(player.getUUID(),
                 new DeathNote(RescueEnvironment.describeDeath(player, event.getSource()), server.getTickCount()));
+        // 他刚死：先把还没播出去的"补给用尽"按住，等救援结果出来再决定是吸收还是放出。
+        // 超时保护 20 秒 —— 死亡叙事本身在死亡后约 6 秒就会判定完，够用。
+        MaidNarrativeBus.hold(player.getUUID(), MaidNarrativeBus.Kind.SUPPLY_USED_UP, USED_UP_HOLD_TICKS);
     }
 
     // ==================== 清理 ====================

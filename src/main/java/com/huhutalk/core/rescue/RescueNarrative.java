@@ -2,7 +2,7 @@ package com.huhutalk.core.rescue;
 
 import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
 import com.huhutalk.common.MaidStableIdHelper;
-import com.huhutalk.core.chat.MaidChatHandler;
+import com.huhutalk.core.chat.MaidNarrativeBus;
 import com.huhutalk.core.chat.MaidNarrativeStyle;
 import com.huhutalk.core.chat.PendingSystemMessageBus;
 import net.minecraft.server.level.ServerPlayer;
@@ -34,13 +34,16 @@ import java.util.Map;
  *
  * <h2>两条注入通道，文案刻意分开</h2>
  * <ul>
+ *   <li>{@link MaidNarrativeBus}（本类所有 {@code inject*} 都走它）：负责<b>即时触发</b>那一条 ——
+ *       事实 + 语气引导 + 收尾语。它同时会把纯事实以静默条目写进记忆通道，
+ *       并与同一刻的<b>远程补给</b>叙事合并/吸收，保证同一件事只花一次 LLM 调用（见 §12）。
+ *       底层仍是 {@code MaidChatHandler#handleSystemInjection}：系统文本放在人设与历史之后
+ *       （模型权重最高），免得被当背景设定读掉。</li>
  *   <li>{@link PendingSystemMessageBus}：只放<b>纯事实</b>，而且必须用
  *       {@code queueSilent}。它会留在女仆记忆里，下次正常聊天时被注入 ——
  *       如果带上"主动发一条消息"之类指令，她以后会莫名其妙又汇报一次；
  *       而如果作为<b>可播报</b>条目排队，{@code MaidScanTicker} 最多 5 秒后就会把它当成
  *       "她刚苏醒"再播报一遍，同一件事变成两次 LLM 对话（见 §5.15）。</li>
- *   <li>{@link MaidChatHandler#handleSystemInjection}：事实 + 语气引导 + 收尾语，<b>只用于本次</b>
- *       即时触发。系统文本放在人设与历史之后（模型权重最高），免得被当背景设定读掉。</li>
  * </ul>
  *
  * <h2>「连续复活事件」里的三条叙事（见 {@link RescueStreakManager}）</h2>
@@ -98,18 +101,15 @@ public final class RescueNarrative {
                 boolean selfIsHealer = maid == plan.healer().maid();
                 DistanceBand band = bandOf(maid, rescue);
 
-                // 记忆：纯事实、无指令（她下次正常聊天时会读到）
-                //   ⚠ 必须用 queueSilent：这条事实我们**紧接着就即时注入说过了**，
-                //   若作为"可播报"条目排队，MaidScanTicker 最多 5 秒后会把它当成
-                //   "她刚苏醒"再播报一次 —— 同一件事两次 LLM 对话（见 §5.15）。
-                PendingSystemMessageBus.queueSilent(stableId,
-                        buildMemory(band, plan, selfIsHealer, rescue.deathMessage(), healPotion, firePotion));
-                // 即时触发：事实 + 语气引导 + 距离相符的收尾语
-                MaidChatHandler.handleSystemInjection(revived, stableId,
+                // 交给叙事总线：它会（a）把纯事实以【静默】条目写进记忆通道（零 token，
+                // 且不会被 MaidScanTicker 当成"她刚苏醒"再播一遍，见 §5.15），
+                // （b）与同一刻的补给叙事合并，同一件事只花一次 LLM 调用（见 §12）。
+                MaidNarrativeBus.submit(revived.getUUID(), stableId, MaidNarrativeBus.Kind.RESCUE,
                         buildPrompt(plan, selfIsHealer, rescue.deathMessage(), healPotion, firePotion,
                                 band, rescueSeq),
+                        buildMemory(band, plan, selfIsHealer, rescue.deathMessage(), healPotion, firePotion),
                         closingLine(band),
-                        true);
+                        0);
             } catch (Exception e) {
                 LOGGER.error("[HuhuTalk][救援] 注入叙事失败 maid={}", maid.getName().getString(), e);
             }
@@ -143,8 +143,13 @@ public final class RescueNarrative {
             if (stableId == null || stableId.isBlank()) {
                 return;
             }
-            MaidChatHandler.handleSystemInjection(player, stableId,
-                    buildLowPotionWarning(notice), LOW_POTION_CLOSING, true);
+            MaidNarrativeBus.submit(player.getUUID(), stableId,
+                    MaidNarrativeBus.Kind.RESCUE_LOW_POTION,
+                    buildLowPotionWarning(notice),
+                    "【记忆】你和" + (notice.otherNames().isEmpty() ? "其他女仆" : String.join("、", notice.otherNames()))
+                            + "手上的治疗药水只剩 " + notice.remaining() + " 瓶了，你提醒过主人省着点。",
+                    LOW_POTION_CLOSING,
+                    0);
         } catch (Exception e) {
             LOGGER.error("[HuhuTalk][救援] 注入濒危提醒失败 maid={}",
                     notice.speaker().getName().getString(), e);
@@ -165,11 +170,22 @@ public final class RescueNarrative {
             if (stableId == null || stableId.isBlank()) {
                 return;
             }
-            MaidChatHandler.handleSystemInjection(player, stableId,
-                    buildStreakSummary(streak, speaker), STREAK_CLOSING, true);
+            MaidNarrativeBus.submit(player.getUUID(), stableId,
+                    MaidNarrativeBus.Kind.RESCUE_STREAK_SUMMARY,
+                    buildStreakSummary(streak, speaker),
+                    buildStreakMemory(streak),
+                    STREAK_CLOSING,
+                    0);
         } catch (Exception e) {
             LOGGER.error("[HuhuTalk][救援] 注入计数区间总结失败 maid={}", speaker.getName().getString(), e);
         }
+    }
+
+    /** 收尾总结的纯事实版（进记忆通道，零 token）。 */
+    private static String buildStreakMemory(RescueStreak streak) {
+        return "【记忆】主人刚连着翻车了 " + streak.deathCount()
+                + " 次，你把他的这段统计结算了一下：一共救回来 " + streak.rescueCount()
+                + " 次，用掉了：" + describeConsumption(streak) + "。";
     }
 
     /** 濒危提醒正文：点名"我/我和 xx"，并报<b>实际</b>剩几瓶（不写死 3）。 */

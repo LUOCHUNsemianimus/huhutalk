@@ -2,7 +2,7 @@ package com.huhutalk.core.supply;
 
 import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
 import com.huhutalk.common.MaidStableIdHelper;
-import com.huhutalk.core.chat.MaidChatHandler;
+import com.huhutalk.core.chat.MaidNarrativeBus;
 import com.huhutalk.core.chat.MaidNarrativeStyle;
 import com.huhutalk.core.chat.PendingSystemMessageBus;
 import net.minecraft.server.level.ServerPlayer;
@@ -16,18 +16,21 @@ import java.util.Map;
  *
  * <h2>三处会让她开口（都受设置「远程补给触发女仆回复」管）</h2>
  * <ol>
- *   <li>{@link #injectOutOfSupplies}：主人状态不好，可她手头已经没补给品了（附加需求 1）；</li>
+ *   <li>{@link #injectOutOfSupplies}：主人状态不好，可她手头已经没补给品了（附加需求 1）——
+ *       <b>推迟 {@link #USED_UP_DELAY_TICKS} 再播</b>，因为紧接着可能就是他死了；</li>
  *   <li>{@link #injectDiedWithoutRescue}：主人没撑到补给到位、而且这次也没被救回来，
- *       还带上<b>原版死因</b>让她知道他是怎么没的（附加需求 2 / 2.1）；</li>
- *   <li>{@link #injectManualSwitch}：玩家<b>手动</b>把她的模式切走 —— 告诉她消耗明细 + 新模式名
- *       （需求 2.3.2）。</li>
+ *       带上<b>原版死因</b>，并在"补给也用完了"时把那条并进来（附加需求 2 / 2.1 + 兼容）；</li>
+ *   <li>{@link #injectManualSwitch}：玩家<b>手动</b>把她的模式切走 —— 消耗明细 + 新模式名（需求 2.3.2）。</li>
  * </ol>
+ *
+ * <h2>全部走 {@link MaidNarrativeBus}</h2>
+ * 不再直接调 {@code handleSystemInjection}：这样它和救援叙事能被合并/吸收，
+ * 同一个事件不会产生两次 LLM 调用（见 §12）。
  *
  * <h2>第四处刻意"只写记忆、不开口"</h2>
  * {@link #queueSwitchMemory}：模型自己用 {@code switch_work_task} 切走时（需求 2.3.3），
  * 模型那一轮本来就拿到了 {@code "Switched to task X"} 的工具返回值，再唤起一次 LLM 就会变成
- * "她刚说完换了、过会儿又说一遍"的双重调用。所以这里只写进记忆通道（零 token），
- * 她下次自然聊天时会知道。
+ * "她刚说完换了、过会儿又说一遍"的双重调用。所以这里只写进记忆通道（零 token）。
  *
  * <h2>开关关闭时</h2>
  * 三种"开口"全部降级为写记忆 —— 事实不丢，只是不主动冒泡。
@@ -39,10 +42,18 @@ public final class RemoteSupplyNarrative {
     /** 收尾 USER 语：这条链路本质都是"隔着手机"发生的。 */
     private static final String CLOSING = "你隔着手机跟主人说着话。";
 
+    /**
+     * 「补给用尽」的推迟播报窗口（tick）：8 秒。
+     * <p>为什么要等：他很可能紧接着就被秒了。若这 8 秒内死了，那条死亡叙事会调用
+     * {@code MaidNarrativeBus.withdrawAny} 把它撤下来并进自己的文本 ——
+     * 于是整件事只花<b>一次</b> LLM 调用，玩家也只收到一条消息（需求方定稿的做法）。
+     */
+    public static final int USED_UP_DELAY_TICKS = 8 * 20;
+
     private RemoteSupplyNarrative() {
     }
 
-    // ==================== 1) 补给品用尽 ====================
+    // ==================== 1) 补给品用尽（延迟窗口） ====================
 
     /** 主人状态不好但手头没补给了：让她说一声（需求附加点 1）。 */
     public static void injectOutOfSupplies(ServerPlayer player, EntityMaid speaker) {
@@ -53,7 +64,8 @@ public final class RemoteSupplyNarrative {
                 + "说点什么吧：按你自己的性子来，轻松地告诉他一声你这边暂时没东西了，别让他以为还有存货。\n"
                 + MaidNarrativeStyle.BREVITY_LINE;
         String memory = "【记忆】主人刚才状态不好，但你手头的补给品已经用完了（食物和药水都空了），没能帮上他。";
-        speakOrRemember(player, speaker, system, memory);
+        submitOrRemember(player, speaker, MaidNarrativeBus.Kind.SUPPLY_USED_UP,
+                system, memory, USED_UP_DELAY_TICKS);
     }
 
     // ==================== 2) 主人没撑到补给（且没被救回） ====================
@@ -62,19 +74,33 @@ public final class RemoteSupplyNarrative {
      * 主人在补给期间死了、而且没被救回来（自己点了重生）：让她表示已经尽力（附加需求 2 / 2.1）。
      *
      * @param deathMessage 原版死亡提示（与救援同一口径，见 {@code RescueEnvironment#describeDeath}）
+     * @param alsoRanOut   这段窗口里是否还挂着/已经撤下一条"补给用尽"（由总线判定）——
+     *                     为 {@code true} 时不再单独发那条，而是并进这条文本里
      */
-    public static void injectDiedWithoutRescue(ServerPlayer player, EntityMaid speaker, String deathMessage) {
+    public static void injectDiedWithoutRescue(ServerPlayer player, EntityMaid speaker,
+                                               String deathMessage, boolean alsoRanOut) {
         if (player == null || speaker == null) {
             return;
         }
         String cause = deathMessage == null || deathMessage.isBlank() ? "（死因未知）" : deathMessage;
-        String system = "【刚刚的事】" + cause + "。你一直在给他远程补给，"
-                + "但他这次掉血太快，没等到补给到位就没了；这次也没能把他救回来。\n"
-                + "说点什么吧：按你自己的性子来——你可以说自己已经尽力了，"
-                + "也可以吐槽他太脆、属性不够、或者该练练级再来。\n"
-                + MaidNarrativeStyle.BREVITY_LINE;
-        String memory = "【记忆】" + cause + "——你一直在给他远程补给，但他掉血太快，这次没能把他救回来。";
-        speakOrRemember(player, speaker, system, memory);
+        StringBuilder system = new StringBuilder();
+        system.append("【刚刚的事】").append(cause).append("。你一直在给他远程补给，")
+                .append("但他这次掉血太快，没等到补给到位就没了；这次也没能把他救回来。\n");
+        if (alsoRanOut) {
+            system.append("（顺带一提：你的补给品那会儿其实就已经用完了，你当时还提醒过他。）\n");
+        }
+        system.append("说点什么吧：按你自己的性子来——你可以说自己已经尽力了，")
+                .append("也可以吐槽他太脆、属性不够、或者该练练级再来。\n")
+                .append(MaidNarrativeStyle.BREVITY_LINE);
+
+        StringBuilder memory = new StringBuilder();
+        memory.append("【记忆】").append(cause)
+                .append("——你一直在给他远程补给，但他掉血太快，这次没能把他救回来。");
+        if (alsoRanOut) {
+            memory.append("（你的补给品当时已经用完了。）");
+        }
+        submitOrRemember(player, speaker, MaidNarrativeBus.Kind.SUPPLY_DIED,
+                system.toString(), memory.toString(), 0);
     }
 
     // ==================== 3) 玩家手动切走模式 ====================
@@ -92,7 +118,8 @@ public final class RemoteSupplyNarrative {
                 + MaidNarrativeStyle.BREVITY_LINE;
         String memory = "【记忆】你的工作模式从「远程补给」切换为「" + newTaskName + "」；"
                 + "这一段远程补给消耗了：" + used + "。";
-        speakOrRemember(player, speaker, system, memory);
+        submitOrRemember(player, speaker, MaidNarrativeBus.Kind.SUPPLY_MODE_SWITCH,
+                system, memory, 0);
     }
 
     // ==================== 4) 模型/程序切走模式（只写记忆） ====================
@@ -121,11 +148,14 @@ public final class RemoteSupplyNarrative {
     // ==================== 内部 ====================
 
     /**
-     * 按开关决定"开口"还是"只写记忆"。
+     * 按开关决定"交给总线播报"还是"只写记忆"。
      * <p>开关关掉时事实照样进记忆 —— 玩家只是不想被打扰，不是不想让她知道。
+     * <p>记忆固定走 {@link PendingSystemMessageBus#queueSilent}（可播报条目会被
+     * {@code MaidScanTicker} 当成"她刚苏醒"再发起一次对话，那就等于开关没关，见 §5.15）。
      */
-    private static void speakOrRemember(ServerPlayer player, EntityMaid speaker,
-                                        String systemText, String memoryFact) {
+    private static void submitOrRemember(ServerPlayer player, EntityMaid speaker,
+                                         MaidNarrativeBus.Kind kind, String systemText,
+                                         String memoryFact, int delayTicks) {
         String stableId;
         try {
             stableId = MaidStableIdHelper.getOrCreateStableId(speaker);
@@ -137,21 +167,11 @@ public final class RemoteSupplyNarrative {
             return;
         }
         if (!RemoteSupplySettings.isReplyEnabled(player.getUUID())) {
-            // 关闭时：只写静默记忆，不花这次 LLM 调用。
-            // 必须是静默条目 —— 可播报条目会被 MaidScanTicker 当成"她刚苏醒"再发起一次 LLM 对话，
-            // 那就等于开关没关（见 §5.15）。
             PendingSystemMessageBus.queueSilent(stableId, memoryFact);
             return;
         }
-        try {
-            // 记忆：纯事实、无指令（她下次正常聊天时会读到）。
-            // 同样必须静默：这条事实紧接着就即时注入说过了，排队播报会让同一件事被说两遍。
-            PendingSystemMessageBus.queueSilent(stableId, memoryFact);
-            // 即时触发：事实 + 语气引导 + 长度约束
-            MaidChatHandler.handleSystemInjection(player, stableId, systemText, CLOSING, true);
-        } catch (Exception e) {
-            LOGGER.error("[HuhuTalk][补给] 注入叙事失败 maid={}", speaker.getName().getString(), e);
-        }
+        // 记忆由总线在提交时立刻写入（静默），所以这里不再单独 queue
+        MaidNarrativeBus.submit(player.getUUID(), stableId, kind, systemText, memoryFact, CLOSING, delayTicks);
     }
 
     /** 消耗明细："面包 ×3、治疗药水 ×1"；什么都没用时给一句人话。 */
