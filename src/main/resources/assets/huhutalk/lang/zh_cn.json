@@ -10,5 +10,7 @@
   "key.huhutalk.quick_voice": "按住说话（语音输入）",
   "key.huhutalk.phone_click": "手机左键（手机内点击/确认）",
   "key.huhutalk.phone_back": "手机右键（手机内返回）",
-  "huhutalk.toast.photo_saved": "已保存到相册"
+  "huhutalk.toast.photo_saved": "已保存到相册",
+  "task.huhutalk.remote_supply": "远程补给",
+  "task.huhutalk.remote_supply.desc": "主人血量或饱食度偏低时，自动从自己的背包/隙间里挑一件合适的食物或药水用在他身上，并在手机聊天页留下记录（不会打扰你）。"
 }

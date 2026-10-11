@@ -6,8 +6,7 @@ import com.huhutalk.common.MaidStableIdHelper;
 import com.huhutalk.common.PlayerPhoneHelper;
 import com.huhutalk.common.StableIdProvider;
 import com.huhutalk.core.transfer.MaidTransferService;
-import com.huhutalk.network.S2CMaidItemTransferPacket;
-import com.huhutalk.phone.ItemTransfer;
+import com.huhutalk.core.transfer.UsedItemNotifier;
 import net.minecraft.core.particles.ColorParticleOption;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.core.registries.BuiltInRegistries;
@@ -22,7 +21,6 @@ import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.item.ItemStack;
-import net.neoforged.neoforge.network.PacketDistributor;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -142,6 +140,9 @@ public final class MaidRescueService {
         //     → 下次进世界读到的还是"死亡状态"
         ServerPlayer revived;
         try {
+            // 先把"这次死亡已被救回"告诉其他模块（远程补给的"玩家直接复活了"判定要读它，
+            // 而重生的瞬间就可能有人来查，所以必须写在 respawn 之前）
+            PendingRescueManager.markRescued(rescue.playerId(), server.getTickCount());
             PendingRescueManager.beginRespawnRedirect(rescue);
             revived = server.getPlayerList().respawn(dead, false, Entity.RemovalReason.KILLED);
             repointConnection(dead, revived);
@@ -294,15 +295,7 @@ public final class MaidRescueService {
      *               预览要带上 {@code POTION_CONTENTS} 组件，客户端才画得出正确的液色与图标。
      */
     private static void pushUsedBubble(ServerPlayer player, MaidDeliveryRecord record, ItemStack potion) {
-        List<ItemTransfer.Preview> previews = List.of(ItemTransfer.Preview.of(potion));
-        PacketDistributor.sendToPlayer(player, new S2CMaidItemTransferPacket(
-                record.stableId(),
-                UUID.randomUUID().toString(),
-                previews,
-                1,
-                0,
-                true,
-                record.effectText()));
+        UsedItemNotifier.pushUsed(player, record.stableId(), potion, record.effectText());
     }
 
     /** 取女仆的稳定 ID；尚未生成时补生成一次（与全模组的主键约定一致）。 */

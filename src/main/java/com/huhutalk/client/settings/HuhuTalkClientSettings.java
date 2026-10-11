@@ -49,6 +49,12 @@ public final class HuhuTalkClientSettings {
      * <p>每次触发都会让女仆走一次 AI 叙事，因此对在意 token 消耗的玩家提供关闭入口。
      */
     private static boolean potionRescueEnabled = true;
+    /**
+     * 「远程补给触发女仆回复」：远程补给这条链路要不要让女仆主动开口（默认开）。
+     * <p>关掉后补给照常（物品照样消耗、手机页照样留痕），只是不再为"补给品用尽 /
+     * 主人没被救回 / 手动切走模式"额外调用一次 AI；这些事实仍会写进她的记忆。
+     */
+    private static boolean remoteSupplyReply = true;
     /** 是否已看过手机内置手册（设置 APP）：首次未看时主界面该 APP 右上角标小红点，点击后消除 */
     private static boolean manualSeen = false;
     /** 消息断句动画开关 */
@@ -94,6 +100,8 @@ public final class HuhuTalkClientSettings {
     public static boolean isImmersiveChatEnabled() { return immersiveChatEnabled; }
     /** 「药水复活」开关：关闭后死亡不会触发女仆远程送药（也就不消耗 AI token） */
     public static boolean isPotionRescueEnabled() { return potionRescueEnabled; }
+    /** 「远程补给触发女仆回复」开关：关闭后补给照常，但不再因此唤起女仆开口 */
+    public static boolean isRemoteSupplyReplyEnabled() { return remoteSupplyReply; }
     public static boolean isManualSeen() { return manualSeen; }
     public static boolean isMessageAnimationEnabled() { return messageAnimation; }
     /** 「切屏动画」全局界面动画总开关 */
@@ -241,6 +249,17 @@ public final class HuhuTalkClientSettings {
         save();
     }
 
+    /**
+     * 设置「远程补给触发女仆回复」开关。
+     * <p><b>注意</b>：判定发生在服务端，所以调用方改完这里后必须把值同步给服务端
+     * （见 {@code ClientModEvents.pushRemoteSupplyReplySetting} / {@code SettingsPage}）。
+     * 本方法只负责本地持久化。
+     */
+    public static void setRemoteSupplyReplyEnabled(boolean enabled) {
+        remoteSupplyReply = enabled;
+        save();
+    }
+
     /** 标记已看过手册（消除首次红点） */
     public static void setManualSeen(boolean seen) {
         manualSeen = seen;
@@ -371,6 +390,7 @@ public final class HuhuTalkClientSettings {
             // 用「可空 Boolean + 缺失时按 true」而不是裸 boolean：
             // 否则老配置文件里没有该字段，Gson 会解析成 false，把默认开启的功能静默关掉
             potionRescueEnabled = data.potionRescueEnabled == null ? true : data.potionRescueEnabled;
+            remoteSupplyReply = data.remoteSupplyReply == null ? true : data.remoteSupplyReply;
             manualSeen = data.manualSeen;
             messageAnimation = data.messageAnimation;
             uiAnimation = data.uiAnimation;
@@ -421,6 +441,7 @@ public final class HuhuTalkClientSettings {
             data.maidWhisperEnabled = maidWhisperEnabled;
             data.immersiveChatEnabled = immersiveChatEnabled;
             data.potionRescueEnabled = potionRescueEnabled;
+            data.remoteSupplyReply = remoteSupplyReply;
             data.manualSeen = manualSeen;
             data.messageAnimation = messageAnimation;
             data.uiAnimation = uiAnimation;
@@ -460,6 +481,8 @@ public final class HuhuTalkClientSettings {
         boolean immersiveChatEnabled;
         /** 可空：缺失时默认开启（老配置文件没有该字段） */
         Boolean potionRescueEnabled;
+        /** 可空：缺失时默认开启（老配置文件没有该字段） */
+        Boolean remoteSupplyReply;
         boolean manualSeen;
         boolean messageAnimation;
         boolean uiAnimation;

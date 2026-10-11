@@ -12,6 +12,7 @@ import com.huhutalk.core.chat.SignalDelayManager;
 import com.huhutalk.core.load.TicketManager;
 import com.huhutalk.core.move.MaidMoveData;
 import com.huhutalk.core.rescue.PlayerRescueHook;
+import com.huhutalk.core.supply.RemoteSupplyHook;
 import com.huhutalk.init.HuhuTalkBlocks;
 import com.huhutalk.init.HuhuTalkCreativeTabs;
 import com.huhutalk.init.HuhuTalkItems;
@@ -21,6 +22,7 @@ import com.huhutalk.network.C2SMaidImageChatPacket;
 import com.huhutalk.network.C2SClaimTransferPacket;
 import com.huhutalk.network.C2SPhoneTypingDonePacket;
 import com.huhutalk.network.C2SPotionRescueSettingPacket;
+import com.huhutalk.network.C2SRemoteSupplyReplySettingPacket;
 import com.huhutalk.network.C2SDeleteContactPacket;
 import com.huhutalk.network.C2SDropTransferInboxPacket;
 import com.huhutalk.network.C2SMaidChatWithItemsPacket;
@@ -62,6 +64,8 @@ public class HuhuTalk {
         NeoForge.EVENT_BUS.register(new MaidStatusTicker());
         // 玩家死亡远程救援：死亡登记 + 5s 对账 + 重生位置重定向（服务端权威，多人可用）
         NeoForge.EVENT_BUS.register(new PlayerRescueHook());
+        // 远程补给：工作期计数 + 血/饱食自动补给 + 手机留痕（需求 2）
+        NeoForge.EVENT_BUS.register(new RemoteSupplyHook());
         NeoForge.EVENT_BUS.register(new TicketManager());
         NeoForge.EVENT_BUS.addListener(RegisterCommandsEvent.class, ModCommands::register);
         NeoForge.EVENT_BUS.addListener(ServerStoppingEvent.class, e -> MaidMoveData.restoreOnServerStop());
@@ -120,6 +124,8 @@ public class HuhuTalk {
         registrar.playToServer(C2SPhoneTypingDonePacket.TYPE, C2SPhoneTypingDonePacket.STREAM_CODEC, C2SPhoneTypingDonePacket::handle);
         // 客户端 → 服务端：同步「药水复活」开关（服务端只在会话内缓存该偏好）
         registrar.playToServer(C2SPotionRescueSettingPacket.TYPE, C2SPotionRescueSettingPacket.STREAM_CODEC, C2SPotionRescueSettingPacket::handle);
+        // 客户端 → 服务端：同步「远程补给触发女仆回复」开关（同样只在会话内缓存）
+        registrar.playToServer(C2SRemoteSupplyReplySettingPacket.TYPE, C2SRemoteSupplyReplySettingPacket.STREAM_CODEC, C2SRemoteSupplyReplySettingPacket::handle);
         // 注意：S2C 包在 ClientPayloadSetup 中注册
     }
 }

@@ -5,6 +5,7 @@ import com.huhutalk.client.theme.ColorScheme;
 import com.huhutalk.client.theme.ThemeManager;
 import com.huhutalk.network.C2SSOSPacket;
 import com.huhutalk.network.C2SPotionRescueSettingPacket;
+import com.huhutalk.network.C2SRemoteSupplyReplySettingPacket;
 import com.huhutalk.phone.IPhonePage;
 import com.huhutalk.phone.PhoneOverlay;
 import com.huhutalk.phone.UiFont;
@@ -86,14 +87,17 @@ public class SettingsPage implements IPhonePage {
     }
 
     /**
-     * 每次打开设置页都把「药水复活」偏好同步一次。
-     * <p>服务端只在会话内缓存它（见 {@code RescueSettings}），所以重连后必须重新告知；
-     * 这里同时兜住"登录同步包因故没发出去"的极端情况 —— 玩家只要开过设置页就一定同步过。
+     * 每次打开设置页都把两个服务端判定用的偏好同步一次。
+     * <p>服务端只在会话内缓存它们（见 {@code RescueSettings} / {@code RemoteSupplySettings}），
+     * 所以重连后必须重新告知；这里同时兜住"登录同步包因故没发出去"的极端情况 ——
+     * 玩家只要开过设置页就一定同步过。
      */
     @Override
     public void onOpen() {
         PacketDistributor.sendToServer(
                 new C2SPotionRescueSettingPacket(HuhuTalkClientSettings.isPotionRescueEnabled()));
+        PacketDistributor.sendToServer(
+                new C2SRemoteSupplyReplySettingPacket(HuhuTalkClientSettings.isRemoteSupplyReplyEnabled()));
     }
 
     // ==================== 布局 ====================
@@ -104,7 +108,7 @@ public class SettingsPage implements IPhonePage {
         int msgTitleY, msgRectY, msgRectH;
         int[] msgRow = new int[3]; // 消息免打扰 / 女仆悄悄话 / 沉浸式聊天
         int rescueTitleY, rescueRectY, rescueRectH;
-        int rescueRow; // 药水复活开关
+        int[] rescueRow = new int[2]; // 药水复活 / 远程补给触发女仆回复
         int animTitleY, animRectY, animRectH;
         int[] animRow = new int[4]; // 消息动画 / 每字耗时 / 单句上限 / 切屏动画(全局总开关)
         int colorTitleY, colorRectY, colorRectH;
@@ -139,14 +143,16 @@ public class SettingsPage implements IPhonePage {
         y = L.msgRow[2] + rowH() + rectPad();
         y += groupTitleTop();
 
-        // 救援 分组（1 行）：药水复活开关
+        // 救援 分组（2 行）：药水复活 / 远程补给触发女仆回复
         L.rescueTitleY = y;
         y += titleH + cardGap();
-        L.rescueRow = y;
-        y += rowH();
-        L.rescueRectY = L.rescueRow - rectPad();
-        L.rescueRectH = (L.rescueRow + rowH()) - L.rescueRectY + rectPad();
-        y = L.rescueRow + rowH() + rectPad();
+        for (int i = 0; i < 2; i++) {
+            L.rescueRow[i] = y;
+            y += rowH();
+        }
+        L.rescueRectY = L.rescueRow[0] - rectPad();
+        L.rescueRectH = (L.rescueRow[1] + rowH()) - L.rescueRectY + rectPad();
+        y = L.rescueRow[1] + rowH() + rectPad();
         y += groupTitleTop();
 
         // 动画 分组（4 行）
@@ -257,9 +263,14 @@ public class SettingsPage implements IPhonePage {
     }
 
     /**
-     * 救援 分组（1 行）：药水复活开关。
-     * <p>关掉它 = 死亡后不再触发女仆远程送药，也就不会因为这件事调用一次 AI（省 token）。
-     * 拨动时会立刻把新值同步给服务端，因为判定发生在服务端。
+     * 救援 分组（2 行）。
+     * <ul>
+     *   <li><b>药水复活</b>：关掉 = 死亡后不再触发女仆远程送药（功能本身不生效，省 token）。</li>
+     *   <li><b>远程补给触发女仆回复</b>：只决定补给链路要不要让她主动开口；
+     *       关掉后补给照常（物品照样消耗、手机页照样留痕），只是不再为那几种情况多调一次 AI，
+     *       事实仍会写进她的记忆。</li>
+     * </ul>
+     * 两个开关拨动时都会立刻同步给服务端，因为判定都发生在服务端。
      */
     private void renderRescueGroup(GuiGraphics g, Font font, Layout L, int baseX, int baseY) {
         int rectX = baseX + UiFont.sh(10);
@@ -267,8 +278,12 @@ public class SettingsPage implements IPhonePage {
         drawScaledText(g, font, "救援", baseX + UiFont.sh(12), ly(L, baseY, L.rescueTitleY),
                 GROUP_TITLE_COLOR, UiFont.sc(GROUP_SCALE));
         UiShapes.fillRoundedRect(g, rectX, ly(L, baseY, L.rescueRectY), rectW, L.rescueRectH, CARD_R, CARD_BG);
-        int rowY = ly(L, baseY, L.rescueRow);
+        int rowY = ly(L, baseY, L.rescueRow[0]);
         drawToggleRow(g, font, rectX, rectW, rowY, "药水复活", HuhuTalkClientSettings.isPotionRescueEnabled());
+        drawDivider(g, rectX, rectW, rowY + rowH());
+        int rowY1 = ly(L, baseY, L.rescueRow[1]);
+        drawToggleRow(g, font, rectX, rectW, rowY1, "远程补给女仆回复",
+                HuhuTalkClientSettings.isRemoteSupplyReplyEnabled());
     }
 
     private void renderAnimGroup(GuiGraphics g, Font font, Layout L, int baseX, int baseY) {
@@ -572,10 +587,17 @@ public class SettingsPage implements IPhonePage {
         }
 
         // 救援：药水复活开关。判定在服务端（死亡瞬间），所以改完立刻同步新值
-        if (hit(relX, ly, rectX, L.rescueRow, rectW, rowH())) {
+        if (hit(relX, ly, rectX, L.rescueRow[0], rectW, rowH())) {
             boolean next = !HuhuTalkClientSettings.isPotionRescueEnabled();
             HuhuTalkClientSettings.setPotionRescueEnabled(next);
             PacketDistributor.sendToServer(new C2SPotionRescueSettingPacket(next));
+            return true;
+        }
+        // 救援：远程补给触发女仆回复开关。同样由服务端决定要不要多调一次 AI，改完立刻同步
+        if (hit(relX, ly, rectX, L.rescueRow[1], rectW, rowH())) {
+            boolean next = !HuhuTalkClientSettings.isRemoteSupplyReplyEnabled();
+            HuhuTalkClientSettings.setRemoteSupplyReplyEnabled(next);
+            PacketDistributor.sendToServer(new C2SRemoteSupplyReplySettingPacket(next));
             return true;
         }
 

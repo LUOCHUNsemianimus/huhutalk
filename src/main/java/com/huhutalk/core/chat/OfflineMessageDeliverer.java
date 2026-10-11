@@ -30,10 +30,12 @@ public class OfflineMessageDeliverer {
         MinecraftServer server = maid.level().getServer();
         if (server == null) return;
 
-        // 第一步：检查 PendingSystemMessageBus（主人不在线时被放回的消息）
-        List<String> pending = PendingSystemMessageBus.drain(stableId);
+        // 第一步：检查 PendingSystemMessageBus —— 只取"需要她开口"的条目。
+        // 静默事实（我们已经即时开口说过的事）必须留在总线里，等下一次自然聊天顺路带上；
+        // 否则同一件事会被说两遍（见 PendingSystemMessageBus 的类注释）。
+        List<String> pending = PendingSystemMessageBus.drainBroadcastable(stableId);
 
-        // 第二步：如果 Pending 为空，从 OfflineMessageQueue 转移离线消息
+        // 第二步：如果 Pending 为空，从 OfflineMessageQueue 转移离线消息（那是玩家真发的消息）
         if (pending.isEmpty()) {
             OfflineMessageQueue offlineQueue = OfflineMessageQueue.get(server);
             List<OfflineMessageQueue.QueuedMessage> queued = offlineQueue.drain(stableId);

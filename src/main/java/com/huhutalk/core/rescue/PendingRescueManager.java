@@ -45,6 +45,9 @@ public final class PendingRescueManager {
      */
     private static final Map<UUID, PendingRescue> RESPAWN_REDIRECT = new HashMap<>();
 
+    /** 玩家 UUID -> 最近一次<b>成功</b>救援的 tick（供其他模块判断"这次死亡到底被救回来了没有"） */
+    private static final Map<UUID, Long> LAST_RESCUE_TICK = new HashMap<>();
+
     private PendingRescueManager() {
     }
 
@@ -78,12 +81,37 @@ public final class PendingRescueManager {
         }
         PENDING.remove(playerId);
         RESPAWN_REDIRECT.remove(playerId);
+        LAST_RESCUE_TICK.remove(playerId);
     }
 
     /** 服务器停止：全清（内存态，随进程结束即可）。 */
     public static void clearAll() {
         PENDING.clear();
         RESPAWN_REDIRECT.clear();
+        LAST_RESCUE_TICK.clear();
+    }
+
+    // ==================== 救援结果留痕（供其他模块查） ====================
+
+    /**
+     * 记一次<b>成功</b>救援。
+     * <p>必须在强制重生<b>之前</b>调用：重生那一刻其他监听器就可能来问"这次死亡被救回来了吗"。
+     * <p>用途：远程补给要在玩家"没被救、自己点了重生"时补一条叙事（需求 2.2），
+     * 它需要一个权威的"到底救没救成"的判据。
+     */
+    public static void markRescued(UUID playerId, long nowTick) {
+        if (playerId != null) {
+            LAST_RESCUE_TICK.put(playerId, nowTick);
+        }
+    }
+
+    /** 自 {@code sinceTick} 之后是否发生过成功救援（含等号）。 */
+    public static boolean wasRescuedSince(UUID playerId, long sinceTick) {
+        if (playerId == null) {
+            return false;
+        }
+        Long last = LAST_RESCUE_TICK.get(playerId);
+        return last != null && last >= sinceTick;
     }
 
     // ==================== tick 对账 ====================

@@ -92,6 +92,26 @@ public final class RescuePotion {
         return total;
     }
 
+    /**
+     * 只算<b>瞬间治疗</b>（HEAL）的那部分点数，<b>不含再生</b>。
+     * <p>给「远程补给」用：它把药水喂给一个<b>还活着</b>的玩家，会把非瞬间效果（再生…）
+     * 按原版正常挂上去，让游戏自己结算 —— 所以直接加血时只能加瞬间那部分，
+     * 否则再生会被算两次（救援那边是 {@code setHealth} 一次性结算，口径不同，别混用）。
+     */
+    public static int instantHealAmount(@Nullable ItemStack stack) {
+        PotionContents contents = contentsOf(stack);
+        if (contents == null) {
+            return 0;
+        }
+        int total = 0;
+        for (MobEffectInstance effect : contents.getAllEffects()) {
+            if (effect.getEffect().is(MobEffects.HEAL)) {
+                total += 4 << clamp(effect.getAmplifier(), 0, 10);
+            }
+        }
+        return total;
+    }
+
     /** 使用方式（饮用 / 喷溅 / 滞留）。 */
     public static Usage usageOf(@Nullable ItemStack stack) {
         if (stack == null || stack.isEmpty()) {

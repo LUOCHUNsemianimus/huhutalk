@@ -4,6 +4,7 @@ import com.huhutalk.client.render.PhoneScreenTarget;
 import com.huhutalk.client.render.ProPhoneHandRenderer;
 import com.huhutalk.client.settings.HuhuTalkClientSettings;
 import com.huhutalk.network.C2SPotionRescueSettingPacket;
+import com.huhutalk.network.C2SRemoteSupplyReplySettingPacket;
 import com.huhutalk.phone.PhoneOverlay;
 import com.huhutalk.phone.IPhonePage;
 import com.huhutalk.phone.pages.ChatPage;
@@ -54,20 +55,28 @@ public class ClientModEvents {
     }
 
     /**
-     * 登录（进入世界 / 重连）时把本机的「药水复活」偏好同步给服务端。
+     * 登录（进入世界 / 重连）时把本机的偏好同步给服务端。
      * <p>
-     * 服务端只在<b>会话内</b>缓存这份偏好（见 {@code RescueSettings}），所以每次登录都必须重新告知，
-     * 否则重连后开关会静默退回默认值。设置页打开时与拨动开关时还会各推一次，作为冗余保障。
+     * 服务端只在<b>会话内</b>缓存这些偏好（见 {@code RescueSettings} / {@code RemoteSupplySettings}），
+     * 所以每次登录都必须重新告知，否则重连后开关会静默退回默认值。
+     * 设置页打开时与拨动开关时还会各推一次，作为冗余保障。
      */
     @SubscribeEvent
     public static void onClientLoggingIn(ClientPlayerNetworkEvent.LoggingIn event) {
         pushPotionRescueSetting();
+        pushRemoteSupplyReplySetting();
     }
 
     /** 把本机的「药水复活」偏好推给服务端（幂等，可重复调用）。 */
     public static void pushPotionRescueSetting() {
         PacketDistributor.sendToServer(
                 new C2SPotionRescueSettingPacket(HuhuTalkClientSettings.isPotionRescueEnabled()));
+    }
+
+    /** 把本机的「远程补给触发女仆回复」偏好推给服务端（幂等，可重复调用）。 */
+    public static void pushRemoteSupplyReplySetting() {
+        PacketDistributor.sendToServer(
+                new C2SRemoteSupplyReplySettingPacket(HuhuTalkClientSettings.isRemoteSupplyReplyEnabled()));
     }
 
     /** 该鼠标按钮是否被玩家绑定为「手机左键」 */

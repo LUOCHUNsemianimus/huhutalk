@@ -12,6 +12,7 @@ import com.huhutalk.core.chat.MaidPhoneContexts;
 import com.huhutalk.core.chat.SendEmoteTool;
 import com.huhutalk.core.move.MoveToTool;
 import com.huhutalk.core.move.TaskMoveTo;
+import com.huhutalk.core.supply.TaskRemoteSupply;
 import com.huhutalk.core.transfer.SendItemTool;
 import com.huhutalk.init.HuhuTalkItems;
 import net.minecraft.client.renderer.entity.EntityRendererProvider;
@@ -39,6 +40,8 @@ public class HuhuTalkTLMExtension implements ILittleMaid {
     @Override
     public void addMaidTask(TaskManager manager) {
         manager.add(TaskMoveTo.INSTANCE);
+        // 远程补给：主人血量/饱食度低时自动从她背包里出东西（需求 2.1，图标金苹果）
+        manager.add(TaskRemoteSupply.INSTANCE);
     }
 
     @Override

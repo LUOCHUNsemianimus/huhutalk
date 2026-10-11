@@ -87,6 +87,7 @@
 - **药水复活开关**（见 §4.4）
 - 提示词两轮微调（去重、"抗火"重复、双女仆归因、去掉"不用端着"、复死提示改词）
 - **1 系列：连续复活事件**（静默闸门 + 计数期记账 + 濒危提醒 + 收尾总结，见 **§10**）
+- **任务 2：远程补给工作模式**（血/饱食自动补给 + 手机留痕不调 LLM + 工作期计数 + 开关，见 **§11**）
 
 ---
 
@@ -347,6 +348,69 @@ this.player = this.server.getPlayerList().respawn(this.player, false, Entity.Rem
 另外：`handleSystemInjection`（救援 / 濒危 / 总结 / 离线播报）**刻意不带**这条常识 ——
 救援那一刻只该讲"刚刚发生了什么"，常识属于平时就知道的东西。
 
+**为什么"工具"从来不需要这么接？（重要，别再查一遍）**
+
+| 机制 | 挂载在哪一层 | 双端自动？ |
+|---|---|---|
+| 工具 schema（`move_to` / `send_item` / `send_emote` …） | **LLM 请求层**：`LLMOpenAIClient` 读 `callback.needAddTools` + `ToolRegister.getAllTools()` 组装 tools | ✅ 自动 |
+| 常驻上下文（`promptContext = true` 的类别） | **调用方**：TLM 的 `MaidAIChatManager.normalChat` 里 `UserPromptContexts.addContext` | ❌ 手机聊天要自己拼 |
+
+`LLMCallback.needAddTools` 默认就是 `true`（构造函数里赋值），`HuhuTalkChatCallback` 又显式设了一遍，
+所以任何走到 `site.client().chat(callback)` 的路径（TLM 自带聊天 / 手机聊天 / 离线播报 / 救援注入）
+都会自动带上全部工具 —— 这就是 `move_to`、`send_item` "双端可用、而我们没写一行适配"的原因。
+知识库常驻上下文没有这层保护，必须自己接（见上表第二行）。
+
+顺带记一下，免得下次又找：**唯一的移动工具就是 `move_to`**，`arrival` 参数覆盖
+`meet / home(≈stay) / protect`；`/huhutalk move|come|stay` 是三条**玩家命令**
+（`ModCommands`，权限 2），与工具共用 `MaidMoveData` 后端 —— 是"一个工具 + 三条命令"，不是三个工具。
+
+**另一个可选方案**：`query_game_context` 工具的参数说明会列出 `allToolCategories()`
+（即 `promptContext = false` 的类别，格式 `- id: summary`），而工具 schema 在请求层 → **这份清单天然双端可见**。
+若哪天嫌每条消息那 60+ 字太贵，可以把本类别改成 `promptContext = false`：类别摘要常驻工具说明、
+细节由她按需查询，per-message 成本≈0；代价是不如常驻稳。目前选常驻（玩家一问就答得上）。
+
+**已知小口子**：内置 `equipment` 类别（可查询）里的 `inventory_items` 只扫
+`getAvailableBackpackInv()` —— **不含隙间绑箱**，而救援取药是会取隙间绑箱的。
+所以玩家把药水放隙间时，她"看背包"会答"没有"。需要的话再补一条隙间存量的条目。
+
+### 5.15 ⚠️ 「记忆」写错通道 = 同一件事两次 LLM 对话（实测日志坐实）
+
+**症状**（实机日志）：玩家在熔岩里死了一次，手机里却收到**四条**女仆消息、分属**两轮**对话：
+一轮是"没药了/你血怎么是 0"，另一轮是"熔岩里游泳?!…" 加一条超长抒情，
+而且后一轮腔调明显更"文艺"。
+
+**根因**（两层，都跟死亡监听无关）：
+
+1. **`MaidScanTicker` 每 100 tick 无条件尝试播报**：
+   ```java
+   // 每次扫描都尝试交付离线消息，内部会检查队列
+   OfflineMessageDeliverer.tryDeliver(maid, wasDead);   // MaidScanTicker:54-55
+   ```
+   它**没有"她醒来了"这个门禁** —— 只要 `PendingSystemMessageBus` 里有条目、女仆已加载、
+   戴着手机、主人活着，最多 5 秒后就会被 drain 出来、拼一句"你刚刚苏醒…真诚温暖的回应"
+   （`OfflineMessageDeliverer.buildSystemText`）**再发起一次完整 LLM 对话**。
+   参数 `wasDead` 只决定措辞（"你刚刚经历了一次死亡" vs "你刚刚苏醒"），
+   所以日志里出现"你刚刚苏醒"**不代表**判定到了女仆死亡 —— **别往死亡监听那边查**。
+2. **我们把"记忆"错写成了"可播报"**：救援 / 补给是"先即时注入一次、再把同一条事实留进记忆"，
+   那条记忆一旦是可播报条目，就必然被上面那步再播一遍 → 同一件事两轮对话。
+
+**修复**：`PendingSystemMessageBus` 拆成两类条目：
+
+| 方法 | 语义 | 谁取走 |
+|---|---|---|
+| `queue(stableId, text)` | **可播报**：女仆重新上线时要主动说给主人听 | `OfflineMessageDeliverer.drainBroadcastable`（≤5 秒内播报，会调 LLM） |
+| `queueSilent(stableId, text)` | **静默事实**：只作上下文 | 只在**下一次自然聊天**时由 `MaidChatHandler.handleChat` 的 `drain` 顺路带上，**零 LLM 调用** |
+
+**规矩**：**凡是我们已经即时开口说过的事实，一律 `queueSilent`。**
+救援的 `buildMemory`、补给的四处记忆全部已改；`OfflineMessageDeliverer` 只播报非静默条目，
+未播成时原样放回（保持静默标记）。
+
+**还留着的旧特性问题（待需求方决定）**：`MaidScanTicker` 那句"每次扫描都播报"其实丢掉了
+当初"等她醒来再播"的语义 —— 玩家离线期间发的消息会在女仆在线的任意 5 秒窗口里被播报。
+要恢复门禁（只在 `OFFLINE→ONLINE` / `DEAD→ONLINE` 跃迁时播报）说一声；
+现在靠"静默条目"把新功能的双重调用堵住，老路径行为未改。
+
+
 ---
 
 ## 六、以后要调字 / 要加功能时
@@ -362,7 +426,6 @@ this.player = this.server.getPlayerList().respawn(this.player, false, Entity.Rem
 | 收尾 USER 语（三条） | `closingLine` |
 | **语气引导** | 常量 `TONE_GUIDE` |
 | **长度约束**（"话要短：一两句就够…"） | 常量 `BREVITY_LINE` |
-| **「远程支援」能力说明** | 常量 `CAPABILITY_NOTE` |
 | **记忆文案**（进 `PendingSystemMessageBus`） | `buildMemory` |
 | **事件文本主体** | `buildPrompt` |
 | **濒危提醒正文**（1.3） | `buildLowPotionWarning` + 常量 `LOW_POTION_CLOSING` |
@@ -450,11 +513,19 @@ restored / used / effectText / gameTime`）已经是可复用的投递记录形�
 | 18 | 第 4 次之后、3 分钟之内又死 | 不结算、计时重新开始，总结顺延 |
 | 19 | 静默期死亡后**退出再进**世界 | 不补发总结（事件直接丢弃）；下次死亡重新从「第 1 次」算 |
 | 20 | 只死 1 次（救 1 次）后等满 3 分钟 | 第 1 次消息之后静默，**不产生总结**；下次死亡仍是「第 1 次」 |
+| 21 | 女仆切到「远程补给」，玩家掉到半血以下 | 0.5 秒内被喂一瓶药水；手机页出现墨绿「已使用 · 恢复 N ❤」气泡；**没有**女仆主动消息 |
+| 22 | 玩家饱食度掉到 6 以下 | 被喂食物；气泡「已使用 · 饱食 +N」 |
+| 23 | 两只女仆都开远程补给 | 随机一只出东西（另一只不动），只产生一条气泡 |
+| 24 | 补给中把她的药水/食物耗光后再掉血 | 收到一次「手头没有能用的补给了」；继续掉血不再重复说 |
+| 25 | 补给中玩家被秒、没触发救援、自己点重生 | 收到一条带**原版死因**的"我尽力了 / 你太脆"消息 |
+| 26 | 补给中把她切成农场 | 一条消息：消耗明细 + 「工作模式从远程补给切换为农场」 |
+| 27 | 用手机让 LLM 把她的模式切走（`switch_work_task`） | **不再**额外主动发消息；下次聊天她才知道（记忆通道） |
+| 28 | 关掉「远程补给女仆回复」后重复 21–26 | 补给照常、气泡照常，但**没有任何**主动消息 |
+| 29 | 叫补给中的女仆 `move_to` 去别处再回来 | 工作期只**暂停**，不产生"模式切换"假消息；回来后继续计数 |
 
 ---
 
 ## 九、相关文档
-
 - [`phone-app-api.md`](phone-app-api.md) —— 手机 App / 页面注册 API
 - [`phone-ui-toolkit-handoff.md`](phone-ui-toolkit-handoff.md) —— 设置页等 UI 控件的用法（本次新增的「救援」分组按它的既有样式绘制）
 - [`phone-model-notes.md`](phone-model-notes.md) —— 手机 3D 模型与手持渲染（与"佩戴手机"判定相关）
@@ -531,3 +602,102 @@ restored / used / effectText / gameTime`）已经是可复用的投递记录形�
 
 见 **§6.1 文案索引**的 `buildLowPotionWarning` / `buildStreakSummary` / `groupName` /
 `describeConsumption` 四行，以及 `LOW_POTION_CLOSING` / `STREAK_CLOSING` 两个收尾语常量。
+
+---
+
+## 十一、任务 2：远程补给（工作模式）
+
+### 11.1 一句话机制
+
+给女仆切到「远程补给」工作模式（图标**金苹果**）。主人血量 < 50% 或饱食度 < 6 时，
+她（们）从自己的**背包 + 隙间绑箱**里挑一件"刚好够补"的食物/药水直接用在主人身上，
+并在手机聊天页留一条**不可领取的「已使用」气泡** —— **整个过程不调用 LLM**。
+只有三种情况会让她开口（受设置开关管），另有一种情况**只写记忆**。
+
+### 11.2 文件索引（全部新增在 `core/supply/`）
+
+| 文件 | 职责 |
+|---|---|
+| `TaskRemoteSupply.java` | 任务本体：uid `huhutalk:remote_supply`、金苹果图标、`getMaidActionSummary`（LLM 靠它认得出这个模式）、**无 brain task** |
+| `RemoteSupplyHook.java` | 事件入口：`MaidTickEvent`（工作期开/关）、`MaidTaskEnableEvent`（手动切换判别）、`ServerTickEvent.Post`、`LivingDeathEvent`、登出/停服 |
+| `RemoteSupplyService.java` | 执行核心：阈值判定 / 冷却 / 多女仆随机挑一只 / 择优打分 / 应用效果 / 气泡留痕 |
+| `RemoteSupplySession.java` | 一只女仆的一次工作期（消耗明细 / 暂停 / 手动切换标记） |
+| `RemoteSupplySessions.java` | 两张索引：stableId → 工作期、玩家 UUID → 他的补给女仆集合 |
+| `RemoteSupplyNarrative.java` | 三处开口 + 一处只写记忆的文案（与救援共用 `MaidNarrativeStyle`） |
+| `RemoteSupplySettings.java` | 开关的服务端会话缓存（`C2SRemoteSupplyReplySettingPacket` 同步） |
+
+配套改动：`UsedItemNotifier`（抽出的「已使用」气泡推送，救援也改用它）、
+`MaidNarrativeStyle`（救援/补给共用的语气与长度约束）、`RescuePotion.instantHealAmount`（新）、
+`PendingRescueManager.markRescued / wasRescuedSince`（新，供"这次死亡到底救没救成"判定）、
+`HuhuTalkTLMExtension.addMaidTask`、`HuhuTalk`（注册 hook + 包）、客户端设置四件套 + 设置页多一行。
+
+### 11.3 关键参数
+
+| 常量 | 值 | 含义 |
+|---|---|---|
+| `CHECK_INTERVAL_TICKS` | `10` | 每 0.5 秒扫一次在线玩家 |
+| `COOLDOWN_TICKS` | `20` | 同一玩家 1 秒内只补给一次（需求方定稿） |
+| `HEALTH_THRESHOLD_RATIO` | `0.5` | 血量低于最大血一半就补 |
+| `FOOD_THRESHOLD` | `6` | 饱食度低于 6 就补 |
+| 择优打分 | `SCORE_FITS=1000` / `SCORE_SHORT=0` | 先看能不能补满缺口，能补满的里挑**超出最少**的；都补不满就挑补得最多的（避免拿金苹果补 1 点饱食） |
+
+### 11.4 工作期：开 / 暂停 / 结账（这是最容易写错的地方）
+
+```
+每 10 tick 检查该女仆的任务：
+  task == 远程补给        → 无工作期就开（计数开始）；有就 resume
+  task == move_to 且确有移动目标 → 只【暂停】：不结账、不补给
+  task == 其它            → 结账并清掉
+```
+
+**为什么必须区分"瞬态任务"**：`MaidMoveData` 会在移动期间把任务切成 `TaskMoveTo`、走完再恢复。
+若把这次切换当成"离开补给模式"，玩家叫她去搬个东西就会刷出一堆假总结。
+判据用 `MaidMoveData.hasTarget(maid)`：只有"确实在移动中"才算瞬态，
+否则移动被取消后残留的 `move_to` 会让工作期永久暂停。
+
+### 11.5 手动 vs 模型：判别器（需求 2.3.2 / 2.3.3 的关键）
+
+| 时机 | 手动（GUI / `MaidTaskPackage`） | 模型（`switch_work_task`） |
+|---|---|---|
+| 切**入**远程补给 | `MaidTaskEnableEvent(target=补给)` | 无事件（靠任务轮询发现，两者都开工作期） |
+| 切**出**远程补给 | `MaidTaskEnableEvent(target=新任务)` ✅ **带新任务名** | ❌ 无任何通知 |
+
+**TLM 只在玩家手动切换那条路径 post `MaidTaskEnableEvent`**，所以：
+- 事件记下"预期手动切到 X" → 观察到任务确实变成 X ⇒ **手动** ⇒ 立刻让她开口（2.3.2，含消耗明细 + 新模式名）；
+- 任务变了却没有事件 ⇒ **模型/程序切的** ⇒ **只写记忆，不调 LLM**（2.3.3）。
+
+事件是**可取消**的、且发生在 `maid.setTask` **之前**，所以不能当场结账 —— 只能"记下预期，
+等观察到任务真的变了再结算"（容忍窗口 40 tick）。
+
+### 11.6 三处开口 + 一处只写记忆
+
+| 触发 | 出口 | 需求 |
+|---|---|---|
+| 主人状态不好，但谁也拿不出补给品了 | 让她开口（提醒主人手头没货了） | 附加点 1 |
+| 主人在补给期间死了、且**没被救回来**（自己点的重生） | 让她开口，**带上原版死因**，表示已尽力/吐槽他太脆 | 附加点 2 / 2.1 |
+| 玩家**手动**把模式切走 | 让她开口：消耗明细 + 新模式名 | 2.3.2 |
+| 模型/程序把模式切走 | **只写 `PendingSystemMessageBus`**，零 LLM 调用 | 2.3.3 |
+
+开关（设置页「救援」分组第二行，标签「远程补给女仆回复」，默认开）关掉时：
+**三种开口全部降级为只写记忆** —— 事实不丢，只是不主动冒泡。
+注意它<b>不</b>影响补给本身（物品照样消耗、气泡照样留痕），与「药水复活」那个"关掉就不救"的开关语义不同。
+
+### 11.7 与救援的交界
+
+- 补给只在玩家**活着**时动作（`isAlive() && !isDeadOrDying()`），不会和救命的药水抢；
+- 死亡叙事的门槛是"救援窗口已关闭（T+5s+1s）**且**玩家已复活**且**这次**没有**被救援成功"——
+  救回来了就归救援链路讲，避免两边各说一遍（靠 `PendingRescueManager.wasRescuedSince`）；
+- 补给把血拉回阈值以上，可能直接**避免一次死亡** —— 这是好事，但也意味着救援的"连续复活事件"不会触发。
+
+### 11.8 已知边界 / 待实机确认
+
+1. `MaidTickEvent` 的触发频率按"每 tick"设计并内部节流到 10 tick；若实际更稀，
+   工作期开启会略有延迟（不影响正确性）。**实机时看一眼日志 `[HuhuTalk][补给] 工作期开始` 的时间点即可。**
+2. **SOS 呼叫**（`MaidMoveData.orderSOS`）会直接换任务且不发事件 → 按"程序切换"处理（只写记忆）。
+   若你希望 SOS 也算"玩家手动切的"从而让她开口，需要在 SOS 那条路径上补一个标记。
+3. **服务端重启 / 区块重载**会丢工作期计数（内存态，与救援口径一致，不落盘）。
+4. **不按日程门禁**：她在夜里同样会补给（这本来就是个待命型服务）。要加"只在工作时段"再说。
+5. 死亡叙事与"没补给了"可能连续发生（她说"没药了"→ 玩家真的死了 → 她说"我尽力了"）——
+   读起来是连贯的，但如果觉得吵，可以给两者加一个互斥。
+6. 取物范围**不含主副手**（被动模式，抢她手里的东西太扰），与救援那条链路故意不同。
+

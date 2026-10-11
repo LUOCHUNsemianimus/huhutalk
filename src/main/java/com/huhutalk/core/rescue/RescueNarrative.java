@@ -3,6 +3,7 @@ package com.huhutalk.core.rescue;
 import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
 import com.huhutalk.common.MaidStableIdHelper;
 import com.huhutalk.core.chat.MaidChatHandler;
+import com.huhutalk.core.chat.MaidNarrativeStyle;
 import com.huhutalk.core.chat.PendingSystemMessageBus;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
@@ -33,8 +34,11 @@ import java.util.Map;
  *
  * <h2>两条注入通道，文案刻意分开</h2>
  * <ul>
- *   <li>{@link PendingSystemMessageBus}：只放<b>纯事实</b>。它会留在女仆记忆里，下次正常聊天时
- *       被注入 —— 如果这里带上"主动发一条消息"之类指令，她以后会莫名其妙又汇报一次。</li>
+ *   <li>{@link PendingSystemMessageBus}：只放<b>纯事实</b>，而且必须用
+ *       {@code queueSilent}。它会留在女仆记忆里，下次正常聊天时被注入 ——
+ *       如果带上"主动发一条消息"之类指令，她以后会莫名其妙又汇报一次；
+ *       而如果作为<b>可播报</b>条目排队，{@code MaidScanTicker} 最多 5 秒后就会把它当成
+ *       "她刚苏醒"再播报一遍，同一件事变成两次 LLM 对话（见 §5.15）。</li>
  *   <li>{@link MaidChatHandler#handleSystemInjection}：事实 + 语气引导 + 收尾语，<b>只用于本次</b>
  *       即时触发。系统文本放在人设与历史之后（模型权重最高），免得被当背景设定读掉。</li>
  * </ul>
@@ -94,8 +98,11 @@ public final class RescueNarrative {
                 boolean selfIsHealer = maid == plan.healer().maid();
                 DistanceBand band = bandOf(maid, rescue);
 
-                // 记忆：纯事实，无指令（她下次正常聊天时会读到）
-                PendingSystemMessageBus.queue(stableId,
+                // 记忆：纯事实、无指令（她下次正常聊天时会读到）
+                //   ⚠ 必须用 queueSilent：这条事实我们**紧接着就即时注入说过了**，
+                //   若作为"可播报"条目排队，MaidScanTicker 最多 5 秒后会把它当成
+                //   "她刚苏醒"再播报一次 —— 同一件事两次 LLM 对话（见 §5.15）。
+                PendingSystemMessageBus.queueSilent(stableId,
                         buildMemory(band, plan, selfIsHealer, rescue.deathMessage(), healPotion, firePotion));
                 // 即时触发：事实 + 语气引导 + 距离相符的收尾语
                 MaidChatHandler.handleSystemInjection(revived, stableId,
@@ -274,14 +281,12 @@ public final class RescueNarrative {
 
     // ==================== 文案 ====================
 
-    /** 语气引导：只给"按自己性子来"和几种可能的方向，避开"担忧/悲伤"这类过重的词。 */
-    private static final String TONE_GUIDE =
-            "说点什么吧：按你自己的性子来，轻松点——打游戏磕磕碰碰很正常，不用搞得像生离死别。"
-                    + "给他打打气，说一句你还会帮他，顺带关心他一句也行。";
-
-    /** 长度约束：主人多半正在交战/跑图，消息刷屏是干扰。 */
-    private static final String BREVITY_LINE =
-            "话要短：一两句就够（主人多半正忙着打架，消息刷屏反而碍事）。";
+    /**
+     * 语气引导与长度约束：与「远程补给」共用同一套（见 {@link MaidNarrativeStyle}）。
+     * <p>抽成公共常量的目的：将来把救援与补给的 LLM 消息协调 / 合并时，不会出现两种腔调。
+     */
+    private static final String TONE_GUIDE = MaidNarrativeStyle.TONE_GUIDE;
+    private static final String BREVITY_LINE = MaidNarrativeStyle.BREVITY_LINE;
 
     /**
      * 各距离档的"你的操作"整句（已含用药方式差异）。
