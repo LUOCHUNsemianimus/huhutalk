@@ -37,11 +37,15 @@ public final class CameraAppRegistration {
     /**
      * 图标底色：深灰。
      * <p>
-     * 与手机 UI 的粉色系刻意拉开——相机是"设备"而不是"功能"，深灰更贴它的气质，
-     * 也让它在桌面上一眼可辨。等像素图标做好后，把下面的 {@code .center(...)}
-     * 换成 {@code .icon(huhutalk:textures/icon/camera.png, 256, 256)} 即可（底色仍会作为启动动画的色块色）。
+     * 图标现在用的是 256×256 的狐狐像素图（{@code assets/huhutalk/textures/icon/camera.png}）。
+     * 底色仍然保留 —— 它是启动动画「色块放大淡出」用的颜色，也是贴图万一没加载出来时的兜底。
      */
     private static final int ICON_COLOR = 0xFF424242;
+
+    /** 桌面图标贴图（256×256，铺满图标方块） */
+    private static final ResourceLocation ICON_TEXTURE =
+            ResourceLocation.fromNamespaceAndPath(HuhuTalk.MOD_ID, "textures/icon/camera.png");
+    private static final int ICON_SIZE = 256;
 
     private CameraAppRegistration() {
     }
@@ -51,9 +55,7 @@ public final class CameraAppRegistration {
         event.register(PhoneApp
                 .builder(ResourceLocation.fromNamespaceAndPath(HuhuTalk.MOD_ID, "camera"), "相机")
                 .color(ICON_COLOR)
-                // TODO(图标)：像素图标画好后改为 .icon(ResourceLocation.fromNamespaceAndPath(
-                //         HuhuTalk.MOD_ID, "textures/icon/camera.png"), 256, 256)
-                .center("📷", 2.0f, 0xFFFFFFFF)
+                .icon(ICON_TEXTURE, ICON_SIZE, ICON_SIZE)
                 .slot(CAMERA_SLOT)
                 .order(-100)
                 .page(PhoneCameraPage::new)

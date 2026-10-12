@@ -187,8 +187,39 @@ public final class PhotoLibrary {
                 LOGGER.error("[HuhuTalk] 读图失败 key={}, path={}", key, p, e);
             }
         }
+        // 兜底：模组自带的图（assets/huhutalk/manual/<key>.png）。
+        // 手机手册的配图就放这里 —— 它们随 jar 分发，玩家不需要往 .minecraft 里拷文件。
+        // 放在最后是有意的：磁盘上的同名文件优先，玩家仍然可以用自己的图覆盖自带图。
+        byte[] builtin = readBuiltin(key);
+        if (builtin != null) {
+            return builtin;
+        }
         LOGGER.error("[HuhuTalk] 读图失败：文件不存在 key={}", key);
         return null;
+    }
+
+    /**
+     * 从模组资源里读一张内置图：{@code assets/huhutalk/manual/<key>.png}。
+     *
+     * @return 字节；资源里没有这张图返回 null
+     */
+    private static byte[] readBuiltin(String key) {
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.getResourceManager() == null) {
+            return null;
+        }
+        ResourceLocation rl = ResourceLocation.fromNamespaceAndPath(
+                "huhutalk", "manual/" + sanitize(key) + ".png");
+        var found = mc.getResourceManager().getResource(rl);
+        if (found.isEmpty()) {
+            return null;
+        }
+        try (var in = found.get().open()) {
+            return in.readAllBytes();
+        } catch (IOException e) {
+            LOGGER.error("[HuhuTalk] 读内置手册图失败 key={}, rl={}", key, rl, e);
+            return null;
+        }
     }
 
     /** 获取某张图的纹理（自动从文件/缓存加载并注册） */

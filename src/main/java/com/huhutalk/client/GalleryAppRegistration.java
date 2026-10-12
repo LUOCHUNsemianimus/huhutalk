@@ -27,8 +27,13 @@ public final class GalleryAppRegistration {
     /** 图库 App 的桌面槽位：第二行第一格 */
     public static final int GALLERY_SLOT = 3;
 
-    /** 图标底色：青绿（与桌面上其它图标拉开） */
+    /** 图标底色：青绿（贴图没加载出来时兜底，也是启动动画色块的颜色） */
     private static final int ICON_COLOR = 0xFF26A69A;
+
+    /** 桌面图标贴图（256×256，铺满图标方块）：assets/huhutalk/textures/icon/gallery.png */
+    private static final ResourceLocation ICON_TEXTURE =
+            ResourceLocation.fromNamespaceAndPath(HuhuTalk.MOD_ID, "textures/icon/gallery.png");
+    private static final int ICON_SIZE = 256;
 
     private GalleryAppRegistration() {
     }
@@ -38,7 +43,7 @@ public final class GalleryAppRegistration {
         event.register(PhoneApp
                 .builder(ResourceLocation.fromNamespaceAndPath(HuhuTalk.MOD_ID, "gallery"), "图库")
                 .color(ICON_COLOR)
-                .center("🖼️", 2.0f, 0xFFFFFFFF)
+                .icon(ICON_TEXTURE, ICON_SIZE, ICON_SIZE)
                 .slot(GALLERY_SLOT)
                 .order(-99)
                 .page(GalleryPage::new)

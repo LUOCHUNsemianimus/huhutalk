@@ -4,6 +4,7 @@ import com.huhutalk.HuhuTalk;
 import com.huhutalk.client.settings.HuhuTalkClientSettings;
 import com.huhutalk.client.animation.PhoneAnimation;
 import com.huhutalk.client.theme.ThemeManager;
+import com.huhutalk.event.ClientModEvents;
 import com.huhutalk.phone.PhoneOverlay;
 import com.huhutalk.phone.pages.ChatPage;
 import net.minecraft.network.chat.Component;
@@ -39,9 +40,27 @@ public class ClientCacheEvents {
         // 重置路径点同步签名 + 同步 JourneyMap 路径点给服务端（可选软依赖，未装时自动跳过）
         WaypointSync.reset();
         WaypointSync.sendWaypoints();
-        // 进世界提示：告诉玩家如何释放鼠标操控狐狐手机
+        // 进世界提示：告诉玩家怎么用手机。
+        // 这条提示改过一轮：最早写的是"按下 Alt 释放鼠标操作狐狐Talk" —— 那条通路
+        // （释放系统鼠标、用真实光标点手机）早已拆除（见 MouseHandlerMixin 的类注释）：
+        // 现在手机是**独立光标**，鼠标左右键完整留给游戏（攻击/放置照常），
+        // 手机自己只吃玩家绑定的两个功能键。所以正确说法是：掏出手机 + 低头，然后用那两个键操作。
+        // 键名**动态取当前绑定**：默认鼠标侧键 4/5，会显示成「鼠标按键4」「鼠标按键5」；
+        // 玩家在「按键设置」里改过之后这条提示也依然准确。
         event.getPlayer().displayClientMessage(
-                Component.literal("[HuhuTalk] 按下 Alt 释放鼠标操作狐狐Talk！"), false);
+                Component.literal("[HuhuTalk] 掏出狐狐Talk手机后低头，按「"
+                        + keyName(ClientModEvents.PHONE_CLICK) + "」「"
+                        + keyName(ClientModEvents.PHONE_BACK)
+                        + "」（两个玩家绑定的功能键）即刻使用。"), false);
+    }
+
+    /** 取某个键位当前绑定的显示名（玩家可能改过；取不到就退化成占位符）。 */
+    private static String keyName(net.minecraft.client.KeyMapping mapping) {
+        try {
+            return mapping.getTranslatedKeyMessage().getString();
+        } catch (Exception e) {
+            return "?";
+        }
     }
 
     /** 周期性重同步路径点（进世界后路径点才陆续加载，需补发） */
