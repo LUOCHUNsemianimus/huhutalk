@@ -73,12 +73,24 @@ public class ChatHistoryStorage {
 
     /** 新增一条"物品气泡/文件"消息（M→P 女仆发来的物品），玩家侧=false。 */
     public static void appendItemTransfer(String stableId, com.huhutalk.phone.ItemTransfer.Payload payload) {
+        appendItemTransfer(stableId, payload, false);
+    }
+
+    /**
+     * 新增一条"物品气泡/文件"消息。
+     * <p>
+     * 两个方向共用同一张表：{@code isPlayer=true} 是<b>玩家发出去的文件</b>
+     * （P→M，"玩家侧文件气泡"，不可领取，点击无反应）；{@code false} 是女仆发来的文件（M→P，可领取）。
+     * 气泡的左右分侧由该字段决定（见 {@code ChatPage} 构造期恢复与 {@code drawItemBubble}）。
+     */
+    public static void appendItemTransfer(String stableId, com.huhutalk.phone.ItemTransfer.Payload payload,
+                                          boolean isPlayer) {
         if (payload == null) {
             return;
         }
         currentHistory()
                 .computeIfAbsent(stableId, k -> new ArrayList<>())
-                .add(new ChatMessageEntry("", false, false, false, currentGameTime(), null, null, payload));
+                .add(new ChatMessageEntry("", isPlayer, false, false, currentGameTime(), null, null, payload));
         saveToDisk(currentWorldKey);
     }
 
@@ -152,6 +164,10 @@ public class ChatHistoryStorage {
         }
         ChatMessageEntry last = list.get(list.size() - 1);
         if (last.item() != null) {
+            // 玩家发出去的：没有"领取"概念，只有"已发送"
+            if (last.isPlayer()) {
+                return "（文件·已发送）";
+            }
             return last.item().claimed() ? "（文件·已接收）" : "（文件·待领取）";
         }
         if (last.image() != null && !last.image().isEmpty()) {

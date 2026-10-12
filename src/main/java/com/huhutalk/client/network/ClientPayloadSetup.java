@@ -172,8 +172,15 @@ public class ClientPayloadSetup {
                 if (!text.isBlank()) {
                     ChatHistoryStorage.appendMessage(packet.stableId(), text, true, false);
                 }
+                // 玩家侧"文件气泡"（P→M）：与女仆侧的 M→P 文件气泡对称，同样落盘。
+                // 预览由服务端 ack 带回，所以页面没开着也不会丢这条记录。
+                boolean hasItems = packet.total() > 0
+                        || (packet.previews() != null && !packet.previews().isEmpty());
+                if (hasItems) {
+                    ChatHistoryStorage.appendItemTransfer(packet.stableId(), packet.toPayload(), true);
+                }
                 if (chatPage != null) {
-                    chatPage.onItemSendAccepted();
+                    chatPage.onItemSendAccepted(hasItems ? packet.toPayload() : null);
                 }
             } else {
                 // 失败：整条未发 → 落盘一条提示，打开页时还原文字并保留队列

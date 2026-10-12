@@ -46,11 +46,14 @@ public record C2SMaidChatWithItemsPacket(String stableId, String text, List<Inte
             if (!(context.player() instanceof ServerPlayer serverPlayer)) {
                 return;
             }
-            String problem = MaidTransferService.trySendChatWithItems(serverPlayer, packet.stableId(),
-                    packet.text(), packet.slots(), packet.bubbleMute(), packet.immersive());
-            boolean ok = problem == null;
+            MaidTransferService.ChatWithItemsResult result = MaidTransferService.trySendChatWithItems(
+                    serverPlayer, packet.stableId(), packet.text(), packet.slots(),
+                    packet.bubbleMute(), packet.immersive());
+            boolean ok = result.ok();
+            // previews/total：成功时带回真正转移走的物品，客户端据此落盘"玩家侧文件气泡"
             PacketDistributor.sendToPlayer(serverPlayer,
-                    new S2CMaidItemsSendResultPacket(packet.stableId(), ok, packet.text(), ok ? "" : problem));
+                    new S2CMaidItemsSendResultPacket(packet.stableId(), ok, packet.text(),
+                            ok ? "" : result.problem(), result.previews(), result.total()));
         });
     }
 }

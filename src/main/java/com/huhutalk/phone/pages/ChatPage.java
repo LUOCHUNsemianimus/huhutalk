@@ -62,6 +62,16 @@ public class ChatPage implements PhoneCameraHost {
     private final String stableId;
     private final String maidName;
     private final List<ChatMessage> messages = new ArrayList<>();
+    /**
+     * <b>隔离演示模式</b>（供附属模组 HuhuTalk-Demo 使用，见 {@link #ChatPage(String, String, boolean)}）。
+     * <p>
+     * true = 这个聊天页：不加载真实历史/草稿、<b>一个网络包都不发</b>、任何写入都不落盘、
+     * 物品气泡不可领取、输入与发送路径全部短路；消息只由 {@code demoXxx} 系列方法注入内存。
+     * <p>
+     * 为什么必须有它：演示录制要的是"和真聊天页一模一样的渲染与断句动画"，但又绝不能污染
+     * 真实历史、更不能碰 LLM。默认 false，普通玩家的聊天路径一行都不受影响。
+     */
+    private final boolean demoIsolated;
 
     // ==================== P→M 传文件：随消息发送的物品队列 ====================
     /** 最多可随一条消息发送的物品格数（2行×5） */
@@ -166,37 +176,60 @@ public class ChatPage implements PhoneCameraHost {
     private VoiceSource voiceSource = VoiceSource.KEY;
 
     public ChatPage(String stableId, String maidName) {
+        this(stableId, maidName, false);
+    }
+
+    /**
+     * @param demoIsolated true = <b>隔离演示页</b>：不读真实历史/草稿、不发包、不落盘、
+     *                     物品不可领取；内容只由 {@code demoXxx} 方法注入。
+     *                     附属模组 HuhuTalk-Demo 用它做"逐条消息放动画"的录制演示。
+     */
+    public ChatPage(String stableId, String maidName, boolean demoIsolated) {
         this.stableId = stableId;
         this.maidName = maidName;
-        for (ChatHistoryStorage.ChatMessageEntry e : ChatHistoryStorage.getMessages(stableId)) {
-            if (e.item() != null) {
-                // 物品气泡（M→P 传文件）：整体恢复
-                messages.add(new ChatMessage("", false, false, false, e.gameTime(), null, null, e.item()));
-            } else if (e.image() != null) {
-                // 图片消息：直接整条恢复（图片已持久化在 chat_images，重进后仍可渲染）
-                messages.add(new ChatMessage(e.text(), e.isPlayer(), e.isError(), e.pending(), e.gameTime(), null, e.image()));
-            } else if (e.emote() != null) {
-                // 表情消息：直接整条恢复（不按逗号拆句），保留 emote 路径
-                messages.add(new ChatMessage(e.text(), e.isPlayer(), e.isError(), e.pending(), e.gameTime(), e.emote(), null));
-            } else if (!e.isPlayer() && !e.isError()) {
-                // 历史中的女仆正常回复：按断句规则拆成多条气泡显示（与实时收到时一致），
-                // 避免重新进入世界后整段回复被合成一个大块。错误/玩家消息保持原样。
-                List<String> segments = MessageSplitter.split(e.text());
-                for (String seg : segments) {
-                    messages.add(new ChatMessage(seg, false, false, false, e.gameTime(), null, null));
+        this.demoIsolated = demoIsolated;
+        if (!demoIsolated) {
+            for (ChatHistoryStorage.ChatMessageEntry e : ChatHistoryStorage.getMessages(stableId)) {
+                if (e.item() != null) {
+                    // 物品气泡：M→P（女仆发来的文件）与 P→M（我发出去的文件）共用同一张表，
+                    // 左右分侧与"能否领取"都由 isPlayer 决定，不能像以前那样写死 false
+                    messages.add(new ChatMessage("", e.isPlayer(), false, false, e.gameTime(), null, null, e.item()));
+                } else if (e.image() != null) {
+                    // 图片消息：直接整条恢复（图片已持久化在 chat_images，重进后仍可渲染）
+                    messages.add(new ChatMessage(e.text(), e.isPlayer(), e.isError(), e.pending(), e.gameTime(), null, e.image()));
+                } else if (e.emote() != null) {
+                    // 表情消息：直接整条恢复（不按逗号拆句），保留 emote 路径
+                    messages.add(new ChatMessage(e.text(), e.isPlayer(), e.isError(), e.pending(), e.gameTime(), e.emote(), null));
+                } else if (!e.isPlayer() && !e.isError()) {
+                    // 历史中的女仆正常回复：按断句规则拆成多条气泡显示（与实时收到时一致），
+                    // 避免重新进入世界后整段回复被合成一个大块。错误/玩家消息保持原样。
+                    List<String> segments = MessageSplitter.split(e.text());
+                    for (String seg : segments) {
+                        messages.add(new ChatMessage(seg, false, false, false, e.gameTime(), null, null));
+                    }
+                } else {
+                    messages.add(new ChatMessage(e.text(), e.isPlayer(), e.isError(), e.pending(), e.gameTime(), null, null));
                 }
-            } else {
-                messages.add(new ChatMessage(e.text(), e.isPlayer(), e.isError(), e.pending(), e.gameTime(), null, null));
             }
+            this.currentInput = ChatHistoryStorage.getDraft(stableId);
+            this.cursorIndex = currentInput.length();
+            NotificationManager.clear(stableId);
+            // 按需请求一次该女仆的当前状态（打开聊天页立刻刷新状态小字）
+            PacketDistributor.sendToServer(new C2SRequestMaidStatusPacket(List.of(stableId)));
         }
-        this.currentInput = ChatHistoryStorage.getDraft(stableId);
-        this.cursorIndex = currentInput.length();
         for (int i = 0; i < TRANSFER_CELLS; i++) {
             transferQueue[i] = -1;
         }
-        NotificationManager.clear(stableId);
-        // 按需请求一次该女仆的当前状态（打开聊天页立刻刷新状态小字）
-        PacketDistributor.sendToServer(new C2SRequestMaidStatusPacket(List.of(stableId)));
+    }
+
+    /** 是否处于隔离演示模式（附属模组 HuhuTalk-Demo 用）。 */
+    public boolean isDemoIsolated() {
+        return demoIsolated;
+    }
+
+    /** 是否正在"断句逐条显示"（演示播放器据此决定何时喂下一条）。 */
+    public boolean isSplitting() {
+        return splitting;
     }
 
     public boolean isWaitingResponse() { return waitingResponse; }
@@ -247,6 +280,9 @@ public class ChatPage implements PhoneCameraHost {
 
     /** 把最后一条"玩家发送"的消息标红"!"（消息入离线队列、尚未送达）。本地+落盘 */
     public void markLastSentPending() {
+        if (demoIsolated) {
+            return;
+        }
         for (int i = messages.size() - 1; i >= 0; i--) {
             ChatMessage m = messages.get(i);
             if (m.isPlayer()) {
@@ -259,6 +295,11 @@ public class ChatPage implements PhoneCameraHost {
 
     /** 清除所有未送达标记（女仆回复到达即视为送达）。本地+落盘 */
     public void clearPending() {
+        // 隔离演示页不碰真实会话的落盘状态（否则会清掉真实聊天里的未送达"!"）
+        if (demoIsolated) {
+            this.pendingImageKey = null;
+            return;
+        }
         for (int i = 0; i < messages.size(); i++) {
             ChatMessage m = messages.get(i);
             if (m.pending()) {
@@ -272,6 +313,9 @@ public class ChatPage implements PhoneCameraHost {
 
     /** 消息入离线队列：停止"输入中"并标红"!"（不显示提示文字） */
     public void onQueued() {
+        if (demoIsolated) {
+            return;
+        }
         this.waitingResponse = false;
         // 入离线队列 → 女仆未响应，中断任何断句显示
         this.splitting = false;
@@ -293,7 +337,9 @@ public class ChatPage implements PhoneCameraHost {
         this.currentInput = text;
         this.cursorIndex = Math.min(this.cursorIndex, text.length());
         ensureCursorVisible();
-        ChatHistoryStorage.setDraft(stableId, text);
+        if (!demoIsolated) {
+            ChatHistoryStorage.setDraft(stableId, text);
+        }
     }
 
     public void onInputFinished(String text, boolean send) {
@@ -301,7 +347,7 @@ public class ChatPage implements PhoneCameraHost {
         this.currentInput = text;
         if (send) {
             routeChatSend();
-        } else {
+        } else if (!demoIsolated) {
             ChatHistoryStorage.setDraft(stableId, text);
         }
     }
@@ -311,14 +357,100 @@ public class ChatPage implements PhoneCameraHost {
     }
 
     public void onPageHide() {
-        ChatHistoryStorage.setDraft(stableId, currentInput);
+        // 隔离演示页不写草稿（它的输入框不参与真实会话）
+        if (!demoIsolated) {
+            ChatHistoryStorage.setDraft(stableId, currentInput);
+        }
         cancelVoice();
+    }
+
+    // ==================== 隔离演示模式 API（供附属模组 HuhuTalk-Demo 调用） ====================
+    /*
+     * 全部只在 demoIsolated 页上生效：普通聊天页调用它们会直接返回，
+     * 避免"注入了内存消息却没有落盘"这种半状态把真实会话搞乱。
+     *
+     * 女仆文本刻意不走这里，而是复用公开的 onReceiveMessage()：断句拆分、打字节奏、
+     * 头像 1/4/7 合并、时间标签、接收音全部是原始逻辑，演示出来的动画与真实收到回复逐帧一致。
+     */
+
+    /** 清空演示页的全部消息并复位断句/等待状态（重播前调用）。 */
+    public void demoClearMessages() {
+        if (!demoIsolated) {
+            return;
+        }
+        messages.clear();
+        splitQueue.clear();
+        splitSchedule.clear();
+        splitIndex = 0;
+        splitting = false;
+        pendingReplyEmote = null;
+        pendingEmoteReplies.clear();
+        waitingResponse = false;
+        scrollOffset = 0;
+        transferClearAll();
+    }
+
+    /** 演示：注入一条"玩家发送"的文本气泡（右侧）。 */
+    public void demoAddPlayerText(String text) {
+        if (!demoIsolated || text == null || text.isBlank()) {
+            return;
+        }
+        messages.add(new ChatMessage(text, true, false, false, currentGameTime(), null, null));
+        scrollOffset = 0;
+    }
+
+    /** 演示：注入一条玩家侧图片气泡（imageKey = 图库文件名 / chat_images 文件名 / captured id）。 */
+    public void demoAddPlayerImage(String imageKey) {
+        if (!demoIsolated || imageKey == null || imageKey.isEmpty()) {
+            return;
+        }
+        messages.add(new ChatMessage("", true, false, false, currentGameTime(), null, imageKey));
+        scrollOffset = 0;
+    }
+
+    /** 演示：注入一条玩家侧表情气泡。 */
+    public void demoAddPlayerEmote(String emoteRl) {
+        demoAddEmote(emoteRl, true);
+    }
+
+    /** 演示：注入一条女仆侧表情气泡。 */
+    public void demoAddMaidEmote(String emoteRl) {
+        demoAddEmote(emoteRl, false);
+    }
+
+    private void demoAddEmote(String emoteRl, boolean isPlayer) {
+        if (!demoIsolated || emoteRl == null || emoteRl.isEmpty()) {
+            return;
+        }
+        messages.add(new ChatMessage("", isPlayer, false, false, currentGameTime(), emoteRl, null));
+        scrollOffset = 0;
+    }
+
+    /** 演示：注入一条女仆发来的文件气泡（M→P）。演示页里点击不会去领取。 */
+    public void demoAddMaidItem(com.huhutalk.phone.ItemTransfer.Payload payload) {
+        if (!demoIsolated || payload == null) {
+            return;
+        }
+        messages.add(new ChatMessage("", false, false, false, currentGameTime(), null, null, payload));
+        scrollOffset = 0;
+    }
+
+    /** 演示：注入一条玩家发出的文件气泡（P→M，右侧）。 */
+    public void demoAddPlayerItem(com.huhutalk.phone.ItemTransfer.Payload payload) {
+        if (!demoIsolated || payload == null) {
+            return;
+        }
+        messages.add(new ChatMessage("", true, false, false, currentGameTime(), null, null, payload));
+        scrollOffset = 0;
     }
 
     // ==================== 语音（按住说话 / F 快捷键） ====================
 
     /** 开始录音（按住说话）。未配置 STT 或已在录音时不会重复开启。 */
     public void startVoice(VoiceSource source) {
+        if (demoIsolated) {
+            return; // 演示页不录音（转文字会走真实发送）
+        }
         if (voiceActive) return;
         if (VoiceInput.isRecording()) return;
         // 按键音：点击说话键 / 按住快捷语音输入键的即时反馈（不受 DND 影响）
@@ -355,7 +487,7 @@ public class ChatPage implements PhoneCameraHost {
 
     /** 把一段文字作为"玩家发送"的消息加入聊天并发送给当前女仆（语音转文字结果走这里） */
     private void sendText(String text) {
-        if (text == null || text.isBlank()) return;
+        if (demoIsolated || text == null || text.isBlank()) return;
         // 保险：若上一条回复还在逐条读条，先一口气列完，再发本条
         flushPendingSplitting();
         messages.add(new ChatMessage(text, true, false, false, currentGameTime(), null, null));
@@ -461,7 +593,10 @@ public class ChatPage implements PhoneCameraHost {
             if (!splitDoneNotified) {
                 splitDoneNotified = true;
                 // 通知服务端：本条回复已播完 → 关闭手机来源窗口 → 动画放下手机
-                PacketDistributor.sendToServer(new C2SPhoneTypingDonePacket(stableId));
+                // （隔离演示页不发包：服务端从未开过窗口）
+                if (!demoIsolated) {
+                    PacketDistributor.sendToServer(new C2SPhoneTypingDonePacket(stableId));
+                }
             }
         }
     }
@@ -499,7 +634,9 @@ public class ChatPage implements PhoneCameraHost {
         // 内容已全部落屏（玩家抢先发了下一条）：同样回执服务端关闭窗口，动画才能放下手机
         if (!splitDoneNotified) {
             splitDoneNotified = true;
-            PacketDistributor.sendToServer(new C2SPhoneTypingDonePacket(stableId));
+            if (!demoIsolated) {
+                PacketDistributor.sendToServer(new C2SPhoneTypingDonePacket(stableId));
+            }
         }
     }
 
@@ -572,8 +709,11 @@ public class ChatPage implements PhoneCameraHost {
 
     // ==================== 发送：普通文字 / 图片 / 带物品 ====================
 
-    /** 中央分发：文字 / 图片 / 带物品三条发送路径择一。 */
+    /** 中央分发：文字 / 图片 / 带物品三条发送路径择一。隔离演示页一律不发（不碰 LLM）。 */
     private void routeChatSend() {
+        if (demoIsolated) {
+            return;
+        }
         boolean hasItems = hasPendingTransfers();
         boolean hasImg = selectedImageKey != null;
         boolean hasText = !currentInput.isBlank();
@@ -628,6 +768,17 @@ public class ChatPage implements PhoneCameraHost {
      * 历史落盘由网络处理端负责（含不在当前页的情况），这里只更新内存视图。
      */
     public void onItemSendAccepted() {
+        onItemSendAccepted(null);
+    }
+
+    /**
+     * 服务端确认成功：整条已发给女仆。补上玩家的文字气泡与<b>玩家侧文件气泡</b>、
+     * 清空物品队列、进入"对方正在输入…"。
+     * 历史落盘由网络处理端负责（含不在当前页的情况），这里只更新内存视图。
+     *
+     * @param sentItems 实际发出去的物品（服务端 ack 带回的预览；null = 无预览可用）
+     */
+    public void onItemSendAccepted(com.huhutalk.phone.ItemTransfer.Payload sentItems) {
         String text = pendingItemText;
         itemSendAwait = false;
         pendingItemText = "";
@@ -636,6 +787,10 @@ public class ChatPage implements PhoneCameraHost {
         if (text != null && !text.isBlank()) {
             messages.add(new ChatMessage(text, true, false, false, currentGameTime(), null, null));
             waitingResponse = true;
+        }
+        if (sentItems != null) {
+            // 与女仆侧的 M→P 文件气泡对称：玩家自己发出去的文件也留一条气泡（右侧）
+            messages.add(new ChatMessage("", true, false, false, currentGameTime(), null, null, sentItems));
         }
     }
 
@@ -866,6 +1021,14 @@ public class ChatPage implements PhoneCameraHost {
 
     @Override
     public void render(GuiGraphics g, int baseX, int baseY, float partialTick) {
+        // 隔离演示页：请求"下一帧模型屏必须重绘"。
+        // 为什么只在演示页做：模型屏（拿在手里那台）有一条"静止时 100ms 才重绘一次"的省电策略
+        // （PhoneScreenTarget.update 里的 MAX_IDLE_MS），逐条消息动画不属于它认得的"活跃动画"，
+        // 不标脏的话录出来的演示只有 ~10fps。必须在这里（render 内部）调用才形成自持的每帧环，
+        // 见 PhoneOverlay#requestRedraw 的契约；普通玩家的聊天路径行为零变化。
+        if (demoIsolated) {
+            PhoneOverlay.requestRedraw();
+        }
         // 每帧推进断句显示（任务2）
         advanceSplitting();
         // 每帧推进表情回复（1 秒延迟随机回复）
@@ -1261,7 +1424,10 @@ public class ChatPage implements PhoneCameraHost {
         pose.popPose();
     }
 
-    /** 女仆发送的物品气泡：画预览图标(最多前3个)、额外物品数说明与领取状态，整块可点击领取。 */
+    /**
+     * 物品/文件气泡：画预览图标(最多前3个)、额外文件数说明与状态行。
+     * 左侧 = 女仆发来的（M→P，整块可点击领取）；右侧 = 我发出去的（P→M，只作发送留痕，不可领取）。
+     */
     private int drawItemBubble(GuiGraphics g, Font font, int baseX, int yBottom, int phoneW, ChatMessage m,
                                boolean showAvatar, boolean groupTop) {
         int textH = lh() + 1;
@@ -1269,8 +1435,8 @@ public class ChatPage implements PhoneCameraHost {
         int bubbleH = itemBubbleSize();
         int yTop = yBottom - bubbleH;
 
-        int bubbleLeft = baseX + AVATAR + MARGIN;          // 女仆侧
         int maxW = phoneW - AVATAR * 2 - MARGIN * 2;
+        boolean isPlayer = m.isPlayer();
         com.huhutalk.phone.ItemTransfer.Payload payload = m.item();
         java.util.List<com.huhutalk.phone.ItemTransfer.Preview> previews =
                 payload.previews == null ? java.util.Collections.emptyList() : payload.previews;
@@ -1288,7 +1454,11 @@ public class ChatPage implements PhoneCameraHost {
         String lineA = hidden > 0 ? "和剩余 " + hidden + " 个文件" : "";
         // used=true 的「特殊发送」（远程救援）：物品已被直接用掉，只展示效果文案，没有领取状态
         String lineB;
-        if (payload.used) {
+        if (isPlayer) {
+            // 玩家侧（P→M）：这是"我发出去的文件"，没有领取概念 —— 只有"已发送"
+            // （m.isPlayer() 为真的物品消息一律走这里，见 ChatPage 构造期的历史恢复）
+            lineB = payload.total > 0 ? "✓ 已发送 " + payload.total + " 个文件" : "✓ 已发送";
+        } else if (payload.used) {
             lineB = (payload.effectText == null || payload.effectText.isEmpty()) ? "已使用" : payload.effectText;
         } else {
             lineB = payload.claimed() ? "✓ 已接收"
@@ -1301,9 +1471,14 @@ public class ChatPage implements PhoneCameraHost {
         int bubbleW = Math.min(maxW, Math.max(iconRowW, Math.max(capW, ib + 2 * padX)));
         if (bubbleW > maxW) bubbleW = maxW;
         int radius = Math.max(2, bubbleH / 5);
-        // 已使用的特殊发送换一个底色（墨绿），与普通待领取文件气泡（蓝灰）一眼可辨
-        UiShapes.fillRoundedRect(g, bubbleLeft, yTop, bubbleW, bubbleH, radius,
-                payload.used ? 0xFF4E6B5A : 0xFF525A6E);
+        // 左右分侧：左侧 = 女仆发来的文件（M→P，可领取）；右侧 = 我发出去的文件（P→M，不可领取）
+        int bubbleLeft = isPlayer
+                ? baseX + phoneW - AVATAR - MARGIN - bubbleW
+                : baseX + AVATAR + MARGIN;
+        // 已使用的特殊发送换一个底色（墨绿），与普通待领取文件气泡（蓝灰）一眼可辨；
+        // 玩家侧用与玩家文字/图片气泡同一个亮蓝，方向一眼可辨
+        int bubbleColor = isPlayer ? 0xFF5294BF : (payload.used ? 0xFF4E6B5A : 0xFF525A6E);
+        UiShapes.fillRoundedRect(g, bubbleLeft, yTop, bubbleW, bubbleH, radius, bubbleColor);
 
         // 第一行：预览图标（最多 shown 个）
         int iconCenterY = yTop + 6 + ib / 2;
@@ -1328,15 +1503,17 @@ public class ChatPage implements PhoneCameraHost {
         int textX = bubbleLeft + padX;
         int textY = yTop + 6 + ib + 4;
         if (!lineA.isEmpty()) {
-            drawScaledText(g, font, lineA, textX, textY, 0xFFD8DCE6, capTs);
+            drawScaledText(g, font, lineA, textX, textY, isPlayer ? 0xFFE4EEF8 : 0xFFD8DCE6, capTs);
         }
-        // 第三行：领取状态
+        // 第三行：领取/发送状态
         int stateY = textY + textH;
-        int stateColor = payload.used ? 0xFF9FE6B4 : (payload.claimed() ? 0xFF7FE08A : 0xFFFFE08A);
+        int stateColor = isPlayer ? 0xFFCFE8FF
+                : (payload.used ? 0xFF9FE6B4 : (payload.claimed() ? 0xFF7FE08A : 0xFFFFE08A));
         drawScaledText(g, font, lineB, textX, stateY, stateColor, capTs);
 
         if (showAvatar) {
-            drawAvatarPlaceholder(g, baseX + 2, yTop, false);
+            // 玩家侧头像在右（与玩家文字/图片气泡一致）
+            drawAvatarPlaceholder(g, isPlayer ? baseX + phoneW - AVATAR - 2 : baseX + 2, yTop, isPlayer);
         }
         if (groupTop) {
             String timeText = formatGameTime(m.gameTime());
@@ -2370,6 +2547,9 @@ public class ChatPage implements PhoneCameraHost {
 
     /** 发送一张表情给女仆：本地立即显示玩家表情，1 秒后随机回复一张（不经过大模型）。 */
     private void sendEmote(ResourceLocation emote) {
+        if (demoIsolated) {
+            return; // 演示页不发送表情（会写历史 + 触发随机回复）
+        }
         String path = emote.toString();
         messages.add(new ChatMessage("", true, false, false, currentGameTime(), path, null));
         ChatHistoryStorage.appendMessage(stableId, "", path, true, false);
@@ -2384,7 +2564,7 @@ public class ChatPage implements PhoneCameraHost {
 
     /** 每帧推进表情回复：到 1 秒后随机补一张女仆表情并结束等待。在 render 每帧调用。 */
     private void advanceEmoteReply() {
-        if (pendingEmoteReplies.isEmpty()) {
+        if (demoIsolated || pendingEmoteReplies.isEmpty()) {
             return;
         }
         long now = System.currentTimeMillis();
@@ -2517,6 +2697,10 @@ public class ChatPage implements PhoneCameraHost {
 
     /** 检测本次左键点是否落在某个"尚未接收"的物品气泡上，是则发领取包并返回 true。 */
     private boolean tryClaimItemAt(double relX, double relY, int w) {
+        // 隔离演示页不发领取包
+        if (demoIsolated) {
+            return false;
+        }
         double msgTop = navH();
         double msgBottom = inputTop(0) - 2;
         if (relY < msgTop || relY > msgBottom || messages.isEmpty()) {
@@ -2533,8 +2717,9 @@ public class ChatPage implements PhoneCameraHost {
             if (relY >= y - totalBubble && relY <= y) {
                 ChatMessage m = messages.get(i);
                 var p = m.item();
-                // claimable() 已排除 used=true 的特殊发送：物品早被用掉了，点击不该发领取包
-                if (p != null && p.claimable()) {
+                // claimable() 已排除 used=true 的特殊发送：物品早被用掉了，点击不该发领取包。
+                // 玩家侧文件气泡（P→M，"我发出去的"）也没有可领取的实体。
+                if (p != null && !m.isPlayer() && p.claimable()) {
                     claimItemTransfer(p.transferId);
                     return true;
                 }

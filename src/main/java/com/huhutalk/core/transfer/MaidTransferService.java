@@ -458,28 +458,33 @@ public final class MaidTransferService {
      * 规则：整批放得下才发；放不下 / 女仆不在线未装载 / 没戴手机 / AI 不可用 → 返回错误文案（物品未动，客户端保留队列）。
      *
      * @param text      随信文字（可为空 = 仅发物品）。
-     * @return null = 成功（物品已转移并已触发女仆回复）；非 null = 失败文案（整条未发）。
+     * @return {@link ChatWithItemsResult}：{@code ok()}=成功（物品已转移并已触发女仆回复），
+     *         否则 {@code problem()} 是失败文案（整条未发）。成功时同时带回
+     *         <b>实际转移走的物品预览</b>，供客户端生成"玩家侧文件气泡"。
      */
-    public static String trySendChatWithItems(ServerPlayer player, String stableId, String text,
-                                              List<Integer> slots, boolean bubbleMute, boolean immersive) {
+    public static ChatWithItemsResult trySendChatWithItems(ServerPlayer player, String stableId, String text,
+                                                           List<Integer> slots, boolean bubbleMute, boolean immersive) {
         EntityMaid maid = findOwnedAliveMaid(player.server, stableId, player);
         if (maid == null) {
-            return "女仆不在线或不在你名下，本次未发送";
+            return ChatWithItemsResult.failed("女仆不在线或不在你名下，本次未发送");
         }
         if (!PhoneHelper.hasPhone(maid)) {
-            return "该女仆没有佩戴手机，无法接收";
+            return ChatWithItemsResult.failed("该女仆没有佩戴手机，无法接收");
         }
         MaidAIChatManager mgr = maid.getAiChatManager();
         LLMSite site = mgr.getLLMSite();
         if (site == null || !site.enabled()) {
-            return "女仆未配置或未启用 AI";
+            return ChatWithItemsResult.failed("女仆未配置或未启用 AI");
         }
         if (text != null && text.length() > 2000) {
-            return "消息过长";
+            return ChatWithItemsResult.failed("消息过长");
         }
 
         // 组装要发的整格物品 + 给女仆看的收到物品摘要
         List<PlayerSendEntry> entries = new ArrayList<>();
+        // 玩家侧文件气泡的预览：在真正转移之前抓（转移会把槽位清空）。
+        // 与女仆侧 M→P 气泡同一口径：最多 3 个预览，"总数"按**格数**算（一格 = 一个"文件"）。
+        List<com.huhutalk.phone.ItemTransfer.Preview> previews = new ArrayList<>();
         StringBuilder sum = new StringBuilder("主人通过手机发给你这些物品：");
         boolean first = true;
         for (int slot : slots) {
@@ -491,6 +496,9 @@ public final class MaidTransferService {
                 continue;
             }
             entries.add(new PlayerSendEntry(slot, st.getItem(), st.getCount()));
+            if (previews.size() < 3) {
+                previews.add(com.huhutalk.phone.ItemTransfer.Preview.of(st));
+            }
             if (!first) {
                 sum.append("、");
             }
@@ -498,13 +506,14 @@ public final class MaidTransferService {
             sum.append(st.getHoverName().getString()).append('x').append(st.getCount());
         }
         if (entries.isEmpty()) {
-            return "没有可发送的物品";
+            return ChatWithItemsResult.failed("没有可发送的物品");
         }
 
         // 只有女仆可用背包整批放得下才真正转移；否则不扣玩家物品
         SendResult r = sendFromPlayer(player, stableId, entries);
         if (r.code != SendResult.OK) {
-            return (r.message == null || r.message.isBlank()) ? "女仆背包放不下，本次未发送" : r.message;
+            return ChatWithItemsResult.failed(
+                    (r.message == null || r.message.isBlank()) ? "女仆背包放不下，本次未发送" : r.message);
         }
 
         // 已成功转移：让女仆在回复里感知并回应收到的物品
@@ -517,7 +526,30 @@ public final class MaidTransferService {
             // 无文字：直接让女仆针对收到的物品主动回应
             MaidChatHandler.handleSystemInjection(player, stableId, sys);
         }
-        return null;
+        return ChatWithItemsResult.sent(previews, entries.size());
+    }
+
+    /**
+     * {@link #trySendChatWithItems} 的结果。
+     *
+     * @param problem  失败文案；null = 成功
+     * @param previews 实际转移走的物品预览（最多 3 个），供客户端画"玩家侧文件气泡"
+     * @param total    实际转移走的格数（一格 = 一个"文件"），与女仆侧 M→P 气泡同一口径
+     */
+    public record ChatWithItemsResult(String problem,
+                                      List<com.huhutalk.phone.ItemTransfer.Preview> previews,
+                                      int total) {
+        public boolean ok() {
+            return problem == null;
+        }
+
+        static ChatWithItemsResult failed(String message) {
+            return new ChatWithItemsResult(message, List.of(), 0);
+        }
+
+        static ChatWithItemsResult sent(List<com.huhutalk.phone.ItemTransfer.Preview> previews, int total) {
+            return new ChatWithItemsResult(null, List.copyOf(previews), total);
+        }
     }
 
     // ==================== 通用："按最优一份"取物（救援补给用） ====================
