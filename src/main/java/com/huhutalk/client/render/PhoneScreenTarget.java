@@ -307,6 +307,24 @@ public final class PhoneScreenTarget {
         VertexConsumer consumer = buffer.getBuffer(renderType);
         // 屏幕内容不受世界光照影响
         int light = LightTexture.FULL_BRIGHT;
+
+        // ⚠⚠ 关键：画屏幕四边形之前，必须把**全局着色器色**复位成 (1,1,1,1)。
+        //
+        // 这个四边形走 RenderType.text(...)，用的片元着色器是 position_tex_color：
+        //     fragColor = texture(Sampler0, uv) * vertexColor * ColorModulator;
+        // 其中 ColorModulator 就是 RenderSystem.setShaderColor(...) 设的全局值。
+        //
+        // 而调用点就在 ProPhoneHandRenderer.renderPhoneBody() 的**手机 item 渲染之后**，
+        // item / glint / 光照那一套有可能把 setShaderColor 留在非 (1,1,1,1) 上。后果是：
+        //   · rgb 不是 1   → 整块屏幕被乘暗（实测 ≈0.986：桌面底 239/242、图标格 65/66）
+        //   · **alpha 不是 1** → fragColor.a 被压低，于是屏幕四边形的合成变成半透明，
+        //     世界/天空就从 **alpha 本来就低的图标柔边** 透出来 —— 这就是
+        //     「悬浮窗干净、Item 离屏屏有一圈随昼夜变色的描边」的真正原因：
+        //     悬浮窗直接画在不透明帧缓冲上，alpha 不参与显示；离屏屏要把 alpha 交出去。
+        RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
+        RenderSystem.enableBlend();
+        RenderSystem.defaultBlendFunc();
+
         emitQuad(consumer, matrix, light, u0, u1, vTop, vBot, !FLIP_WINDING);
         if (DOUBLE_SIDED) {
             // 另一面再来一遍，彻底免疫背面剔除

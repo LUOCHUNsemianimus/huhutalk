@@ -1477,9 +1477,15 @@ public class PhoneOverlay {
         //   否则照片半透、背后的世界直接穿过来，正是这一轮要修的毛病。
         boolean cameraTransparent = isCameraScreenTransparent();
 
-        // 手机背景（圆角：上圆角=状态栏高，下圆角=水印栏高）。相机模式下透明，露出游戏画面
+        // 手机背景（圆角：上圆角=状态栏高，下圆角=水印栏高）。相机模式下透明，露出游戏画面。
+        //
+        // ⚠ 这里原本是 0xEE111111（alpha 238）——整个手机屏唯一一处"非不透明"的底。
+        //   手机 UI 是要画进离屏靶、再贴到模型屏幕面的（PhoneScreenTarget → renderScreen，
+        //   走 RenderType.text，带 alpha 混合）。离屏靶底色是透明黑，于是这一层的 alpha
+        //   会一路带到最后：屏幕的四角/边缘按 6.7% 和世界混色，昼夜一变色就看得见。
+        //   屏幕内容必须**完全不透明**，alpha 只能是 255。相机模式的 0x00... 是刻意的，保留。
         fillRoundedRect(graphics, phoneX, ry, phoneWidth, totalHeight, UiFont.sh(STATUSBAR_H), UiFont.sh(WATERMARK_H),
-                cameraTransparent ? 0x00111111 : 0xEE111111);
+                cameraTransparent ? 0x00111111 : 0xFF111111);
 
         // 统一状态栏（圆角顶）
         renderStatusBar(graphics, phoneX, ry, phoneWidth);
@@ -1569,6 +1575,30 @@ public class PhoneOverlay {
 
         // 独立光标画在最上层。必须在 render 内部（而不是 GUI 层），才能随 Overlay 一起进离屏纹理。
         renderCursor(graphics, phoneX, ry);
+
+        // ⚠ 离屏靶专用收尾：把手机矩形内的 **alpha 钉成 255**（只写 alpha，RGB 一个像素都不碰）。
+        //
+        // 为什么必须做：模型屏这条路的 alpha 不是"画完就算了"——离屏靶的 alpha 会**交给**
+        // 屏幕四边形去和世界做混合（renderScreen → RenderType.text → SRC_ALPHA 混合）。
+        // 而 GUI 那套绘制（fill / blit / 圆角逐行扫描）在边缘和柔边处留下的 alpha 往往 < 255，
+        // 于是世界（天空/雾）就从这些地方按 (1-a) 透出来 —— 实测那圈描边能被
+        // `dst = fbo.rgb × 0.987 + 世界 × 0.013` 完全拟合，而且颜色随昼夜变。
+        //
+        // 直接画在屏幕上的悬浮窗没有这个问题：那里的帧缓冲已经是不透明的，
+        // alpha 只参与混合计算、不参与最终显示。两条路唯一的差别就是这个 alpha。
+        //
+        // colorMask 关掉 RGB 写、只留 alpha 写，所以这一步对画面**零副作用**，
+        // 只是把"屏幕必须是实心的"这件事从"靠每一层自觉"改成"结构上保证"。
+        if (external) {
+            RenderSystem.colorMask(false, false, false, true);
+            RenderSystem.enableBlend();
+            RenderSystem.defaultBlendFunc();
+            graphics.flush();   // 先把上面所有绘制的批处理落盘，免得被下面的 alpha 写影响
+            fillRoundedRect(graphics, phoneX, ry, phoneWidth, totalHeight,
+                    UiFont.sh(STATUSBAR_H), UiFont.sh(WATERMARK_H), 0xFFFFFFFF);
+            graphics.flush();
+            RenderSystem.colorMask(true, true, true, true);
+        }
     }
 
     /**
