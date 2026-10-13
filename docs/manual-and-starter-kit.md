@@ -177,6 +177,38 @@ python tools\manual_docx.py selftest              rem 在临时副本上跑通�
 手册（槽位 2）**还是 📖 emoji**：需求方这轮画的三张是 设置/图库/相机，手册图标以后再说。
 三个 App 的 `color` 全部保留 —— 它是启动动画"色块放大淡出"用的颜色，也是贴图缺失时的兜底。
 
+## 5.4 精灵图"白描边"（2026-10-12 需求方反馈，已修）
+
+**症状**：三张 App 图标放进手机 Overlay 后，轮廓上多出一圈浅色硬边；PS 里柔和的半透明边缘
+在游戏里被"夸大"成描边。需求方补充：JPG 不能用（PS 导出会填白底）。
+
+**排查**（工具量数据 + 读 Minecraft 源码，不是猜的）
+* `python tools\sprite_alpha.py report`：素材是 RGBA 256×256；**半透明边缘并不偏白**（0.3–0.7%），
+  所以"白底 matte"这条排除；**但 26376 个全透明像素的 RGB 是纯白**（平均色 (255,255,255)）。
+* 读 `neoforge-21.1.243-sources.jar` 里的 `SimpleTexture` / `TextureMetadataSectionSerializer`：
+  **没有 `.mcmeta` 时 `blur=false, clamp=false`，且不生成 mipmap** → 也就是说 GUI 走的是**最近邻**。
+* `python tools\sprite_alpha.py sim`（把"缩到手机上"这一步离线重放）：256px → 手机上一格约 28px，
+  **最近邻只挑一个像素、不做平均**，于是柔和的半透明边缘被抽成一圈浅色硬边；
+  浅底图标（设置 #EEEEEE）上看着就是白描边，深底（相机 #424242）上则是浅色噪点边。
+
+**修法（三条一起做，缺一不可）**
+1. **颜色外扩 alpha bleed**：把不透明像素的颜色扩散进透明区（alpha 仍为 0）。素材透明区 RGB 是纯白，
+   **不先外扩就开过滤，等于自己造白边**。
+2. **预降采样到 96px**（预乘 alpha 的均值降采样）：把柔和边缘"预平均"到接近显示尺寸，
+   即使仍然是最近邻（没加 .mcmeta 时）也已经明显干净。
+3. **`.mcmeta`**：`{"texture":{"blur":true,"clamp":true}}` → 这张贴图走线性过滤 + 边缘钳制。
+
+前两条由 `tools/import_manual_assets.py` 的 `copy_icon` 对**图标**自动执行，第三条由它写出
+`<name>.png.mcmeta`（已验证进 jar）。手册配图是**不透明截图**，原样拷贝即可；但它们走
+`PhotoLibrary` 的 `DynamicTexture`（没有 .mcmeta 机制），所以在那里显式 `setFilter(true, false)`
+开了线性过滤 —— 手册长截图与聊天气泡里的图片都是"缩小显示"，最近邻会碎。
+
+**给美术的最简规则**（不改流水线也干净）：导出 PNG-24 带透明，**尺寸直接导 96~128px**
+（PS 自己缩小 = 已经做了一次正确的平均）；不要用 JPG（没有 alpha 通道，必然白底）。
+
+> 工具：`tools/sprite_alpha.py` —— `report`（量化证据）、`sim`（离线重放缩放+对比图）、
+> `fix`（颜色外扩/去白底/硬边/降采样）。以后任何"PNG 进 UI 后边缘不对"的问题都先用它取证。
+
 ---
 
 ## 6. 环境备注（本机，沿用既有交接文档）

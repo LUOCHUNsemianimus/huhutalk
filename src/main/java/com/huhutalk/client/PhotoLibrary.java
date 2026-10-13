@@ -258,6 +258,12 @@ public final class PhotoLibrary {
             ResourceLocation rl = ResourceLocation.fromNamespaceAndPath(
                     "huhutalk", "photo/" + sanitize(key) + "_" + (++textureSeq));
             Minecraft.getInstance().getTextureManager().register(rl, tex);
+            // 线性过滤（blur）：这些图几乎都是"缩小显示"的 ——
+            // 手册配图 800px 画在 ~100 GUI 单位里、聊天气泡里的图片 800px 画 48px。
+            // Minecraft 的 DynamicTexture 默认是最近邻（GL_NEAREST）：缩小时只挑一个像素、
+            // 不做平均，细文字会碎、缩略图会闪。开线性过滤看起来干净得多。
+            // 延迟到渲染线程执行（GL 调用不能在这里做，与 scheduleRelease 同一套理由）。
+            RenderSystem.recordRenderCall(() -> tex.setFilter(true, false));
             TEXTURES.put(key, rl);
             DIMS.put(key, new int[]{img.getWidth(), img.getHeight()});
             if (old != null) {
