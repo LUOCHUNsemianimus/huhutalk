@@ -10,6 +10,7 @@ import com.huhutalk.common.StableIdProvider;
 import com.huhutalk.core.contact.MaidContactBook;
 import com.huhutalk.core.contact.MaidContactEntry;
 import com.huhutalk.core.vision.VisionService;
+import com.huhutalk.core.vision.VisionSettings;
 import com.huhutalk.network.C2SMaidImageChatPacket;
 import com.huhutalk.network.S2CMaidChatErrorPacket;
 import com.huhutalk.network.S2CMaidChatInfoPacket;
@@ -206,7 +207,11 @@ public class MaidChatHandler {
         final EntityMaid maidIn = maid;
         final ServerPlayer playerIn = player;
 
-        VisionService.describe(imageData, "这是主人刚发给你的一张我的世界图片。请仔细观察画面，尽量具体地描述其中发生了什么、有哪些东西。但是不要猜测其中人物的身份，仅描述外貌、特征")
+        // 识图平台由玩家在手机设置里选（「识图模型」页）；服务端只在会话内按 UUID 缓存这份选择。
+        // 从未同步过时 VisionSettings 会给出默认值（deepseek），于是老玩家行为与改造前一致。
+        VisionSettings.Selection visionSel = VisionSettings.get(player.getUUID());
+        VisionService.describe(imageData, VisionService.DEFAULT_PROMPT,
+                        visionSel.siteId(), visionSel.resolveModel())
                 .whenComplete((desc, throwable) -> {
                     if (throwable != null) {
                         LOGGER.error("[HuhuTalk] 识图失败 stableId={}", stableIdIn, throwable);

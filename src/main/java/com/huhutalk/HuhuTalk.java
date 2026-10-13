@@ -15,6 +15,8 @@ import com.huhutalk.core.load.TicketManager;
 import com.huhutalk.core.move.MaidMoveData;
 import com.huhutalk.core.rescue.PlayerRescueHook;
 import com.huhutalk.core.supply.RemoteSupplyHook;
+import com.huhutalk.core.vision.VisionSettings;
+import com.huhutalk.core.vision.VisionSites;
 import com.huhutalk.init.HuhuTalkBlocks;
 import com.huhutalk.init.HuhuTalkCreativeTabs;
 import com.huhutalk.init.HuhuTalkItems;
@@ -35,11 +37,15 @@ import com.huhutalk.network.C2SSetSosModePacket;
 import com.huhutalk.network.C2SSOSPacket;
 import com.huhutalk.network.C2SSyncWaypointsPacket;
 import com.huhutalk.network.C2SToggleSosBindPacket;
+import com.huhutalk.network.C2SRequestVisionSitesPacket;
+import com.huhutalk.network.C2SVisionSelectionPacket;
+import com.huhutalk.network.C2SVisionSiteEditPacket;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.common.Mod;
 import net.neoforged.neoforge.common.NeoForge;
 import net.neoforged.neoforge.event.RegisterCommandsEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
+import net.neoforged.neoforge.event.server.ServerAboutToStartEvent;
 import net.neoforged.neoforge.event.server.ServerStoppingEvent;
 import net.neoforged.neoforge.event.tick.ServerTickEvent;
 import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
@@ -93,6 +99,16 @@ public class HuhuTalk {
         NeoForge.EVENT_BUS.addListener(ServerStoppingEvent.class, e -> PhoneChatSourceController.clearAll());
         NeoForge.EVENT_BUS.addListener(PlayerEvent.PlayerLoggedOutEvent.class, e -> PhoneChatSourceController.clearAll());
 
+        // 识图平台：服务器起来时补齐本模组需要、而主模组没有的 LLM 站点预设（千帆/混元/阶跃/自定义）。
+        // 用 ServerAboutToStart 而不是 mod 构造期，是因为主模组的站点表要到它自己的 common setup
+        // 才由 SerializerRegister.init() → AvailableSites.init() 建好；服务器启动必然晚于那一步。
+        // 该方法是幂等的「缺失才建」，不会覆盖玩家已有的任何站点配置。
+        NeoForge.EVENT_BUS.addListener(ServerAboutToStartEvent.class, e -> VisionSites.ensureDefaults());
+        // 「识图走哪个平台」是纯会话偏好（客户端每次登录重推），登出即清、停服全清，避免长开服累积
+        NeoForge.EVENT_BUS.addListener(PlayerEvent.PlayerLoggedOutEvent.class,
+                e -> VisionSettings.clear(e.getEntity().getUUID()));
+        NeoForge.EVENT_BUS.addListener(ServerStoppingEvent.class, e -> VisionSettings.clearAll());
+
         // 女仆叙事总线（任务 1 × 任务 2 的兼容层）：救援与补给的"要她说的话"在这里合并成同一轮注入。
         // ⚠ 必须注册在 PlayerRescueHook / RemoteSupplyHook 之后：它们的 ServerTick 钩子会 submit 事件，
         //   本监听器随后 flush，这样同一 tick 提交的事件就能被合并（见 §12）。
@@ -138,6 +154,10 @@ public class HuhuTalk {
         registrar.playToServer(C2SPotionRescueSettingPacket.TYPE, C2SPotionRescueSettingPacket.STREAM_CODEC, C2SPotionRescueSettingPacket::handle);
         // 客户端 → 服务端：同步「远程补给触发女仆回复」开关（同样只在会话内缓存）
         registrar.playToServer(C2SRemoteSupplyReplySettingPacket.TYPE, C2SRemoteSupplyReplySettingPacket.STREAM_CODEC, C2SRemoteSupplyReplySettingPacket::handle);
+        // 客户端 → 服务端：识图平台列表（拉取 / 改密钥 / 同步选中的平台与模型）
+        registrar.playToServer(C2SRequestVisionSitesPacket.TYPE, C2SRequestVisionSitesPacket.STREAM_CODEC, C2SRequestVisionSitesPacket::handle);
+        registrar.playToServer(C2SVisionSiteEditPacket.TYPE, C2SVisionSiteEditPacket.STREAM_CODEC, C2SVisionSiteEditPacket::handle);
+        registrar.playToServer(C2SVisionSelectionPacket.TYPE, C2SVisionSelectionPacket.STREAM_CODEC, C2SVisionSelectionPacket::handle);
         // 注意：S2C 包在 ClientPayloadSetup 中注册
     }
 }

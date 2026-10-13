@@ -8,7 +8,9 @@ import com.huhutalk.client.NotificationManager;
 import com.huhutalk.client.PhoneChatSourceCache;
 import com.huhutalk.client.SosBindCache;
 import com.huhutalk.client.SosTaskCache;
+import com.huhutalk.client.vision.VisionSiteCache;
 import com.huhutalk.init.HuhuTalkSounds;
+import com.huhutalk.network.S2CVisionSitesPacket;
 import com.huhutalk.network.S2CPhoneChatSourcePacket;
 import com.huhutalk.network.S2CMaidChatErrorPacket;
 import com.huhutalk.network.S2CMaidChatInfoPacket;
@@ -49,6 +51,13 @@ public class ClientPayloadSetup {
         registrar.playToClient(S2CSosTaskListPacket.TYPE, S2CSosTaskListPacket.STREAM_CODEC, ClientPayloadSetup::handleSosTaskList);
         // 服务端 → 客户端：手机聊天来源窗口（驱动「使用手机」附加动画）
         registrar.playToClient(S2CPhoneChatSourcePacket.TYPE, S2CPhoneChatSourcePacket.STREAM_CODEC, ClientPayloadSetup::handlePhoneChatSource);
+        // 服务端 → 客户端：识图平台列表快照（不含密钥）
+        registrar.playToClient(S2CVisionSitesPacket.TYPE, S2CVisionSitesPacket.STREAM_CODEC, ClientPayloadSetup::handleVisionSites);
+    }
+
+    /** 识图平台列表快照：只写客户端缓存，由「识图模型」页自己取用。 */
+    private static void handleVisionSites(S2CVisionSitesPacket packet, IPayloadContext context) {
+        context.enqueueWork(() -> VisionSiteCache.set(packet.sites(), packet.canEdit()));
     }
 
     /** 手机来源窗口同步：只有窗口内的女仆才播放手机动画。 */

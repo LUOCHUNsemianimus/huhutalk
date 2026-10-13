@@ -1,7 +1,6 @@
 package com.huhutalk.api.phone.ui;
 
 import com.huhutalk.client.theme.ThemeManager;
-import com.huhutalk.phone.UiShapes;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
@@ -182,7 +181,7 @@ public final class PhoneRow {
         int sy = originY + y;
 
         if (background != 0 && baseH > 0) {
-            UiShapes.fillRoundedRect(g, sx, sy, w, baseH, radius, background);
+            PhoneShapes.fillRoundedRect(g, sx, sy, w, baseH, radius, background);
         }
 
         int color = labelColor != 0 ? labelColor : ThemeManager.getActive().textPrimary();

@@ -437,9 +437,10 @@ private void layoutRows() {
 
 | 项 | 说明 |
 |---|---|
-| **圆角图片** | `UiShapes` 只能填纯色圆角矩形；圆角贴图要遮罩或自定义着色器。头像目前是方块 |
+| **圆角图片** | `PhoneShapes`（`api/phone/ui`，旧名 `com.huhutalk.phone.UiShapes` 已 `@Deprecated`）只能填纯色圆角矩形；圆角贴图要遮罩或自定义着色器。头像目前是方块 |
 | **滚动条** | 已决定搁置。只提供 `scrollOffset` / `maxScroll()`，需要时自己画 |
 | **控件放进 `PhoneList` 行内** | 需自己接线：列表行的 y 随滚动变化，行内控件要每帧按行位置 `bounds(...)`；`PhoneRow` 是为页面级行设计的 |
+| **⚠ 滚动页里的控件坐标** | `PhoneWidget.render` 只在 `bounds` 的 y 上加**内容区原点、不含滚动偏移**。所以滚动页里必须 `bounds(x, scrollY(logical), ...)`（**视图坐标**），命中则传未滚动的 `localY` —— 依据 `scrollY(logicalY(localY)) == localY`。用逻辑坐标会"渲染钉在屏幕上、命中却还对得上"（实测踩过）。`PhoneRow` 同理：`row.layout(font, 0, scrollY(y), w)` + `row.mousePressed(localX, localY, btn)` |
 | **多列网格列表** | `PhoneList` 只有单列。`PhoneCasePickerPage` 那种网格暂不支持 |
 | **吸顶分组头** | 没有 |
 | **文本输入框** | 页面内没有可用的输入控件。需要打字时既有做法是借用真 `Screen`（见 `PhoneInputScreen`，输入法可用） |

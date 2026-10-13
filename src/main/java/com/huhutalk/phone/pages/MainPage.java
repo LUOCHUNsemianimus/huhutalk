@@ -218,11 +218,13 @@ public class MainPage implements IPhonePage {
         // 2 手册：手机内置手册（拆分前，「设置」图标指向的就是这个页面）
         list.add(new AppInfo(2, AppBehavior.MANUAL, false,
                 "手册", 0xFFEFEBE9, "📖", true, 2.0f, 0xFF5D4037, true, false, ManualPage::new));
-        // 5 设置：占位（图标先站位，后续把设置项搬进来；现在点开是「敬请期待」）
+        // 5 设置：设置 App 主页（用公开骨架 PhonePage 画，配色跟主题）。
+        //   目前只有「识图模型」一栏（见 SettingsAppPage）；底部导航那个老设置页不受影响。
         //   图标用 256×256 贴图（assets/huhutalk/textures/icon/settings.png）；
         //   中心的 ⚙ 与底色保留 —— 底色是启动动画色块色，文字是贴图缺失时的兜底。
         list.add(new AppInfo(5, AppBehavior.PLAIN, false,
-                "设置", 0xFFEEEEEE, "⚙", true, 2.0f, 0xFF757575, false, false, false, null,
+                "设置", 0xFFEEEEEE, "⚙", true, 2.0f, 0xFF757575, true, false, false,
+                SettingsAppPage::new,
                 ResourceLocation.fromNamespaceAndPath("huhutalk", "textures/icon/settings.png"),
                 256, 256, 1.0f));
         return list;

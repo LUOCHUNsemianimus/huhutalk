@@ -1,7 +1,6 @@
 package com.huhutalk.api.phone.ui;
 
 import com.huhutalk.client.theme.ThemeManager;
-import com.huhutalk.phone.UiShapes;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
@@ -144,7 +143,7 @@ public final class PhoneDropdown extends PhoneWidget {
 
         // 收起态框体
         int radius = Math.min(6, h / 2);
-        UiShapes.fillRoundedRect(g, x, y, w, h, radius, bg);
+        PhoneShapes.fillRoundedRect(g, x, y, w, h, radius, bg);
         PhoneText.drawLeftIn(g, font, selectedText(), x, y, w - PhoneText.px(14), h,
                 PhoneText.px(PAD_PX), text, PhoneText.scale(1.0f));
         PhoneText.drawCenteredIn(g, font, expanded ? "▲" : "▼",
@@ -158,11 +157,11 @@ public final class PhoneDropdown extends PhoneWidget {
         int rowH = rowHeight();
         int rows = Math.min(VISIBLE_ROWS, options.length);
         int listTop = y + h;
-        UiShapes.fillRoundedRect(g, x, listTop, w, rows * rowH, radius, list);
+        PhoneShapes.fillRoundedRect(g, x, listTop, w, rows * rowH, radius, list);
         for (int i = 0; i < rows; i++) {
             int rowY = listTop + i * rowH;
             if (i == selected) {
-                UiShapes.fillRoundedRect(g, x + 1, rowY, w - 2, rowH, Math.min(4, rowH / 2), hi);
+                PhoneShapes.fillRoundedRect(g, x + 1, rowY, w - 2, rowH, Math.min(4, rowH / 2), hi);
             }
             PhoneText.drawLeftIn(g, font, options[i], x, rowY, w, rowH,
                     PhoneText.px(PAD_PX), text, PhoneText.scale(1.0f));

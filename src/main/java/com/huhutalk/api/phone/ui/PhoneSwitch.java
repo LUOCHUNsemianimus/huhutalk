@@ -1,7 +1,6 @@
 package com.huhutalk.api.phone.ui;
 
 import com.huhutalk.client.theme.ThemeManager;
-import com.huhutalk.phone.UiShapes;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 
@@ -85,10 +84,10 @@ public final class PhoneSwitch extends PhoneWidget {
         int on = colorOn != null ? colorOn : ThemeManager.getActive().accent();
         int off = colorOff != null ? colorOff : ThemeManager.getActive().neutralBg();
 
-        UiShapes.fillRoundedRect(g, x, y, w, h, h / 2, value ? on : off);
+        PhoneShapes.fillRoundedRect(g, x, y, w, h, h / 2, value ? on : off);
         int knob = value ? x + w - h + 1 : x + 1;
         int knobSize = Math.max(1, h - 2);
-        UiShapes.fillRoundedRect(g, knob, y + 1, knobSize, knobSize, knobSize / 2, KNOB_COLOR);
+        PhoneShapes.fillRoundedRect(g, knob, y + 1, knobSize, knobSize, knobSize / 2, KNOB_COLOR);
     }
 
     @Override

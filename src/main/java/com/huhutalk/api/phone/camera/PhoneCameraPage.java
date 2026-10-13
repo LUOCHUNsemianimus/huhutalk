@@ -1,12 +1,12 @@
 package com.huhutalk.api.phone.camera;
 
 import com.huhutalk.api.phone.ui.PhoneImages;
+import com.huhutalk.api.phone.ui.PhoneShapes;
 import com.huhutalk.api.phone.ui.PhoneText;
 import com.huhutalk.client.PhotoLibrary;
 import com.huhutalk.event.ClientModEvents;
 import com.huhutalk.phone.PhoneOverlay;
 import com.huhutalk.phone.UiFont;
-import com.huhutalk.phone.UiShapes;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
@@ -217,7 +217,7 @@ public class PhoneCameraPage implements PhoneCameraHost {
             if (thumbTex != null) {
                 int tx = baseX + thumbX;
                 int ty = baseY + thumbY;
-                UiShapes.fillRoundedRect(graphics, tx, ty, thumbSize, thumbSize, UiFont.sh(3), 0xCCFFFFFF);
+                PhoneShapes.fillRoundedRect(graphics, tx, ty, thumbSize, thumbSize, UiFont.sh(3), 0xCCFFFFFF);
                 // 用 cover 而不是拉伸：任意屏幕比例的截图贴进方形框里都不变形
                 PhoneImages.drawCover(graphics, thumbTex, tx, ty, thumbSize, thumbSize, thumbDim[0], thumbDim[1]);
             }
@@ -229,9 +229,9 @@ public class PhoneCameraPage implements PhoneCameraHost {
         int sx = baseX + shutterX;
         int sy = baseY + shutterY;
         int ring = Math.max(2, shutterD / 10);
-        UiShapes.fillRoundedRect(graphics, sx, sy, shutterD, shutterD, shutterD / 2, 0xFFFFFFFF);
+        PhoneShapes.fillRoundedRect(graphics, sx, sy, shutterD, shutterD, shutterD / 2, 0xFFFFFFFF);
         int inner = shutterD - ring * 2;
-        UiShapes.fillRoundedRect(graphics, sx + ring, sy + ring, inner, inner, inner / 2, 0xFFDE7E7E);
+        PhoneShapes.fillRoundedRect(graphics, sx + ring, sy + ring, inner, inner, inner / 2, 0xFFDE7E7E);
 
         String key = keyHint(true);
         int keyW = Math.max(1, font.width(key));

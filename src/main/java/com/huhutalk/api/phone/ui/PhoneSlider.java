@@ -1,7 +1,6 @@
 package com.huhutalk.api.phone.ui;
 
 import com.huhutalk.client.theme.ThemeManager;
-import com.huhutalk.phone.UiShapes;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 
@@ -96,9 +95,9 @@ public final class PhoneSlider extends PhoneWidget {
         int handle = handleColor != null ? handleColor : ThemeManager.getActive().accent();
 
         int trackY = top + (h - TRACK_THICKNESS) / 2;
-        UiShapes.fillRoundedRect(g, left, trackY, w, TRACK_THICKNESS, 1, track);
+        PhoneShapes.fillRoundedRect(g, left, trackY, w, TRACK_THICKNESS, 1, track);
         int handleX = left + (int) Math.round(value * w);
-        UiShapes.fillRoundedRect(g, handleX - HANDLE_WIDTH / 2, trackY - 3,
+        PhoneShapes.fillRoundedRect(g, handleX - HANDLE_WIDTH / 2, trackY - 3,
                 HANDLE_WIDTH, HANDLE_HEIGHT, HANDLE_RADIUS, handle);
     }
 

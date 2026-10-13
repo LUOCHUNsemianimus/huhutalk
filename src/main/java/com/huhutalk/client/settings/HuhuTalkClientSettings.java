@@ -3,6 +3,8 @@ package com.huhutalk.client.settings;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonParseException;
+import com.huhutalk.common.vision.VisionProvider;
+import com.huhutalk.common.vision.VisionProviders;
 import com.mojang.logging.LogUtils;
 import net.minecraft.client.Minecraft;
 import org.slf4j.Logger;
@@ -13,9 +15,11 @@ import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * HuhuTalk 客户端全局设置（本地 JSON 持久化，按世界无关，全局共享）。
@@ -84,6 +88,33 @@ public final class HuhuTalkClientSettings {
     /** 玩家自定义的分组名列表（持久化；联系人页会把其中的分组（含空组）也展示出来） */
     private static final List<String> customGroupNames = new ArrayList<>();
 
+    /**
+     * 「识图走哪个平台」：一个车万女仆的 LLM 站点 id（如 {@code aliyun} / {@code doubao}）。
+     * <p>
+     * 默认 {@code deepseek}，与改造前的硬编码链路完全一致 —— 老玩家升级后不配也能照常识图。
+     * <p>
+     * <b>注意这里只存"选哪个"，不存密钥</b>：密钥在主模组的服务端站点配置里
+     * （{@code config/touhou_little_maid/sites/llm.json}），客户端从头到尾拿不到。
+     */
+    private static String visionSiteId = VisionProviders.DEFAULT_SITE_ID;
+    /**
+     * 各平台各自记住的模型：siteId -> model。
+     * <p>
+     * 玩家在阿里云选了 {@code qwen3-vl-flash}、在火山选了别的，来回切平台时互不影响。
+     * 值为空串或缺失表示"用该平台的默认预设模型"。
+     */
+    private static final Map<String, String> visionModels = new HashMap<>();
+    /**
+     * 处于「自定义模型」模式的平台集合。
+     * <p>
+     * 为什么需要单独一个标记：玩家在下拉里选了「自定义…」之后可能<b>还没敲完</b>模型名，
+     * 此时"记住的模型"是空的。如果只靠"记的模型在不在预设列表里"来判断，
+     * 空值会让下拉立刻弹回预设默认——玩家刚点开的自定义输入框一秒就没了。
+     * <p>
+     * 有了这个标记，自定义模式就成了一个<b>显式状态</b>，与"输入框里有没有字"解耦。
+     */
+    private static final Set<String> visionCustomModelSites = new HashSet<>();
+
     private HuhuTalkClientSettings() {
     }
 
@@ -115,6 +146,87 @@ public final class HuhuTalkClientSettings {
     /** 读取某女仆手动分组；未手动设置返回 null */
     public static String getMaidGroup(String stableId) {
         return maidGroups.get(stableId);
+    }
+
+    // ==================== 识图平台 ====================
+
+    /** 当前选中的识图平台（TLM 站点 id）。 */
+    public static String getVisionSiteId() {
+        return visionSiteId;
+    }
+
+    /**
+     * 设置识图平台并落盘。
+     * <p>
+     * 只做"非空"兜底，<b>不校验站点是否存在</b>：站点列表来自服务端，
+     * 而本方法可能在还没连服务器时被调用（例如读老配置）。真正找不到时
+     * 服务端识图会退回 {@code deepseek}，不会崩。
+     */
+    public static void setVisionSiteId(String siteId) {
+        visionSiteId = (siteId == null || siteId.isBlank()) ? VisionProviders.DEFAULT_SITE_ID : siteId;
+        save();
+    }
+
+    /** 某平台记住的模型；未设置返回空串（= 用平台预设默认）。 */
+    public static String getVisionModel(String siteId) {
+        if (siteId == null) {
+            return "";
+        }
+        String m = visionModels.get(siteId);
+        return m == null ? "" : m;
+    }
+
+    /** 记住某平台选中的模型（空串 = 回到该平台的默认预设模型）。 */
+    public static void setVisionModel(String siteId, String model) {
+        if (siteId == null || siteId.isBlank()) {
+            return;
+        }
+        if (model == null || model.isBlank()) {
+            visionModels.remove(siteId);
+        } else {
+            visionModels.put(siteId, model.trim());
+        }
+        save();
+    }
+
+    /** 该平台是否处于「自定义模型」模式（模型名以下拉下方的输入框为准）。 */
+    public static boolean isVisionCustomModel(String siteId) {
+        return siteId != null && visionCustomModelSites.contains(siteId);
+    }
+
+    /**
+     * 切换某平台的「自定义模型」模式。
+     * <p>退出该模式时不动已记住的模型，便于玩家来回切着对比。
+     */
+    public static void setVisionCustomModel(String siteId, boolean custom) {
+        if (siteId == null || siteId.isBlank()) {
+            return;
+        }
+        boolean changed = custom ? visionCustomModelSites.add(siteId)
+                : visionCustomModelSites.remove(siteId);
+        if (changed) {
+            save();
+        }
+    }
+
+    /**
+     * 当前识图平台最终会用的模型名——<b>只给 UI 摘要用</b>（服务端的真实取值在
+     * {@code VisionSettings.Selection#resolveModel()}，那里还会再兜一层）。
+     * <p>
+     * 与 {@link #getVisionModel} 的区别：这里在"自定义模式但还没填"时明确返回
+     * 「自定义」，而不是显示一个其实不会被用到的预设默认值。
+     */
+    public static String getEffectiveVisionModel() {
+        String siteId = visionSiteId;
+        String stored = getVisionModel(siteId);
+        if (!stored.isBlank()) {
+            return stored;
+        }
+        if (isVisionCustomModel(siteId)) {
+            return "自定义";
+        }
+        VisionProvider p = VisionProviders.byId(siteId);
+        return p != null ? p.resolveDefaultModel() : "";
     }
 
     /** 全部手动分组映射（不可变副本） */
@@ -414,6 +526,25 @@ public final class HuhuTalkClientSettings {
                     }
                 }
             }
+            // 识图平台：老配置没有该字段 → 保持默认（deepseek），与改造前行为一致
+            visionSiteId = (data.visionSiteId == null || data.visionSiteId.isBlank())
+                    ? VisionProviders.DEFAULT_SITE_ID : data.visionSiteId;
+            visionModels.clear();
+            if (data.visionModels != null) {
+                data.visionModels.forEach((k, v) -> {
+                    if (k != null && !k.isBlank() && v != null && !v.isBlank()) {
+                        visionModels.put(k, v.trim());
+                    }
+                });
+            }
+            visionCustomModelSites.clear();
+            if (data.visionCustomModelSites != null) {
+                for (String s : data.visionCustomModelSites) {
+                    if (s != null && !s.isBlank()) {
+                        visionCustomModelSites.add(s.trim());
+                    }
+                }
+            }
         } catch (JsonParseException e) {
             // 损坏/不合法 JSON：不崩溃，回退默认设置；原文件改名备份，避免下次继续崩
             LOGGER.error("[HuhuTalk] 设置文件损坏，已回退默认设置: {}", file, e);
@@ -453,6 +584,9 @@ public final class HuhuTalkClientSettings {
             data.huhutalkIconStyle = huhutalkIconStyle;
             data.maidGroups = maidGroups;
             data.customGroupNames = customGroupNames;
+            data.visionSiteId = visionSiteId;
+            data.visionModels = visionModels;
+            data.visionCustomModelSites = visionCustomModelSites;
             Path file = settingsFile();
             Files.createDirectories(file.getParent());
             // 原子写入：先写临时文件再重命名，避免写一半崩溃/断电导致 JSON 损坏
@@ -494,5 +628,11 @@ public final class HuhuTalkClientSettings {
         String huhutalkIconStyle; // 可空：缺失时默认 symbol2
         Map<String, String> maidGroups;
         List<String> customGroupNames;
+        /** 可空：缺失时默认 deepseek（老配置文件没有该字段，正好等于改造前的行为） */
+        String visionSiteId;
+        /** 各平台选中的模型：siteId -> model */
+        Map<String, String> visionModels;
+        /** 处于「自定义模型」模式的平台集合 */
+        Set<String> visionCustomModelSites;
     }
 }

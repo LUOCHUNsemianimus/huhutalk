@@ -31,6 +31,7 @@
 | `api/phone/ui/PhonePage.java` | 页面基类：顶栏 + 返回键 + 滚动 + 裁剪 + 命中 + 主题取色 |
 | `api/phone/ui/PhoneList.java` | 虚拟化行列表：**渲染与命中共用一对互逆映射** |
 | `api/phone/ui/PhoneImages.java` | 画图：`draw` / `drawFit` / `drawCover` / `drawRegion` |
+| `api/phone/ui/PhoneShapes.java` | 画圆角：`fillRoundedRect` / `fillRoundedRectFrame` / `fillRoundedRectFrameTiled`（**本轮从 `com.huhutalk.phone.UiShapes` 提升而来**，见 §1.5） |
 | `api/phone/ui/PhoneText.java` | 画字：跟随全局字体倍率的缩放绘制 + 截断 + 居中/左对齐 |
 | `api/phone/ui/PhoneWidget.java` | 控件基类 |
 | `api/phone/ui/PhoneSwitch.java` | 胶囊开关 |
@@ -52,6 +53,24 @@
 | `phone/pages/MainPage.java` | ① 桌面 App 列表改为「内置 + 注册表」合并（按注册版本号懒合并）② 新增贴图图标渲染通路 ③ **桌面底色改为读主题** | 内置 App 行为零改动；桌面底色从硬编码 `#F0E4EA` 变成主题色 |
 | `client/theme/ColorScheme.java` | 新增 7 个页面结构色字段；`pageBg` 取值由 `#FFF0F5` 改为 `#F2E8EF` | **`PhoneCasePickerPage` 的底色会跟着变**（它读的就是 `pageBg`）；其余页面不读色板，不受影响 |
 
+### 1.5 补充（识图多平台那一轮）：`UiShapes` 提升为公开件
+
+**问题**：公开工具链自己全都在用圆角矩形 —— `PhoneRow` / `PhoneDropdown` / `PhoneSlider` /
+`PhoneSwitch` / `PhoneTextInput` 五个公开控件，外加 `api/phone/camera/PhoneCameraPage` ——
+但实现住在**非公开**的 `com.huhutalk.phone.UiShapes` 里。
+于是"只用 `api/phone/ui` 写页面"这条标准在**圆角矩形**这一项上天然做不到。
+
+**处理**：
+| 项 | 变化 |
+|---|---|
+| `api/phone/ui/PhoneShapes.java` | **新增**，成为实现的正式归属（公开包自洽） |
+| `phone/UiShapes.java` | 变成**兼容转发壳**，标 `@Deprecated`；签名一字未改，所以既有页面**一行都不用改** |
+| 公开包内 6 个文件 | 改用 `PhoneShapes`（`PhoneRow` / `PhoneDropdown` / `PhoneSlider` / `PhoneSwitch` / `PhoneTextInput` 同包免 import；`PhoneCameraPage` 改 import） |
+| 10 个老页面 | **未改动**，仍走 `UiShapes` 壳。代价：每个调用点会多一条 `已弃用` 告警 —— 这正是"该迁了"的信号 |
+
+**尚未处理**：`PhoneCameraPage` 还直接用了非公开的 `UiFont`（`sh` / `sc`）。
+`PhoneText.px(int)` 与 `PhoneText.scale(float)` 是它的公开等价物，可以之后一并迁掉。
+
 ---
 
 ## 2. 开工前必读：四条纪律
@@ -72,6 +91,7 @@
 | 页面要滚动 | 重写 `contentHeight()`，渲染用 `scrollY(logical)`、命中用 `logicalY(local)` |
 | 行式列表 | `PhoneList<T>`：`items()` / `itemHeight()` / `renderItem(...)` / `onItemClick(...)` |
 | 画头像 / 照片 | `PhoneImages.drawCover(...)`；源纹理取自 `MaidAvatarManager` 或 `PhotoLibrary` |
+| 画圆角矩形 / 胶囊 | `PhoneShapes.fillRoundedRect(...)`（**不要**再用 `com.huhutalk.phone.UiShapes`，它已 `@Deprecated`） |
 | 画文字 | `PhoneText.draw / drawCenteredIn / drawLeftIn`（都跟随全局字体倍率） |
 | 开关 / 增减 / 滑块 / 下拉 | `PhoneSwitch` / `PhoneStepper` / `PhoneSlider` / `PhoneDropdown`，用 `PhoneRow` 摆成行 |
 | 取主题色 | `colors()`（`PhonePage` 内）或 `ThemeManager.getActive()` |

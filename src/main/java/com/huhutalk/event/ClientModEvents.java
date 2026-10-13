@@ -3,8 +3,10 @@ package com.huhutalk.event;
 import com.huhutalk.client.render.PhoneScreenTarget;
 import com.huhutalk.client.render.ProPhoneHandRenderer;
 import com.huhutalk.client.settings.HuhuTalkClientSettings;
+import com.huhutalk.client.vision.VisionSiteCache;
 import com.huhutalk.network.C2SPotionRescueSettingPacket;
 import com.huhutalk.network.C2SRemoteSupplyReplySettingPacket;
+import com.huhutalk.network.C2SVisionSelectionPacket;
 import com.huhutalk.phone.PhoneOverlay;
 import com.huhutalk.phone.IPhonePage;
 import com.huhutalk.phone.pages.ChatPage;
@@ -65,6 +67,30 @@ public class ClientModEvents {
     public static void onClientLoggingIn(ClientPlayerNetworkEvent.LoggingIn event) {
         pushPotionRescueSetting();
         pushRemoteSupplyReplySetting();
+        pushVisionSelection();
+    }
+
+    /**
+     * 退出服务器时清掉识图平台缓存。
+     * <p>
+     * 否则换一个服务器进游戏时，会先看到上一台服务器的站点列表（内容不一定错，但会误导），
+     * 直到新服务器把快照推回来。
+     */
+    @SubscribeEvent
+    public static void onClientLoggingOut(ClientPlayerNetworkEvent.LoggingOut event) {
+        VisionSiteCache.clear();
+    }
+
+    /**
+     * 把本机的「识图走哪个平台、用哪个模型」推给服务端（幂等，可重复调用）。
+     * <p>
+     * 服务端只在会话内按 UUID 缓存（见 {@code VisionSettings}），所以每次登录、
+     * 每次在设置里改动都要推一次。
+     */
+    public static void pushVisionSelection() {
+        String siteId = HuhuTalkClientSettings.getVisionSiteId();
+        PacketDistributor.sendToServer(
+                new C2SVisionSelectionPacket(siteId, HuhuTalkClientSettings.getVisionModel(siteId)));
     }
 
     /** 把本机的「药水复活」偏好推给服务端（幂等，可重复调用）。 */
