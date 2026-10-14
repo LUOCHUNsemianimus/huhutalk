@@ -38,9 +38,12 @@ import net.neoforged.neoforge.network.PacketDistributor;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Random;
+import java.util.Set;
+import java.util.WeakHashMap;
 
 /**
  * 聊天页面（完整版）。
@@ -323,6 +326,7 @@ public class ChatPage implements PhoneCameraHost {
         this.splitQueue.clear();
         this.splitIndex = 0;
         this.pendingReplyEmote = null;
+        PENDING_SPLIT.remove(this);
         markLastSentPending();
     }
 
@@ -561,17 +565,62 @@ public class ChatPage implements PhoneCameraHost {
         pendingReplyEmote = pendingEmoteLocal;
         splitting = true;
         waitingResponse = true; // 断句期间保持"对方正在输入…"
+        // 登记本页：此后由客户端 tick 按真实时间推进，与"当前页是谁"解耦
+        PENDING_SPLIT.add(this);
+    }
+
+    // ==================== 断句显示的推进（与页面栈解耦） ====================
+
+    /**
+     * 正在进行「断句逐条显示」的聊天页。
+     *
+     * <h2>为什么需要这份登记表</h2>
+     * 逐条显示必须由<b>真实时间</b>推进（见 {@link #advanceSplitting()}）。原来只有两个推进点：
+     * 本页 {@code render()}（要求这一页正在被画）和 {@code ClientCacheEvents.onClientTick}
+     * 里那句 {@code getCurrentPage() instanceof ChatPage}（要求这一页<b>正好是栈顶</b>）。
+     * 于是玩家在"等回复"期间切到别的页面、或把手机收起来时，推进就停了：
+     * 短句不落屏、{@code waitingResponse} 一直为真、{@code C2SPhoneTypingDonePacket} 迟迟不发，
+     * 服务端只能等 30s 兜底关窗 —— 表现就是"回复没出来，退出再进才刷出来"，
+     * 以及"女仆一直举着手机不放"。
+     * <p>
+     * 所以改成：谁开了断句谁登记，客户端 tick 遍历登记表推进，<b>与页面栈无关</b>。
+     * 用 {@link WeakHashMap} 兜底：万一某页既没播完也没被回收，也不会永久占着引用。
+     * <p>
+     * <b>线程</b>：写入（收包 {@code enqueueWork}）、推进（tick / render）都在客户端主线程，无需同步。
+     */
+    private static final Set<ChatPage> PENDING_SPLIT =
+            Collections.newSetFromMap(new WeakHashMap<>());
+
+    /**
+     * 客户端每 tick 推进<b>所有</b>尚未播完断句的聊天页（由 {@code ClientCacheEvents.onClientTick} 调用）。
+     * <p>与"当前页是谁"无关，所以玩家切页/收起手机都不会让逐条显示停摆。
+     */
+    public static void tickAllSplitting() {
+        if (PENDING_SPLIT.isEmpty()) {
+            return;
+        }
+        // 遍历副本：advanceSplitting 播完时会把自己从登记表里摘掉
+        for (ChatPage page : List.copyOf(PENDING_SPLIT)) {
+            page.advanceSplitting();
+        }
+    }
+
+    /** 退出世界时清空登记表（页面实例随世界一起作废）。 */
+    public static void clearPendingSplits() {
+        PENDING_SPLIT.clear();
     }
 
     /**
      * 按绝对时间推进断句显示：把所有"应落屏时间已到"的短句补上。
      * <p>
      * 幂等且与调用频率无关——既由渲染每帧调用（手机打开时最跟手），
-     * 也由客户端每 tick 调用（手机收起时仍按真实时间推进，修掉"收起手机后重开才逐条播"的遗留问题）。
+     * 也由客户端每 tick 调用（手机收起 / 切到别的页面时仍按真实时间推进）。
      * 全部短句与尾随表情落屏后，回执服务端关闭手机来源窗口，动画进入放下段。
      */
     public void advanceSplitting() {
         if (!splitting) {
+            // 已经播完（或从未开始）：顺手摘掉登记，避免登记表残留
+            PENDING_SPLIT.remove(this);
             return;
         }
         long now = System.currentTimeMillis();
@@ -591,6 +640,7 @@ public class ChatPage implements PhoneCameraHost {
         if (splitIndex >= splitQueue.size() && pendingReplyEmote == null) {
             splitting = false;
             waitingResponse = false;
+            PENDING_SPLIT.remove(this);
             if (!splitDoneNotified) {
                 splitDoneNotified = true;
                 // 通知服务端：本条回复已播完 → 关闭手机来源窗口 → 动画放下手机
@@ -632,6 +682,7 @@ public class ChatPage implements PhoneCameraHost {
         splitQueue.clear();
         splitSchedule.clear();
         splitIndex = 0;
+        PENDING_SPLIT.remove(this);
         // 内容已全部落屏（玩家抢先发了下一条）：同样回执服务端关闭窗口，动画才能放下手机
         if (!splitDoneNotified) {
             splitDoneNotified = true;

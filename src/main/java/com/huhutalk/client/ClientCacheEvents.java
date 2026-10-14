@@ -67,12 +67,12 @@ public class ClientCacheEvents {
     @SubscribeEvent
     public static void onClientTick(ClientTickEvent.Post event) {
         WaypointSync.tickSync();
-        // 逐条打字显示按真实时间推进：手机收起时渲染循环不再驱动它，改由 tick 驱动，
-        // 修掉"收起手机后消息不逐条播、重开才一次性弹出"的遗留问题；
-        // 也保证"打完最后一条"能及时回执服务端关闭手机来源窗口（动画放下段）。
-        if (PhoneOverlay.getCurrentPage() instanceof ChatPage chatPage) {
-            chatPage.advanceSplitting();
-        }
+        // 逐条打字显示按真实时间推进。⚠ 这里【不能】再判 `getCurrentPage() instanceof ChatPage`：
+        // 玩家在等回复时切到别的页面（或收起手机），推进就会停 —— 短句不落屏、"正在输入…"不解除、
+        // C2SPhoneTypingDonePacket 迟迟不发，服务端只能等 30s 兜底关窗（女仆一直举着手机），
+        // 玩家则觉得"回复没出来，退出再进才刷出来"。
+        // 现在改为遍历"所有持有未播完断句的聊天页"，与页面栈无关。
+        ChatPage.tickAllSplitting();
     }
 
     /** ✅ 退出世界/退出游戏前，把当前世界聊天历史落盘 */
@@ -82,5 +82,7 @@ public class ClientCacheEvents {
         PhoneChatSourceCache.clear();
         PhoneAnimation.reset();
         PhoneOverlay.resetForNewWorld();
+        // 页面实例随世界作废，断句登记表一并清空
+        ChatPage.clearPendingSplits();
     }
 }
