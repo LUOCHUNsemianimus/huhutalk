@@ -44,22 +44,25 @@ ICON_TARGET = 96
 ICON_MCMETA = '{\n  "texture": {\n    "blur": true,\n    "clamp": true\n  }\n}\n'
 
 FIGURES = {f"图{i}.png": f"manual_fig_{i}.png" for i in range(1, 18)}
-ICONS = {
-    "设置.png": "settings.png",
-    "图库.png": "gallery.png",
-    "相机.png": "camera.png",
+
+# 目标图标 -> **候选源，按顺序取第一个存在的**。
+#
+# 为什么不再按"修改时间最新"自动挑：那是自作主张。需求方换回旧版时，
+# 脚本会静默挑到磁盘上更新的那个（已经踩过一次），而且看不出挑了谁。
+# 现在谁生效由这张表说了算，改一行就能切版本，日志里也会写明用的是哪个文件。
+#
+# 已废弃的变体（留在素材目录里备查，但不参与导入，因为渲染器的 alpha 问题已修复，
+# 它们当初只是为了绕开那个 bug 而把边"缩 1 像素"）：
+#     设置2.png、设置试图补救.png、设置修补1.png、图库修补1.png、相机修补1.png
+ICON_SOURCES = {
+    "settings.png": ["设置.png", "设置2.png"],
+    "gallery.png": ["图库.png"],
+    "camera.png": ["相机.png"],
     # 桌面「手册」的图标（槽位 2）**还没画**：以后把 手册.png 丢进「模组配图」，
     # 这个脚本会自动把它拷成 textures/icon/manual.png；
     # 然后 MainPage.buildApps() 里把「手册」那格的 📖 换成
     # ResourceLocation("huhutalk", "textures/icon/manual.png")（一行改动）。
-    "手册.png": "manual.png",
-}
-# 同一张图的多个候选源（「设置2.png」是需求方改过的调整版）。
-# 取**修改时间最新**的那个：免得改了新版，却因为脚本只认旧文件名而静默用回旧图。
-ALIASES = {
-    "设置.png": ["设置2.png", "设置试图补救.png", "设置修补1.png"],
-    "图库.png": ["图库修补1.png"],
-    "相机.png": ["相机修补1.png"],
+    "manual.png": ["手册.png"],
 }
 # 允许"暂时没有"的素材：缺了只提示、不当错误（避免脚本一跑就一片红）。
 OPTIONAL = {"手册.png"}
@@ -124,14 +127,13 @@ def copy_icon(src: pathlib.Path, dst: pathlib.Path, dry: bool) -> str:
             + f"，边缘去污 {n_bleed} px，+ .mcmeta)")
 
 
-def pick_source(name: str) -> pathlib.Path:
-    """在候选源里选**修改时间最新**的那个；都不存在就返回原名（让下游报 MISSING/SKIP）。"""
-    cands = [SRC / name] + [SRC / a for a in ALIASES.get(name, [])]
-    existing = [p for p in cands if p.exists()]
-    if not existing:
-        return cands[0]
-    best = max(existing, key=lambda p: p.stat().st_mtime)
-    return best
+def pick_source(cands: list) -> pathlib.Path:
+    """按顺序取**第一个存在的**候选源；都不存在就返回第一个（让下游报 MISSING/SKIP）。"""
+    paths = [SRC / c for c in cands]
+    for p in paths:
+        if p.exists():
+            return p
+    return paths[0]
 
 
 def main() -> int:
@@ -148,10 +150,10 @@ def main() -> int:
     print(f"手册配图 -> {MANUAL_DIR.relative_to(ROOT)}（原样拷贝：截图不透明，不需要精灵图处理）")
     for name, dst_name in sorted(FIGURES.items(), key=lambda kv: int(kv[0][1:-4])):
         print("  " + copy_one(SRC / name, MANUAL_DIR / dst_name, args.dry_run))
-    print(f"App 图标 -> {ICON_DIR.relative_to(ROOT)}（颜色外扩 + {ICON_TARGET}px + .mcmeta）")
-    for name, dst_name in ICONS.items():
-        src = pick_source(name)
-        note = "" if src.name == name else f"（候选源里 {src.name} 最新）"
+    print(f"App 图标 -> {ICON_DIR.relative_to(ROOT)}（边缘去污 + {ICON_TARGET}px + .mcmeta）")
+    for dst_name, cands in ICON_SOURCES.items():
+        src = pick_source(cands)
+        note = f"（源：{src.name}）" if len(cands) > 1 else ""
         print("  " + copy_icon(src, ICON_DIR / dst_name, args.dry_run) + note)
     return 0
 

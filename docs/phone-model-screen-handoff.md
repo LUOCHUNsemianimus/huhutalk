@@ -25,6 +25,11 @@
 ⑤ **聊天界面底部扩展栏的手势全部修正**：表情网格拖动方向反了（§5.6-32）、图库改成**横向**拖动（§5.6-33）、图库顺序改成**最新在最左**（§5.6-34）；
 ⑥ **修掉"空手低头也降速"**：「操控屏幕」态补上遗漏的**手持**条件，并让 UI 在手机离手时收屏（§5.7-35）。
 
+**⑦ 已修复「图标柔边一圈随昼夜变色的描边」** —— 根因是**离屏靶的 alpha 没有钉到 255**，
+屏幕四边形用这个 alpha 和世界混合，柔边就把天空/雾透了出来（**只有模型屏有、悬浮窗没有**）。
+修法见 **§5.8**（`PhoneOverlay.render` 离屏分支末尾用 `colorMask` 只写 alpha）。
+**⚠ 这个坑查了一整天、绕过四条错路，动模型屏前请务必读 §5.8。**
+
 
 ---
 
@@ -51,7 +56,7 @@
 |---|---|
 | `client/render/ProPhoneHandRenderer.java` | **新增**。订阅 `RenderHandEvent` 接管第一人称手持渲染：双手姿势 + 手机本体 + 挂屏幕四边形 + **相机模式姿态**。`ENABLED=false` 一键回退原版。判据集中在 `shouldRender(mc, stack)`，**不排除 Screen 打开**（§5.2-8） |
 | `client/render/PhoneScreenTarget.java` | **新增**。离屏帧缓冲、动态纹理注册、屏幕面矩形几何、出图驱动、dirty 判定、`DIAG` 探针。判据用 `PhoneOverlay.hasModelScreen()` |
-| `phone/PhoneOverlay.java` | 手机 UI 总控。`RenderMode` 状态机 + `phoneOpen`（`isVisible()` 由两者算出）+ `onHolderTick()` 掏出即渲染 + 独立光标全套 + `isCameraMode()` + **相机侧键状态机 `cameraSideButton` / `tickCameraHold`** + **拍照抓图请求 `requestWorldCapture` / `consumeWorldCapture`** + **屏内气泡 `showBubble`** |
+| `phone/PhoneOverlay.java` | 手机 UI 总控。`RenderMode` 状态机 + `phoneOpen`（`isVisible()` 由两者算出）+ `onHolderTick()` 掏出即渲染 + 独立光标全套 + `isCameraMode()` + **相机侧键状态机 `cameraSideButton` / `tickCameraHold`** + **拍照抓图请求 `requestWorldCapture` / `consumeWorldCapture`** + **屏内气泡 `showBubble`** + **离屏分支末尾"把 alpha 钉成 255"的收尾**（§5.8-38） |
 | `phone/pages/ChatPage.java` | 聊天页 + **相机界面**（`renderViewfinder` / `renderShotPreview` / `shotBarLayout` / `cameraBarLayout`）。相机侧键入口是三个语义方法：`cameraPrimaryAction()` / `cameraBackAction()` / `cameraSaveAction()`。**已拍成页现为全屏照片 + 「重拍 / 发送」两颗按钮**（不透明，不再透出背后世界）；判据拆分见 `PhoneCameraHost.cameraScreenTransparent()` |
 | `init/ItemPhoneCamera.java` `init/HuhuTalkItems.java` | **新增**隐藏物品 `phone_camera`（不进创造栏、不是 `ItemMaidPhone`）。它只是"模型名片"，让 `ItemRenderer` 能按注册名查到擦除版模型，见 §4 期 1e |
 | `client/PhotoLibrary.java` | 图库 + 临时截图。纹理注册改为**每次唯一 `ResourceLocation`**（§5.5-20）。保存**不再自己弹提示**（改由 `PhoneOverlay.showBubble` 在手机屏内弹，§5.5-30） |
@@ -69,6 +74,15 @@
 | `textures/item/phone_3d.png` | 手机纹理（**已换成用户修复版**，见 §5.5-21） |
 | `textures/item/phone_camera_2.png` | **当前的擦除版**（用户手绘，128×128）：把"玩家侧可见面"擦成全透明，相机模式的取景框效果就靠它 |
 | `textures/item/phone_3d_erased.png` | ~~旧的擦除版~~ **已弃用**：擦得不够干净（用户反馈）。文件留着仅供对照，没有任何引用指向它 |
+
+### 图标素材的离线工具（`tools/`）
+
+桌面 App 图标的贴图有一套独立流水线，**与渲染器无关**，但两者会产生外观很像的描边，别混淆（判别与机制见 §5.8-41）。
+
+| 文件 | 职责 |
+|---|---|
+| `tools/sprite_alpha.py` | **纯标准库**的精灵图诊断/修复：`report`（量化诊断，含按 alpha 分档的边缘均色）、`fix`（un-matte / erode / 颜色外扩）、`matte`（"底色漏出"三联图）、`sim`（把"游戏里那一步缩放"离线重放，出对比图）。支持 1/2/4/8bit 与**调色板 PNG（PLTE + tRNS）** |
+| `tools/import_manual_assets.py` | 把 `D:\Moddevelop\模组配图\` 里的素材导入 mod 资源目录。手册配图原样拷贝；**App 图标走「抠背景 → 边缘去污 → 预降采样 96px → 再去污 → 写 `.mcmeta`」**。源由 `ICON_SOURCES` 显式有序候选决定 |
 
 ### 相邻但**本任务未改动**（别混淆）
 
@@ -402,6 +416,90 @@ HUD 更在整段 `renderLevel` 之后）。所以照片 = 玩家眼里那片干�
       而模型屏在第三人称本来就不可见 —— 那只独立光标此时"不可见但仍可动"。
       要彻底干净就得把 `renderMode` 也绑到 `isActive()`，影响面比收益大，先记着。
 
+### 5.8 离屏靶的 alpha —— 图标柔边上那圈随昼夜变色的描边（**最贵的一个坑，值得整段读完**）
+
+> 现象：桌面 App 图标的轮廓外有一圈**饱和度很高的描边**，白天发青/发白、黄昏偏粉、夜里变暗，
+> 而且——**同一张图标，悬浮窗（O）干净，模型屏（贴模型那套）有**。
+> 前后查了一整天，绕过四五条错路，最后根因只有一句话：**离屏靶的 alpha 没有钉到 255。**
+
+36. **起手式：把两块屏幕截进同一张图，做对照。**
+    "同样的代码、同样的贴图，唯一变量是走的哪条路"——这个结构一旦搭好，剩下的就是量数字。
+    本次决定性的一张图就是左边悬浮窗 + 右边模型屏的并排截图。
+
+37. **根因：离屏靶的 alpha 不是"画完就算了"，它会被交出去。**
+    - **直接画在屏幕上**：主帧缓冲已经是不透明的，alpha 只参与**混合计算**，**不参与最终显示**
+      —— 柔边 alpha 再低也无所谓。
+    - **画进离屏靶再贴到模型上**：`PhoneScreenTarget.renderScreen` 用 `RenderType.text`（TRANSLUCENT）
+      把 FBO 贴到屏幕四边形，`fragColor.a` **就是与世界混合的权重**
+      ⇒ 靶里任何 `alpha < 255` 的像素，最后都要和它背后的世界**再混一次**。
+      图标柔边的 alpha 本来就低，世界（天空/雾/地形）就从这些地方透出来。
+    - **这就是"两条路结果不一致"的全部原因**——不是贴图、不是着色器、不是光照，是 alpha 有没有交出去。
+    - **量化证据**（右=模型屏 完全可用下面这个式子拟合，左=悬浮窗则逐位精确）：
+      `dst = fbo.rgb × 0.987 + 世界 × 0.013`（那个"世界"≈纯黑）。
+      页面底左 `#F2E8EF`（= 源码 `ColorScheme.PEARL_PINK.pageBg` 原值）、右 `#EFE5EC`；
+      图标格 66 → 65；狐狸橘 253,197,79 → 250,195,78 —— 同一个 0.987。
+
+38. **修法：`colorMask` 只放行 alpha，把手机矩形内的 alpha 钉成 255。**
+    加在 `PhoneOverlay.render()` 的**离屏分支末尾**（`renderCursor` 之后）：
+    ```java
+    if (external) {
+        RenderSystem.colorMask(false, false, false, true);   // 关 RGB 写，只留 alpha 写
+        RenderSystem.enableBlend();
+        RenderSystem.defaultBlendFunc();
+        graphics.flush();
+        fillRoundedRect(graphics, phoneX, ry, phoneWidth, totalHeight,
+                UiFont.sh(STATUSBAR_H), UiFont.sh(WATERMARK_H), 0xFFFFFFFF);
+        graphics.flush();
+        RenderSystem.colorMask(true, true, true, true);
+    }
+    ```
+    关掉 RGB 写 ⇒ **对画面零副作用**，只是把"屏幕必须是实心的"这件事
+    从"靠每一层 `fill` 自觉"改成**结构上保证**。
+    另加两处防御（都是本来就该修的）：
+    - `PhoneOverlay` 手机底 `0xEE111111` → `0xFF111111`（全屏唯一一处非不透明的底）；
+    - `PhoneScreenTarget.renderScreen()` 画四边形前 `setShaderColor(1,1,1,1)` + `defaultBlendFunc()`。
+    **通用教训：UI 只要会进离屏靶再贴出来，就必须显式声明"这块要实心"，不能指望每一层恰好 alpha=255。**
+
+39. **被排除的嫌疑（都已查实，别再走一遍）**
+    - **不是雾**：读 `assets/minecraft/shaders/core/position_tex_color.fsh`
+      （`RenderType.text` 用的就是它）—— 全文只有 `fragColor = texture(...) * vertexColor * ColorModulator;`
+      **没有 `linear_fog`**。
+    - **不是光照**：`renderScreen` 里写死 `int light = LightTexture.FULL_BRIGHT;`。
+    - **不是离屏靶的 clearColor**：反编译 `com/mojang/blaze3d/pipeline/RenderTarget.class` 确认
+      `clear()` 用的是**它自己的** `clearChannels`（建靶时 `setClearColor(0,0,0,0)`），
+      **不是** `RenderSystem` 的全局 clearColor。靶底是透明黑，不是天空色。
+    - **不是贴图**：`camera.png` 在任何 alpha 上都**一个青像素都没有**
+      （用宽松判据 `g>r+15 且 b>r+15` 扫过 = 0），而同一时刻悬浮窗里同一张图完全干净。
+    - **不是 `ColorModulator`**：加过复位、重启客户端实测**数据一字不差**，此路不通。
+
+40. **⚠ 试错纪律：Java 改动必须重启客户端。**
+    **`F3+T` 只重载资源，不重载 class。** 改了 Java 却用 `F3+T` 验收 = 白测一轮
+    （本次真的发生过一次，白白多花了一轮）。判断"客户端到底吃没吃到我刚编译的代码"：
+    比 `build/classes/java/main/**/*.class` 的 mtime 与客户端进程的**启动时间**——
+    ```powershell
+    Get-CimInstance Win32_Process -Filter "Name='java.exe'" |
+      Select-Object ProcessId, CreationDate, CommandLine
+    ```
+    认 `net.neoforged.devlaunch.Main` 那条；**Gradle daemon 也是 java 进程，别认错**。
+
+41. **配套：图标贴图的离线流水线（`tools/sprite_alpha.py` + `tools/import_manual_assets.py`）**
+    渲染器这个坑之外，贴图本身还有**另一类**"PS 里看不见、游戏里成描边"的问题，两者容易混淆：
+    - **机制**：半透明像素的 RGB 是**满饱和**的颜色、alpha 只剩 **1~12**（被蒙版/线稿底稿压住的底色）。
+      PS 与普通看图器按 alpha 合成 ⇒ **肉眼绝对看不见**；而生成 mipmap 时
+      **RGB 与 alpha 各做各的无权平均**（不是预乘平均）⇒ 一个 `#38D0FF @ a=1` 会把**整份饱和青**
+      塞进 mip 层的 RGB，alpha 却只贡献 `1/4^k` ⇒ mip 纹素 = "高 alpha + 被污染的 RGB" ⇒ 一圈青描边。
+    - **`sprite_alpha.py`**（纯标准库）：`report` 量化诊断 / `fix`（un-matte、erode、颜色外扩）/
+      `matte` 漏底三联图 / `sim` 把"游戏那一步缩放"离线重放。已支持**调色板 PNG（PLTE + tRNS）**。
+    - **`import_manual_assets.py`** 每个图标的流水线：
+      `抠背景（可选）→ 边缘去污 decontaminate → 预降采样 96px → 再去污 → 写 .mcmeta(blur/clamp)`。
+      其中 `decontaminate` 是"以 alpha≥250 的实心像素为源做 BFS，把**所有非实心像素**的 RGB
+      换成最近实心色，**alpha 一个不动**"——`bleed`（只填 a==0）救不了 `a=1~12` 那一圈。
+    - ⚠ **源表 `ICON_SOURCES` 必须是显式有序候选**，别改回"按修改时间挑最新"：
+      需求方**换回旧版**时会静默挑到磁盘上更新的那个，日志里还看不出挑错了（本次踩过）。
+    - ⚠ Piskel「8 位图片」导出**常常没有透明**（索引色 + tRNS 全 255）：透明区变成实心白，
+      上机就是手机屏上一个**白方块**。脚本检测到"几乎没有透明像素"会自动 `key_background`——
+      **只抠与图像四边连通的纯白**，狐狸身上的白毛/耳内侧是被深色线稿封闭的，不会被误伤。
+
 
 ---
 
@@ -412,6 +510,14 @@ HUD 更在整段 `renderLevel` 之后）。所以照片 = 玩家眼里那片干�
 - **启动方式**：用户走 IDEA 的 `runClient`，**直接吃 `build/classes`**。
   ⚠ `build/libs/huhutalk-1.0.0.jar` 可能是很久以前的、`run/mods/` 里**没有**本模组的 jar ——
   排查"改动没效果"时先确认启动方式，别在代码里空转。
+  ⚠⚠ **改了 Java 必须重启客户端；`F3+T` 只重载资源、不重载 class**（§5.8-40）。
+  改完贴图（`src/main/resources/**`）想省一次 Gradle，可以直接把文件同步进
+  `build/resources/main/` 与 `build/classes/java/main/` 的同名路径，再 `F3+T`。
+- **Python**：3.11（`python` 在 PATH 上）。读 PSD 用的 Pillow 是临时 `pip install` 装的，
+  **`tools/` 里的两个脚本是纯标准库**，不依赖它。
+- **看实机效果不用等眼睛**：把两块屏幕或多张候选截进同一张图，用 `tools/sprite_alpha.py`
+  逐像素量（计数、均色、包围盒）。本次那个"随昼夜变色的描边"就是靠这个量出
+  `dst = fbo.rgb × 0.987 + 世界 × 0.013` 才定的案（§5.8-37）。
 - 日志：`run/logs/latest.log`；设置：`run/huhutalk/settings.json`（原子写入 + `.corrupt` 备份）。
 - **图库产物**：`run/huhutalk/photos/*.png` —— 验收"保存照片"到底进没进 mod 图库，直接看这个目录的
   文件时间与内容即可（判断"是不是原版整屏截图"，看图片尺寸是不是 1920×1009 就一眼明白）。
@@ -448,4 +554,12 @@ HUD 更在整段 `renderLevel` 之后）。所以照片 = 玩家眼里那片干�
     任何 HUD / 手臂 / 手机本体都不该出现在照片里。改动抓图时机前先读 §5.5-29。
 12. **输入意图要直接表达（重申 §5.3-18）**：侧键 → 语义方法的映射必须是显式的；
     渲染排版可以改，逻辑正确性不能依赖它。
+13. **渲染到离屏靶时，alpha 是"输出的一部分"，不是内部草稿。**
+    同一段 UI 代码，画在屏幕上和画进 FBO 再贴出来，**结果可以不一样** ——
+    差别就在 alpha 有没有被交出去。所以：
+    - 离屏的画布要么**显式钉成全不透明**（§5.8-38 的 `colorMask` 收尾），
+      要么就明确接受"这块是半透明的、应该让世界透出来"（相机取景框就是后者，那是刻意的）；
+    - **不能"靠每一层 fill 恰好是 255"** —— 只要有一处不是，边缘就会漏，而且症状会伪装成
+      "贴图有白边/描边"，把人往素材那条路上带。
+    - 判断"这条链有没有交出 alpha"是个可以**离线验证**的问题：截一张对照图，量一下像素就够了。
 
