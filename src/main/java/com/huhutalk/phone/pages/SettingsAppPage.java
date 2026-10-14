@@ -21,7 +21,7 @@ import java.util.function.Supplier;
  *
  * <h2>它是什么</h2>
  * 桌面槽位 5 的「设置」图标以前是个空占位（{@code pageFactory == null} → 「敬请期待」）。
- * 本页把那个占位填上，<b>用公开骨架</b>（{@link PhonePage} + {@link PhoneText} + {@code UiShapes}）绘制，
+ * 本页把那个占位填上，<b>用公开骨架</b>（{@link PhonePage} + {@link PhoneText} + {@link PhoneShapes}）绘制，
  * 配色全部取自主题（{@link ColorScheme}），因此换配色方案时会跟着变。
  *
  * <h2>这一轮的范围</h2>

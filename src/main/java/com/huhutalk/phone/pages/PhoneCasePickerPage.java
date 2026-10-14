@@ -1,18 +1,18 @@
 package com.huhutalk.phone.pages;
 
+import com.huhutalk.api.phone.ui.PhoneGrid;
+import com.huhutalk.api.phone.ui.PhonePage;
+import com.huhutalk.api.phone.ui.PhoneText;
 import com.huhutalk.client.settings.HuhuTalkClientSettings;
 import com.huhutalk.client.theme.ColorScheme;
 import com.huhutalk.client.theme.PhoneCaseRenderer;
 import com.huhutalk.client.theme.ThemeManager;
-import com.huhutalk.phone.IPhonePage;
-import com.huhutalk.phone.PhoneOverlay;
-import com.huhutalk.phone.UiFont;
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
-import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -25,29 +25,105 @@ import java.util.Set;
  * 列出玩家背包里的所有<b>完整方块</b>（非完整方块不允许，用 {@link PhoneCaseRenderer#isFullBlockItem} 过滤），
  * 点击某个方块即设置为手机壳贴图（存 {@link HuhuTalkClientSettings#setPhoneCaseBlock}），实时生效。
  * 纯视觉，不影响内部布局。
+ *
+ * <h2>改用公开骨架（批次 1）</h2>
+ * 旧实现是 189 行裸 {@code IPhonePage}，其中真正属于本页的只有「列背包里的完整方块」这一件事，
+ * 其余全是每个页面各抄一遍的样板：手绘顶栏 / 返回键、手写 {@code navH()}、
+ * 手写 {@code drawScaledText}、手写 {@code enableScissor}/{@code disableScissor} 配对、
+ * 以及<b>渲染与命中各算一遍</b>的网格坐标（{@code row/col → x/y} 写两次）。
+ * <p>
+ * 现在：顶栏 / 底色 / 返回键 / 裁剪 → {@link PhonePage}；
+ * 网格的滚动、命中、悬停、可见性剔除 → {@link PhoneGrid}
+ * （{@link PhoneGrid#cellX(int)} / {@link PhoneGrid#cellY(int)} 与
+ * {@link PhoneGrid#indexAt(double, double)} 是唯一一对互逆映射，渲染与命中不可能不同步）。
+ * <p>
+ * ⚠ 滚轮速度从「一格 = 格子高 + 间距」变成统一的 10px/单位（与 {@code PhoneList} 一致）——
+ * 旧值是约 40px/单位，明显更快。
  */
-public class PhoneCasePickerPage implements IPhonePage {
-    private static final int ITEM_H = 34;
+public class PhoneCasePickerPage extends PhonePage {
+
     /** 每行方块数 */
-    private static final int COLS = 4;
+    private static final int COLUMNS = 4;
+    /** 格子高度（基准像素，随全局字体倍率缩放） */
+    private static final int CELL_H = 34;
+    /** 网格四周与格间留白（基准像素） */
+    private static final int GAP = 6;
+    /** 内容区顶部「当前：…」一行占的高度（基准像素） */
+    private static final int TOP_LINE_H = 16;
 
-    /** 顶部标题栏高度：随字体缩放 */
-    private static int navH() {
-        return (int) (Minecraft.getInstance().font.lineHeight * UiFont.uiScale()) + UiFont.sh(8);
-    }
-
-    /** 缩放后默认字体的行高（用于文字垂直居中） */
-    private static int textH(Font font) {
-        return Math.max(1, (int) (font.lineHeight * UiFont.sc(1.0f)));
-    }
-
-    /** 方块格高度：随字体倍率缩放（格内含短名文字） */
-    private static int itemH() {
-        return UiFont.sh(ITEM_H);
-    }
-
+    /** 完整方块 id（去重，保持出现顺序） */
     private final List<String> blocks = new ArrayList<>();
-    private int scrollOffset = 0;
+
+    /**
+     * 网格视口宽度。由 {@link #renderContent} 每帧写入。
+     * <p>
+     * 为什么不直接在匿名网格里调 {@code width()}：那是个 {@code protected} 方法，
+     * 在匿名内部类里访问要绕一层外层实例；用一个私有字段更直白，也避免"每帧多次取全局宽度"。
+     */
+    private int gridW = 0;
+
+    private final PhoneGrid<String> grid = new PhoneGrid<>() {
+        @Override
+        protected List<String> items() {
+            return blocks;
+        }
+
+        @Override
+        protected int columns() {
+            return COLUMNS;
+        }
+
+        @Override
+        protected int cellWidth() {
+            int gap = PhoneText.px(GAP);
+            return Math.max(1, (gridW - gap * (COLUMNS + 1)) / COLUMNS);
+        }
+
+        @Override
+        protected int cellHeight() {
+            return PhoneText.px(CELL_H);
+        }
+
+        @Override
+        protected int gapX() {
+            return PhoneText.px(GAP);
+        }
+
+        @Override
+        protected int gapY() {
+            return PhoneText.px(GAP);
+        }
+
+        @Override
+        protected int padLeft() {
+            return PhoneText.px(GAP);
+        }
+
+        @Override
+        protected void renderCell(GuiGraphics g, int index, String id,
+                                  int x, int y, int w, int h, boolean hovered) {
+            ColorScheme scheme = ThemeManager.getActive();
+            // 当前选中的手机壳：强调色底；其余：半透明白底
+            boolean selected = id.equals(HuhuTalkClientSettings.getPhoneCaseBlock());
+            g.fill(x, y, x + w, y + h, selected ? scheme.accentSoftActive() : 0x33FFFFFF);
+
+            Item item = BuiltInRegistries.ITEM.get(ResourceLocation.parse(id));
+            if (item != null) {
+                g.renderItem(new ItemStack(item), x + 3, y + 3);
+            }
+            PhoneText.drawLeftIn(g, Minecraft.getInstance().font, shortName(id), x, y, w, h,
+                    PhoneText.px(22), scheme.textPrimary(), PhoneText.scale(1.0f));
+        }
+
+        @Override
+        protected void onCellClick(int index, String id) {
+            if (HuhuTalkClientSettings.getPhoneCaseBlock().equals(id)) {
+                HuhuTalkClientSettings.setPhoneCaseBlock(""); // 点已选中的 → 恢复默认
+            } else {
+                HuhuTalkClientSettings.setPhoneCaseBlock(id);
+            }
+        }
+    };
 
     public PhoneCasePickerPage() {
         refreshFromInventory();
@@ -71,119 +147,60 @@ public class PhoneCasePickerPage implements IPhonePage {
         }
     }
 
+    // ==================== 骨架 ====================
+
     @Override
-    public void render(GuiGraphics g, int baseX, int baseY, float partialTick) {
-        int w = PhoneOverlay.getPhoneWidth();
-        int h = PhoneOverlay.getPhoneHeight();
-        Font font = Minecraft.getInstance().font;
-        ColorScheme scheme = ThemeManager.getActive();
-        // 标题栏高度随字体缩放
-        int navH = navH();
+    protected String title() {
+        return "选择手机壳方块";
+    }
 
-        // 页面底色 + 标题栏
-        g.fill(baseX, baseY, baseX + w, baseY + h, scheme.pageBg());
-        g.fill(baseX, baseY, baseX + w, baseY + navH, scheme.topBarBg());
-        drawScaledText(g, font, "< 返回", baseX + UiFont.sh(4), baseY + (navH - textH(font)) / 2 + 1,
-                scheme.topBarText(), UiFont.sc(1.0f));
-        float titleW = font.width("选择手机壳方块") * UiFont.sc(1.0f);
-        drawScaledText(g, font, "选择手机壳方块", baseX + (w - titleW) / 2f, baseY + (navH - textH(font)) / 2 + 1,
-                scheme.topBarText(), UiFont.sc(1.0f));
-        drawScaledText(g, font, "当前：" + currentDisplay(), baseX + UiFont.sh(4), baseY + navH + UiFont.sh(4),
-                0xFF333333, UiFont.sc(1.0f));
+    // contentHeight() 保持默认的 0：滚动交给 PhoneGrid，页面自己再滚一次会变成双重滚动。
 
-        int gridTop = baseY + navH + UiFont.sh(16);
-        int gridBottom = baseY + h - UiFont.sh(4);
-        g.enableScissor(baseX, gridTop, baseX + w, gridBottom);
+    // ==================== 渲染 ====================
 
-        int margin = UiFont.sh(6);
-        int cellW = (w - margin * (COLS + 1)) / COLS;
-        int startY = gridTop - scrollOffset;
-        for (int i = 0; i < blocks.size(); i++) {
-            int row = i / COLS;
-            int col = i % COLS;
-            int x = baseX + margin + col * (cellW + margin);
-            int y = startY + row * (itemH() + margin);
-            String id = blocks.get(i);
-            // 当前选中高亮
-            boolean selected = id.equals(HuhuTalkClientSettings.getPhoneCaseBlock());
-            g.fill(x, y, x + cellW, y + itemH(), selected ? scheme.accentSoftActive() : 0x33FFFFFF);
-            // 渲染方块物品图标
-            net.minecraft.world.item.Item item = BuiltInRegistries.ITEM.get(net.minecraft.resources.ResourceLocation.parse(id));
-            if (item != null) {
-                g.renderItem(new ItemStack(item), x + 3, y + 3);
-            }
-            // 短名
-            String shortName = shortName(id);
-            drawScaledText(g, font, shortName, x + UiFont.sh(22), y + (itemH() - textH(font)) / 2 + 1,
-                    0xFF333333, UiFont.sc(1.0f));
+    @Override
+    protected void renderContent(GuiGraphics g, int originX, int originY, int w, int h, float partialTick) {
+        gridW = w;
+        ColorScheme scheme = colors();
+        int topLine = PhoneText.px(TOP_LINE_H);
+
+        PhoneText.draw(g, font(), "当前：" + currentDisplay(),
+                originX + PhoneText.px(4), originY + PhoneText.px(4),
+                scheme.textPrimary(), PhoneText.scale(1.0f));
+
+        grid.setViewport(0, topLine, w, Math.max(0, h - topLine));
+        grid.render(g, originX, originY);
+    }
+
+    // ==================== 交互 ====================
+
+    @Override
+    protected boolean onContentClick(double localX, double localY, int button, int action) {
+        return grid.mouseClicked(localX, localY, button, action);
+    }
+
+    @Override
+    protected void onContentMoved(double localX, double localY) {
+        grid.mouseMoved(localX, localY);
+    }
+
+    @Override
+    public boolean mouseScrolled(double relX, double relY, double scrollDelta) {
+        if (relY < contentTop()) {
+            return false; // 顶栏不滚
         }
-        g.disableScissor();
+        return grid.mouseScrolled(scrollDelta);
     }
 
-    /** 以任意倍率绘制文本（无阴影） */
-    private static void drawScaledText(GuiGraphics g, Font font, String text, float x, float y,
-                                       int color, float scale) {
-        float inv = 1.0f / scale;
-        g.pose().pushPose();
-        g.pose().scale(scale, scale, 1.0f);
-        g.drawString(font, text, x * inv, y * inv, color, false);
-        g.pose().popPose();
-    }
+    // ==================== 数据 ====================
 
     private String currentDisplay() {
         String id = HuhuTalkClientSettings.getPhoneCaseBlock();
         return id.isBlank() ? "默认" : shortName(id);
     }
 
-    private String shortName(String id) {
+    private static String shortName(String id) {
         int idx = id.indexOf(':');
         return idx >= 0 ? id.substring(idx + 1) : id;
-    }
-
-    @Override
-    public boolean mouseClicked(double relX, double relY, int button, int action) {
-        if (action != GLFW.GLFW_PRESS) return false;
-        int w = PhoneOverlay.getPhoneWidth();
-        int h = PhoneOverlay.getPhoneHeight();
-        int navH = navH();
-
-        if (relX >= 0 && relX <= UiFont.sh(60) && relY >= 0 && relY <= navH) {
-            PhoneOverlay.popPage();
-            return true;
-        }
-
-        // 点击方块网格
-        int gridTop = navH + UiFont.sh(16);
-        int margin = UiFont.sh(6);
-        int cellW = (w - margin * (COLS + 1)) / COLS;
-        int row = (int)((relY - gridTop + scrollOffset) / (itemH() + margin));
-        int col = (int)((relX - margin) / (cellW + margin));
-        if (relX < margin || relX > w - margin) {
-            return false;
-        }
-        int idx = row * COLS + col;
-        if (idx >= 0 && idx < blocks.size()) {
-            String id = blocks.get(idx);
-            if (HuhuTalkClientSettings.getPhoneCaseBlock().equals(id)) {
-                HuhuTalkClientSettings.setPhoneCaseBlock(""); // 点已选中的 → 恢复默认
-            } else {
-                HuhuTalkClientSettings.setPhoneCaseBlock(id);
-            }
-            return true;
-        }
-        return false;
-    }
-
-    @Override
-    public boolean mouseScrolled(double relX, double relY, double scrollDelta) {
-        int totalRows = (blocks.size() + COLS - 1) / COLS;
-        int visibleRows = Math.max(1, (int)(PhoneOverlay.getPhoneHeight() / (itemH() + margin())));
-        int maxScroll = Math.max(0, totalRows * (itemH() + margin()) - visibleRows * (itemH() + margin()));
-        scrollOffset = Math.max(0, Math.min(scrollOffset + (int)(scrollDelta * (itemH() + margin())), maxScroll));
-        return true;
-    }
-
-    private int margin() {
-        return UiFont.sh(6);
     }
 }

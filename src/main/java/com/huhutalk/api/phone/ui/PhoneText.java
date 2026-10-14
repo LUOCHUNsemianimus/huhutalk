@@ -3,6 +3,7 @@ package com.huhutalk.api.phone.ui;
 import com.huhutalk.phone.UiFont;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.util.FormattedCharSequence;
 
 /**
  * 手机页面里画文字的公开工具。
@@ -42,6 +43,16 @@ public final class PhoneText {
         return (int) (font.lineHeight * scale);
     }
 
+    /**
+     * {@link FormattedCharSequence} 按 {@code scale} 绘制后的宽度。
+     * <p>
+     * 需要它是因为 emoji / {@code Component} 走的是 {@code getVisualOrderText()}，
+     * 拿到的是视觉序而不是 {@code String}；宽度必须用同一条换算，否则截断会算错。
+     */
+    public static int width(Font font, FormattedCharSequence text, float scale) {
+        return (int) (font.width(text) * scale);
+    }
+
     /** 以任意倍率绘制文字（无阴影）。 */
     public static void draw(GuiGraphics g, Font font, String text, float x, float y,
                             int color, float scale) {
@@ -66,6 +77,50 @@ public final class PhoneText {
         g.pose().scale(scale, scale, 1.0f);
         g.drawString(font, text, x * inv, y * inv, color, true);
         g.pose().popPose();
+    }
+
+    // ==================== FormattedCharSequence 重载 ====================
+    //
+    // 为什么需要这一组：emoji / Component.literal(..).getVisualOrderText() / 已排版的富文本
+    // 拿到的都不是 String，而既有页面（ChatPage 气泡、PhoneOverlay 状态栏与 Dock）各自抄了
+    // 一份 FormattedCharSequence 版的缩放绘制。换算与 String 版完全一致（1/scale 反算坐标）。
+
+    /** 以任意倍率绘制 {@link FormattedCharSequence}（无阴影）。 */
+    public static void draw(GuiGraphics g, Font font, FormattedCharSequence text, float x, float y,
+                            int color, float scale) {
+        if (text == null || scale <= 0f) {
+            return;
+        }
+        float inv = 1.0f / scale;
+        g.pose().pushPose();
+        g.pose().scale(scale, scale, 1.0f);
+        g.drawString(font, text, x * inv, y * inv, color, false);
+        g.pose().popPose();
+    }
+
+    /** 以任意倍率绘制 {@link FormattedCharSequence}（带阴影描边）。 */
+    public static void drawShaded(GuiGraphics g, Font font, FormattedCharSequence text,
+                                  float x, float y, int color, float scale) {
+        if (text == null || scale <= 0f) {
+            return;
+        }
+        float inv = 1.0f / scale;
+        g.pose().pushPose();
+        g.pose().scale(scale, scale, 1.0f);
+        g.drawString(font, text, x * inv, y * inv, color, true);
+        g.pose().popPose();
+    }
+
+    /**
+     * 以任意倍率绘制 {@link FormattedCharSequence}，并在 {@code (x, y, w, h)} 矩形内水平+垂直居中。
+     */
+    public static void drawCenteredIn(GuiGraphics g, Font font, FormattedCharSequence text,
+                                      int x, int y, int w, int h, int color, float scale) {
+        if (text == null) {
+            return;
+        }
+        draw(g, font, text, x + (w - width(font, text, scale)) / 2f,
+                y + (h - height(font, scale)) / 2f, color, scale);
     }
 
     /**

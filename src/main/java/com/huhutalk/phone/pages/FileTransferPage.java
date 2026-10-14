@@ -2,7 +2,7 @@ package com.huhutalk.phone.pages;
 
 import com.huhutalk.phone.IPhonePage;
 import com.huhutalk.phone.PhoneOverlay;
-import com.huhutalk.phone.UiShapes;
+import com.huhutalk.api.phone.ui.PhoneShapes;
 import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
@@ -165,7 +165,7 @@ public class FileTransferPage implements IPhonePage {
     /** 画一个圆角方框槽：空槽浅色、有物品深蓝着色。 */
     private void drawSlot(GuiGraphics g, int x, int y, int size, ItemStack st, boolean queued) {
         int bg = queued ? 0xFF3A6A86 : 0xFFE4D5DC;
-        UiShapes.fillRoundedRect(g, x, y, size, size, Math.max(2, size / 6), bg);
+        PhoneShapes.fillRoundedRect(g, x, y, size, size, Math.max(2, size / 6), bg);
         if (st.isEmpty()) return;
         int inset = Math.max(2, size / 6);
         int iconBox = size - inset * 2;

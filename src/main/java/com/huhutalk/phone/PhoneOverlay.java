@@ -16,7 +16,7 @@ import com.huhutalk.phone.pages.ContactListPage;
 import com.huhutalk.phone.pages.MainPage;
 import com.huhutalk.phone.pages.MessageListPage;
 import com.huhutalk.phone.pages.SettingsPage;
-import com.huhutalk.phone.UiShapes;
+import com.huhutalk.api.phone.ui.PhoneShapes;
 import com.mojang.math.Axis;
 import com.mojang.blaze3d.systems.RenderSystem;
 import net.minecraft.client.Minecraft;
@@ -703,10 +703,10 @@ public class PhoneOverlay {
         // 永远不需要猜"为什么光标不动了 / 为什么视角变慢了"。
         boolean active = isScreenControl();
         int outer = active && cursorPressing && !dragIsScroll ? 15 : 11;
-        UiShapes.fillRoundedRect(graphics, cx - outer / 2, cy - outer / 2, outer, outer, outer / 2,
+        PhoneShapes.fillRoundedRect(graphics, cx - outer / 2, cy - outer / 2, outer, outer, outer / 2,
                 active ? 0x55FFFFFF : 0x22FFFFFF);
-        UiShapes.fillRoundedRect(graphics, cx - 3, cy - 3, 6, 6, 3, active ? 0xFFFFFFFF : 0x88FFFFFF);
-        UiShapes.fillRoundedRect(graphics, cx - 1, cy - 1, 2, 2, 1, active ? 0xFFDE7E7E : 0x66DE7E7E);
+        PhoneShapes.fillRoundedRect(graphics, cx - 3, cy - 3, 6, 6, 3, active ? 0xFFFFFFFF : 0x88FFFFFF);
+        PhoneShapes.fillRoundedRect(graphics, cx - 1, cy - 1, 2, 2, 1, active ? 0xFFDE7E7E : 0x66DE7E7E);
     }
 
     // ==================== 访问器 ====================
@@ -1304,7 +1304,7 @@ public class PhoneOverlay {
         int bx = baseX + (w - bubbleW) / 2;
         int by = baseY + Math.round(h * 0.58f) - bubbleH / 2;
         int bgAlpha = Math.round(a * 0.70f * 255f);
-        UiShapes.fillRoundedRect(graphics, bx, by, bubbleW, bubbleH, bubbleH / 2, bgAlpha << 24);
+        PhoneShapes.fillRoundedRect(graphics, bx, by, bubbleW, bubbleH, bubbleH / 2, bgAlpha << 24);
         int fgAlpha = (Math.round(a * 255f) << 24) | 0x00FFFFFF;
         drawScaledText(graphics, font, seq,
                 bx + (bubbleW - font.width(seq) * ts) / 2f,
@@ -1507,7 +1507,7 @@ public class PhoneOverlay {
             int blockSize = Math.round(launchIconW + (cover - launchIconW) * e);
             int alpha = Math.round((1f - e) * 255);
             int blockColor = (alpha << 24) | (launchBlockColorRgb & 0xFFFFFF);
-            UiShapes.fillRoundedRect(graphics, Math.round(launchCx - blockSize / 2f), Math.round(launchCy - blockSize / 2f),
+            PhoneShapes.fillRoundedRect(graphics, Math.round(launchCx - blockSize / 2f), Math.round(launchCy - blockSize / 2f),
                     blockSize, blockSize, Math.max(2, blockSize / 4), blockColor);
             graphics.disableScissor();
             if (raw >= 1f) {

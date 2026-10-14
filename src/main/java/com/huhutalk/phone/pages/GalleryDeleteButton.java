@@ -3,7 +3,7 @@ package com.huhutalk.phone.pages;
 import com.huhutalk.api.phone.ui.PhoneText;
 import com.huhutalk.client.theme.ThemeManager;
 import com.huhutalk.phone.UiFont;
-import com.huhutalk.phone.UiShapes;
+import com.huhutalk.api.phone.ui.PhoneShapes;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import org.lwjgl.glfw.GLFW;
@@ -61,7 +61,7 @@ final class GalleryDeleteButton {
     /** 画在顶栏右侧。 */
     static void render(GuiGraphics g, Font font, int baseX, int baseY, int barW, int barH) {
         int[] r = rect(font, barW, barH);
-        UiShapes.fillRoundedRect(g, baseX + r[0], baseY + r[1], r[2], r[3], r[3] / 2, bg());
+        PhoneShapes.fillRoundedRect(g, baseX + r[0], baseY + r[1], r[2], r[3], r[3] / 2, bg());
         PhoneText.draw(g, font, LABEL,
                 baseX + r[0] + r[4], baseY + r[1] + r[5], TEXT_COLOR, scale());
     }

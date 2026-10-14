@@ -1,89 +1,146 @@
 package com.huhutalk.phone.pages;
 
+import com.huhutalk.api.phone.ui.PhonePage;
+import com.huhutalk.api.phone.ui.PhoneRow;
+import com.huhutalk.api.phone.ui.PhoneShapes;
+import com.huhutalk.api.phone.ui.PhoneSlider;
+import com.huhutalk.api.phone.ui.PhoneStepper;
+import com.huhutalk.api.phone.ui.PhoneSwitch;
+import com.huhutalk.api.phone.ui.PhoneText;
+import com.huhutalk.api.phone.ui.PhoneWidget;
 import com.huhutalk.client.settings.HuhuTalkClientSettings;
 import com.huhutalk.client.theme.ColorScheme;
 import com.huhutalk.client.theme.ThemeManager;
-import com.huhutalk.network.C2SSOSPacket;
 import com.huhutalk.network.C2SPotionRescueSettingPacket;
 import com.huhutalk.network.C2SRemoteSupplyReplySettingPacket;
-import com.huhutalk.phone.IPhonePage;
+import com.huhutalk.network.C2SSOSPacket;
 import com.huhutalk.phone.PhoneOverlay;
-import com.huhutalk.phone.UiFont;
-import com.huhutalk.phone.UiShapes;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.neoforged.neoforge.network.PacketDistributor;
 import org.lwjgl.glfw.GLFW;
 
+import java.util.ArrayList;
 import java.util.List;
 
 /**
  * 全局设置页（底部导航「设置」tab）。
  * <p>
- * 顶栏 #de7e7e、标题「HuhuTalk设置」左对齐；页面底 #f0e4ea；设置项为圆角卡片 #fff5f8。
+ * 顶栏 #de7e7e、标题「HuhuTalk设置」左对齐；设置项为圆角卡片。
  * SOS 紧急呼叫胶囊置于页面顶部首位。
- * 分组：消息 / 动画 / 配色 / 显示。所有开关与按钮统一为胶囊形。
+ * 分组：消息 / 救援 / 动画 / 配色 / 显示。</p>
+ *
+ * <h2>改用公开骨架（批次 2）</h2>
+ * 旧实现 724 行，其中<b>真正的设置内容只有 16 行</b>，其余全是每个页面各抄一遍的样板：
+ * 手绘顶栏与 SOS 胶囊、手写 {@code navH()} / {@code rowH()} / {@code textH} / {@code contH} /
+ * {@code btnW}、手写 {@code drawScaledText} / {@code truncateUi}、
+ * 手写开关（圆角胶囊 + 圆点）、手写滑块（轨道 + 把手）、手写 stepper（▲▼ + 命中）、
+ * 手写裁剪配对、以及<b>渲染与命中各算一遍</b>的每一个行坐标
+ * （{@code Layout} 里 5 个分组 × 每行的 y，在 {@code mouseClicked} 里靠
+ * {@code hit(relX, ly, rectX, L.xxxRow[i], rectW, rowH())} 再写一遍）。
  * <p>
- * 本页文字与文字容器高度随全局字体倍率 {@link UiFont#uiScale()} 等比缩放，
- * 纯装饰图形（开关圆点、滑块轨道等）保持固定。
+ * 现在：
+ * <ul>
+ *   <li>顶栏 / 底色 / 滚动 / 裁剪 / 主题取色 → {@link PhonePage}；</li>
+ *   <li>每一行「标签 + 右侧控件」→ {@link PhoneRow}
+ *       （行高、控件矩形、命中都是同一份计算的产物）；</li>
+ *   <li>开关 → {@link PhoneSwitch}、增减 → {@link PhoneStepper}、滑块 → {@link PhoneSlider}；</li>
+ *   <li>「切换 / 选壳」小胶囊 → 本文件内的 {@link CapsuleButton}（一个 {@link PhoneWidget}）。</li>
+ * </ul>
+ * <b>两个 {@code dragging} 布尔量消失了</b>：谁在被拖动由 {@link PhoneRow} 代管，
+ * 落盘时机由 {@code PhoneSlider#onCommit} 承担。
+ *
+ * <h2>与旧实现的差异（刻意接受）</h2>
+ * <ul>
+ *   <li>页面底色 / 分组标题色 / 分隔线色改走主题色板（略有色差）；</li>
+ *   <li>行高由 {@link PhoneRow} 按「文字高 + 控件高 + 留白」自动算，不再固定 24px；</li>
+ *   <li>每字耗时 / 单句上限改用 <b>离散档位</b>（50ms / 100ms 一档，上限 3000 / 10000ms），
+ *       旧实现是无限 +50 —— 档位表必须有上界，而默认值 500 / 2400 都落在网格上；</li>
+ *   <li>字体倍率档位仍是 0.5 / 0.75 / 1.0 / 1.5 / 2.0（与 {@code HuhuTalkClientSettings} 一致）。</li>
+ * </ul>
  */
-public class SettingsPage implements IPhonePage {
-    private static final int PAGE_BG = 0xFFF0E4EA;
-    private static final int TOPBAR_BG = 0xFFDE7E7E;
-    private static final int CARD_BG = 0xFFFFF5F8;
-    /** 分组标题颜色：深灰色 */
-    private static final int GROUP_TITLE_COLOR = 0xFF555555;
-    private static final int TEXT_COLOR = 0xFF333333;
-    private static final int TEXT_SUB = 0xFF888888;
-    private static final int DIVIDER = 0xFFE5DBE1;
+public class SettingsPage extends PhonePage {
+
+    // ==================== 常量（基准像素，随全局字体倍率缩放） ====================
+
+    /** 卡片左右边距 */
+    private static final int CARD_PAD = 10;
+    /** 行内左右内边距（与 {@link PhoneRow} 的默认值一致，显式写出以免依赖默认值） */
+    private static final int ROW_PAD = 12;
+    /** 分组标题的左边距 */
+    private static final int TITLE_PAD = 12;
+    /** 卡片圆角 */
     private static final int CARD_R = 8;
-    /** 以下为「基准（1.0 倍）」像素值，运行时经 {@link UiFont#sh(int)} 缩放 */
-    private static final int RECT_PAD = 3;
-    private static final int ROW_H = 24;
-    private static final int GROUP_TITLE_TOP = 8;
-    /** 分组标题底到卡片顶的间距（使 UI 更松弛，不戳进卡片） */
-    private static final int CARD_GAP = 10;
+    /** 内容区顶部留白 */
+    private static final int TOP_PAD = 8;
+    /** SOS 胶囊高度 */
     private static final int SOS_H = 26;
-    /** 分组标题缩放（0.75 倍） */
+    /** 分组标题 → 卡片顶 */
+    private static final int TITLE_GAP = 6;
+    /** 卡片底 → 下一个分组标题 */
+    private static final int SECTION_GAP = 10;
+    /** 卡片内分隔线距卡片左右边（与内容留白对齐） */
+    private static final int DIVIDER_PAD = 8;
+    /** 分组标题缩放 */
     private static final float GROUP_SCALE = 0.75f;
-    /** 所有按钮统一强调色 #de7e7e */
-    private static final int BTN_COLOR = 0xFFDE7E7E;
-    /** 按钮内文字缩放（相对默认字体） */
-    private static final float BTN_TEXT_SCALE = 0.7f;
-    /** 开关未激活时的淡灰色 */
-    private static final int SWITCH_OFF = 0xFFB9AAB0;
+    /** 滚动速度：1 单位滚轮 = 多少逻辑像素（保持旧实现的值） */
+    private static final int SCROLL_SPEED = 20;
+    /** 底部留白：让最后一行能滑出悬浮的底部导航胶囊 */
+    private static final int BOTTOM_PAD = 30;
+
+    /** 顶栏标题（左对齐，见 {@link #renderTopBarExtras}） */
+    private static final String TITLE = "HuhuTalk设置";
+
+    /** 屏幕比例可选值 */
     private static final List<String> ASPECT_OPTIONS = List.of("20:9", "9:16", "4:3");
-    /** 字体倍率可选档位 */
-    private static final float[] FONT_SCALE_STEPS = {0.5f, 0.75f, 1.0f, 1.5f, 2.0f};
+    /** 字体倍率可选档位（与 {@code HuhuTalkClientSettings} 的档位表一致） */
+    private static final double[] FONT_SCALE_STEPS = {0.5, 0.75, 1.0, 1.5, 2.0};
+    /** 每字耗时档位：50ms 起、50ms 一档。上限只为给 stepper 一个有限档位表，远超实用范围 */
+    private static final double[] CHAR_TYPING_STEPS = range(50, 3000, 50);
+    /** 单句上限档位：100ms 起、100ms 一档 */
+    private static final double[] MAX_TYPING_STEPS = range(100, 10000, 100);
 
-    /** 滚动偏移（像素） */
-    private int scrollOffset = 0;
-    /** 是否正在拖动屏幕大小滑块 */
-    private boolean sizeDragging = false;
-    /** 是否正在拖动屏幕亮度滑块 */
-    private boolean brightnessDragging = false;
-
-    // ==================== 缩放辅助 ====================
-
-    private static int rowH() { return UiFont.sh(ROW_H); }
-    private static int sosH() { return UiFont.sh(SOS_H); }
-    private static int groupTitleTop() { return UiFont.sh(GROUP_TITLE_TOP); }
-    private static int cardGap() { return UiFont.sh(CARD_GAP); }
-    private static int rectPad() { return UiFont.sh(RECT_PAD); }
-    /** 缩放后默认字体的行高（用于文字垂直居中） */
-    private static int textH(Font font) { return Math.max(1, (int) (font.lineHeight * UiFont.sc(1.0f))); }
-    /** 顶部导航栏高度：随字体倍率缩放 */
-    private static int navH() {
-        return (int) (Minecraft.getInstance().font.lineHeight * UiFont.uiScale()) + UiFont.sh(8);
+    /** 生成等差数列，供 {@code PhoneStepper#steps} 使用。 */
+    private static double[] range(double min, double max, double step) {
+        int count = Math.max(1, (int) Math.floor((max - min) / step) + 1);
+        double[] out = new double[count];
+        for (int i = 0; i < count; i++) {
+            out[i] = min + i * step;
+        }
+        return out;
     }
 
-    /** 滚轮下滑底部余量：略高于底部导航栏，让被导航栏盖住的内容能滑出来 */
-    private static int scrollPad() {
-        return PhoneOverlay.getBottomNavHeight() + UiFont.sh(30);
+    // ==================== 控件 ====================
+    //
+    // 控件持有自己的状态，所以必须每页只建一次（字段级），不能每帧新建 —— 否则
+    // 拖动中的捕获、stepper 的档位下标都会每帧丢失。
+
+    private final PhoneSwitch dndSwitch = new PhoneSwitch();
+    private final PhoneSwitch whisperSwitch = new PhoneSwitch();
+    private final PhoneSwitch immersiveSwitch = new PhoneSwitch();
+    private final PhoneSwitch potionRescueSwitch = new PhoneSwitch();
+    private final PhoneSwitch supplyReplySwitch = new PhoneSwitch();
+    private final PhoneSwitch messageAnimSwitch = new PhoneSwitch();
+    private final PhoneSwitch uiAnimSwitch = new PhoneSwitch();
+
+    private final PhoneStepper charTypingStepper = new PhoneStepper();
+    private final PhoneStepper maxTypingStepper = new PhoneStepper();
+    private final PhoneStepper fontScaleStepper = new PhoneStepper();
+
+    private final PhoneSlider phoneSizeSlider = new PhoneSlider();
+    private final PhoneSlider brightnessSlider = new PhoneSlider();
+
+    /** 分组（标题 + 行）。构造时建好，之后每帧只重新 layout。 */
+    private final List<Section> sections;
+
+    /** 一个分组：标题 + 若干「标签 + 控件」行。 */
+    private record Section(String title, List<PhoneRow> rows) {
     }
 
     public SettingsPage() {
+        buildWidgets();
+        sections = buildSections();
     }
 
     /**
@@ -100,408 +157,358 @@ public class SettingsPage implements IPhonePage {
                 new C2SRemoteSupplyReplySettingPacket(HuhuTalkClientSettings.isRemoteSupplyReplyEnabled()));
     }
 
+    // ==================== 骨架钩子 ====================
+
+    /**
+     * 顶栏不写居中标题：本页是底部导航的顶层页，标题按内置页面惯例<b>左对齐</b>，
+     * 所以交给 {@link #renderTopBarExtras} 画（骨架的 {@code title()} 是居中的）。
+     */
+    @Override
+    protected String title() {
+        return "";
+    }
+
+    /** 顶层 tab 页没有「返回上一页」这回事（切 tab 由底部导航负责）。 */
+    @Override
+    protected boolean showBackButton() {
+        return false;
+    }
+
+    @Override
+    protected int pageBackground() {
+        return colors().pageBgList();
+    }
+
+    /**
+     * 顶栏显式锁成品牌色：以后新增配色方案时，本页仍与聊天 / 消息 / 联系人是同一台手机
+     * （旧实现硬编码 {@code 0xFFDE7E7E}）。
+     */
+    @Override
+    protected int topBarBackground() {
+        return BRAND_TOPBAR_BG;
+    }
+
+    /** 底部导航是悬浮层，内容滚到底时最后一行会被盖住 —— 留一段可滚动余量。 */
+    @Override
+    protected int bottomInset() {
+        return PhoneOverlay.getBottomNavHeight() + PhoneText.px(BOTTOM_PAD);
+    }
+
+    /** 保持旧实现的滚动速度。 */
+    @Override
+    protected double scrollSpeed() {
+        return SCROLL_SPEED;
+    }
+
+    @Override
+    protected void renderTopBarExtras(GuiGraphics graphics, int baseX, int baseY, int w, int barH, int textY) {
+        PhoneText.draw(graphics, font(), TITLE, baseX + PhoneText.px(10), textY,
+                colors().topBarText(), PhoneText.scale(1.0f));
+    }
+
+    // ==================== 控件与分组构建 ====================
+
+    private void buildWidgets() {
+        dndSwitch.on(HuhuTalkClientSettings.isDndEnabled())
+                .onChange(HuhuTalkClientSettings::setDndEnabled);
+        whisperSwitch.on(HuhuTalkClientSettings.isMaidWhisperEnabled())
+                .onChange(HuhuTalkClientSettings::setMaidWhisperEnabled);
+        immersiveSwitch.on(HuhuTalkClientSettings.isImmersiveChatEnabled())
+                .onChange(HuhuTalkClientSettings::setImmersiveChatEnabled);
+
+        // 救援的两个开关判定都在服务端（死亡瞬间 / 补给链路），所以拨动后必须立刻同步
+        potionRescueSwitch.on(HuhuTalkClientSettings.isPotionRescueEnabled())
+                .onChange(v -> {
+                    HuhuTalkClientSettings.setPotionRescueEnabled(v);
+                    PacketDistributor.sendToServer(new C2SPotionRescueSettingPacket(v));
+                });
+        supplyReplySwitch.on(HuhuTalkClientSettings.isRemoteSupplyReplyEnabled())
+                .onChange(v -> {
+                    HuhuTalkClientSettings.setRemoteSupplyReplyEnabled(v);
+                    PacketDistributor.sendToServer(new C2SRemoteSupplyReplySettingPacket(v));
+                });
+
+        messageAnimSwitch.on(HuhuTalkClientSettings.isMessageAnimationEnabled())
+                .onChange(HuhuTalkClientSettings::setMessageAnimation);
+        uiAnimSwitch.on(HuhuTalkClientSettings.isUiAnimationEnabled())
+                .onChange(HuhuTalkClientSettings::setUiAnimation);
+
+        charTypingStepper.steps(CHAR_TYPING_STEPS)
+                .setValue(HuhuTalkClientSettings.getCharTypingMs())
+                .onChange(v -> HuhuTalkClientSettings.setCharTypingMs(v.longValue()));
+        maxTypingStepper.steps(MAX_TYPING_STEPS)
+                .setValue(HuhuTalkClientSettings.getMaxTypingMs())
+                .onChange(v -> HuhuTalkClientSettings.setMaxTypingMs(v.longValue()));
+        fontScaleStepper.steps(FONT_SCALE_STEPS)
+                .setValue(HuhuTalkClientSettings.getUiFontScale())
+                .onChange(v -> HuhuTalkClientSettings.setUiFontScale(v.floatValue()));
+
+        // 屏幕大小：配置是 0.5~1.0，滑块恒为 0~1，所以在回调里映射
+        phoneSizeSlider.setValue(sizeToNormalized(HuhuTalkClientSettings.getPhoneSize()))
+                .onChange(t -> HuhuTalkClientSettings.setPhoneSizeRaw(normalizedToSize(t)))
+                .onCommit(t -> {
+                    HuhuTalkClientSettings.setPhoneSizeRaw(normalizedToSize(t));
+                    HuhuTalkClientSettings.save();
+                });
+
+        // 屏幕亮度：配置本身就是 0~1，直接用
+        brightnessSlider.setValue(HuhuTalkClientSettings.getScreenBrightness())
+                .onChange(t -> HuhuTalkClientSettings.setScreenBrightnessRaw((float) t))
+                .onCommit(t -> {
+                    HuhuTalkClientSettings.setScreenBrightnessRaw((float) t);
+                    HuhuTalkClientSettings.save();
+                });
+    }
+
+    private List<Section> buildSections() {
+        List<Section> out = new ArrayList<>();
+
+        out.add(new Section("消息", List.of(
+                row("消息免打扰", dndSwitch),
+                row("女仆悄悄话", whisperSwitch),
+                row("沉浸式聊天", immersiveSwitch))));
+
+        out.add(new Section("救援", List.of(
+                row("药水复活", potionRescueSwitch),
+                row("远程补给女仆回复", supplyReplySwitch))));
+
+        out.add(new Section("动画", List.of(
+                row("消息动画", messageAnimSwitch),
+                row(() -> "每次耗时(ms)：" + (long) charTypingStepper.value(), charTypingStepper),
+                row(() -> "单句上限(ms)：" + (long) maxTypingStepper.value(), maxTypingStepper),
+                row("切屏动画", uiAnimSwitch))));
+
+        out.add(new Section("配色", List.of(
+                row(() -> "配色方案：" + ThemeManager.getActive().displayName(),
+                        new CapsuleButton("切换", ThemeManager::cycleNext)),
+                row(this::phoneCaseLabel,
+                        new CapsuleButton("选壳", () -> PhoneOverlay.pushPage(new PhoneCasePickerPage()))))));
+
+        out.add(new Section("显示", List.of(
+                row(() -> "屏幕比例：" + HuhuTalkClientSettings.getPhoneAspect(),
+                        new CapsuleButton("切换", this::cycleAspect)),
+                row(() -> "屏幕大小：" + Math.round(HuhuTalkClientSettings.getPhoneSize() * 100) + "%",
+                        phoneSizeSlider),
+                row(() -> "字体倍率：×" + fontScaleStepper.display(), fontScaleStepper),
+                row(() -> "屏幕亮度：" + Math.round(HuhuTalkClientSettings.getScreenBrightness() * 100) + "%",
+                        brightnessSlider),
+                row(() -> "HuhuTalk图标：" + iconStyleLabel(),
+                        new CapsuleButton("切换", this::cycleIconStyle)))));
+
+        return List.copyOf(out);
+    }
+
+    private static PhoneRow row(String label, PhoneWidget widget) {
+        return PhoneRow.of(label, widget).pad(ROW_PAD);
+    }
+
+    private static PhoneRow row(java.util.function.Supplier<String> label, PhoneWidget widget) {
+        return PhoneRow.of(label, widget).pad(ROW_PAD);
+    }
+
     // ==================== 布局 ====================
 
+    /**
+     * 每帧的布局结果。<b>渲染与命中都调 {@link #layout()} 拿它</b>，
+     * 于是「行画在哪」与「点在哪算哪一行」在结构上不可能不同步。
+     * <p>
+     * 所有 y 都是<b>内容坐标（已含滚动）</b>：{@link PhonePage#renderContent} 的
+     * {@code originY} 加上它即屏幕坐标；而点击回调拿到的 {@code localY} 恰好就是同一个值
+     * （依据 {@code scrollY(logicalY(localY)) == localY}）。
+     */
     private static final class Layout {
-        int navH;
-        int sosY, sosH;
-        int msgTitleY, msgRectY, msgRectH;
-        int[] msgRow = new int[3]; // 消息免打扰 / 女仆悄悄话 / 沉浸式聊天
-        int rescueTitleY, rescueRectY, rescueRectH;
-        int[] rescueRow = new int[2]; // 药水复活 / 远程补给触发女仆回复
-        int animTitleY, animRectY, animRectH;
-        int[] animRow = new int[4]; // 消息动画 / 每字耗时 / 单句上限 / 切屏动画(全局总开关)
-        int colorTitleY, colorRectY, colorRectH;
-        int[] colorRow = new int[2];
-        int dispTitleY, dispRectY, dispRectH;
-        int[] dispRow = new int[5]; // 屏幕比例 / 屏幕大小 / 字体倍率 / 屏幕亮度 / HuhuTalk图标风格
-        int contentH;
+        /** 各分组标题的 y（内容坐标） */
+        final List<Integer> titleYs = new ArrayList<>();
+        /** 各分组卡片的矩形（内容坐标）：{x, y, w, h} */
+        final List<int[]> cards = new ArrayList<>();
+        /** 内容逻辑总高（不含滚动） */
+        int totalH;
     }
 
-    private Layout computeLayout() {
-        Font font = Minecraft.getInstance().font;
-        Layout L = new Layout();
-        L.navH = navH();
-        int y = L.navH + UiFont.sh(8);
-        // 分组标题按 0.75 倍缩放后的文字高度
-        int titleH = (int) (font.lineHeight * UiFont.sc(GROUP_SCALE));
+    private Layout layout() {
+        Font font = font();
+        int cardX = PhoneText.px(CARD_PAD);
+        int cardW = width() - PhoneText.px(CARD_PAD) * 2;
 
-        // SOS 胶囊（页面顶部首位）
-        L.sosY = y;
-        L.sosH = sosH();
-        y += L.sosH + groupTitleTop();
+        Layout out = new Layout();
+        // 逻辑游标（未滚动），只在算高度用；写进 PhoneRow 的 y 要换算成内容坐标
+        int y = sosY() + sosH() + PhoneText.px(SECTION_GAP);
 
-        // 消息 分组（3 行）：标题在上，卡片在标题下方留出间距
-        L.msgTitleY = y;
-        y += titleH + cardGap();
-        for (int i = 0; i < 3; i++) {
-            L.msgRow[i] = y;
-            y += rowH();
+        for (Section section : sections) {
+            out.titleYs.add(scrollY(y));
+            y += PhoneText.height(font, PhoneText.scale(GROUP_SCALE)) + PhoneText.px(TITLE_GAP);
+
+            int cardTop = y;
+            for (PhoneRow row : section.rows()) {
+                row.layout(font, cardX, scrollY(y), cardW);
+                y += row.height();
+            }
+            out.cards.add(new int[]{cardX, scrollY(cardTop), cardW, y - cardTop});
+            y += PhoneText.px(SECTION_GAP);
         }
-        L.msgRectY = L.msgRow[0] - rectPad();
-        L.msgRectH = (L.msgRow[2] + rowH()) - L.msgRectY + rectPad();
-        y = L.msgRow[2] + rowH() + rectPad();
-        y += groupTitleTop();
-
-        // 救援 分组（2 行）：药水复活 / 远程补给触发女仆回复
-        L.rescueTitleY = y;
-        y += titleH + cardGap();
-        for (int i = 0; i < 2; i++) {
-            L.rescueRow[i] = y;
-            y += rowH();
-        }
-        L.rescueRectY = L.rescueRow[0] - rectPad();
-        L.rescueRectH = (L.rescueRow[1] + rowH()) - L.rescueRectY + rectPad();
-        y = L.rescueRow[1] + rowH() + rectPad();
-        y += groupTitleTop();
-
-        // 动画 分组（4 行）
-        L.animTitleY = y;
-        y += titleH + cardGap();
-        for (int i = 0; i < 4; i++) {
-            L.animRow[i] = y;
-            y += rowH();
-        }
-        L.animRectY = L.animRow[0] - rectPad();
-        L.animRectH = (L.animRow[3] + rowH()) - L.animRectY + rectPad();
-        y = L.animRow[3] + rowH() + rectPad();
-        y += groupTitleTop();
-
-        // 配色 分组（2 行）
-        L.colorTitleY = y;
-        y += titleH + cardGap();
-        for (int i = 0; i < 2; i++) {
-            L.colorRow[i] = y;
-            y += rowH();
-        }
-        L.colorRectY = L.colorRow[0] - rectPad();
-        L.colorRectH = (L.colorRow[1] + rowH()) - L.colorRectY + rectPad();
-        y = L.colorRow[1] + rowH() + rectPad();
-        y += groupTitleTop();
-
-        // 显示 分组（5 行：屏幕比例 / 屏幕大小滑块 / 字体倍率 / 屏幕亮度 / HuhuTalk图标风格）
-        L.dispTitleY = y;
-        y += titleH + cardGap();
-        for (int i = 0; i < 5; i++) {
-            L.dispRow[i] = y;
-            y += rowH();
-        }
-        L.dispRectY = L.dispRow[0] - rectPad();
-        L.dispRectH = (L.dispRow[4] + rowH()) - L.dispRectY + rectPad();
-        y = L.dispRow[4] + rowH() + rectPad();
-        y += UiFont.sh(4);
-
-        L.contentH = y - (L.navH + UiFont.sh(8)) + UiFont.sh(4);
-        return L;
+        out.totalH = y;
+        return out;
     }
 
-    private int ly(Layout L, int baseY, int logicalY) {
-        return baseY + logicalY - scrollOffset;
+    @Override
+    protected int contentHeight() {
+        return layout().totalH;
+    }
+
+    // ==================== SOS 胶囊 ====================
+    //
+    // 它是「整条一行、底色是危险红」的胶囊，不符合 PhoneRow 的「左标签 + 右控件」形态，
+    // 所以自绘。渲染与命中共用下面三个几何方法（而不是各写一遍算术）。
+
+    private int sosX() {
+        return PhoneText.px(CARD_PAD);
+    }
+
+    private int sosW() {
+        return width() - PhoneText.px(CARD_PAD) * 2;
+    }
+
+    private int sosH() {
+        return PhoneText.px(SOS_H);
+    }
+
+    private int sosY() {
+        return PhoneText.px(TOP_PAD);
     }
 
     // ==================== 渲染 ====================
 
     @Override
-    public void render(GuiGraphics g, int baseX, int baseY, float partialTick) {
-        int w = PhoneOverlay.getPhoneWidth();
-        int h = PhoneOverlay.getPhoneHeight();
-        Font font = Minecraft.getInstance().font;
-        Layout L = computeLayout();
+    protected void renderContent(GuiGraphics g, int originX, int originY, int w, int h, float partialTick) {
+        syncFromSettings();
+        Layout L = layout();
+        ColorScheme c = colors();
+        Font font = font();
 
-        g.fill(baseX, baseY, baseX + w, baseY + h, PAGE_BG);
+        // SOS 紧急呼叫胶囊（页面顶部首位）
+        PhoneShapes.fillRoundedRect(g, originX + sosX(), originY + scrollY(sosY()),
+                sosW(), sosH(), sosH() / 2, c.sosBg());
+        PhoneText.drawLeftIn(g, font, "🚨 SOS 紧急呼叫",
+                originX + sosX(), originY + scrollY(sosY()), sosW(), sosH(),
+                PhoneText.px(ROW_PAD), c.sosText(), PhoneText.scale(1.0f));
 
-        // 顶栏 #de7e7e：标题「HuhuTalk设置」左对齐、垂直居中
-        g.fill(baseX, baseY, baseX + w, baseY + L.navH, TOPBAR_BG);
-        drawScaledText(g, font, "HuhuTalk设置", baseX + UiFont.sh(10), baseY + (L.navH - textH(font)) / 2 + 1,
-                0xFFFFFFFF, UiFont.sc(1.0f));
+        for (int i = 0; i < sections.size(); i++) {
+            Section section = sections.get(i);
+            PhoneText.draw(g, font, section.title(),
+                    originX + PhoneText.px(TITLE_PAD), originY + L.titleYs.get(i),
+                    c.textMuted(), PhoneText.scale(GROUP_SCALE));
 
-        int topY = baseY + L.navH + UiFont.sh(4);
-        int bottomY = baseY + h - PhoneOverlay.getBottomNavHeight() - UiFont.sh(4);
-        int viewH = Math.max(0, bottomY - topY);
-        int maxScroll = Math.max(0, L.contentH + scrollPad() - viewH);
-        scrollOffset = Math.max(0, Math.min(scrollOffset, maxScroll));
+            int[] card = L.cards.get(i);
+            PhoneShapes.fillRoundedRect(g, originX + card[0], originY + card[1],
+                    card[2], card[3], PhoneText.px(CARD_R), c.cardBg());
 
-        g.enableScissor(baseX, topY, baseX + w, bottomY);
-
-        renderSosButton(g, font, L, baseX, baseY);
-        renderMsgGroup(g, font, L, baseX, baseY);
-        renderRescueGroup(g, font, L, baseX, baseY);
-        renderAnimGroup(g, font, L, baseX, baseY);
-        renderColorGroup(g, font, L, baseX, baseY);
-        renderDisplayGroup(g, font, L, baseX, baseY);
-
-        g.disableScissor();
-    }
-
-    /** SOS 紧急呼叫胶囊（页面顶部首位，红底白字） */
-    private void renderSosButton(GuiGraphics g, Font font, Layout L, int baseX, int baseY) {
-        ColorScheme scheme = ThemeManager.getActive();
-        int x = baseX + UiFont.sh(10);
-        int y = ly(L, baseY, L.sosY);
-        int w = PhoneOverlay.getPhoneWidth() - UiFont.sh(20);
-        UiShapes.fillRoundedRect(g, x, y, w, L.sosH, L.sosH / 2, scheme.sosBg());
-        drawScaledText(g, font, "🚨 SOS 紧急呼叫", x + UiFont.sh(12), y + (L.sosH - textH(font)) / 2 + 1,
-                scheme.sosText(), UiFont.sc(1.0f));
-    }
-
-    private void renderMsgGroup(GuiGraphics g, Font font, Layout L, int baseX, int baseY) {
-        int rectX = baseX + UiFont.sh(10);
-        int rectW = PhoneOverlay.getPhoneWidth() - UiFont.sh(20);
-        drawScaledText(g, font, "消息", baseX + UiFont.sh(12), ly(L, baseY, L.msgTitleY), GROUP_TITLE_COLOR, UiFont.sc(GROUP_SCALE));
-        UiShapes.fillRoundedRect(g, rectX, ly(L, baseY, L.msgRectY), rectW, L.msgRectH, CARD_R, CARD_BG);
-        // 消息免打扰
-        int rowY = ly(L, baseY, L.msgRow[0]);
-        drawToggleRow(g, font, rectX, rectW, rowY, "消息免打扰", HuhuTalkClientSettings.isDndEnabled());
-        drawDivider(g, rectX, rectW, rowY + rowH());
-        // 女仆悄悄话：手机聊天时女仆回复不出现在头顶气泡
-        int rowY1 = ly(L, baseY, L.msgRow[1]);
-        drawToggleRow(g, font, rectX, rectW, rowY1, "女仆悄悄话", HuhuTalkClientSettings.isMaidWhisperEnabled());
-        drawDivider(g, rectX, rectW, rowY1 + rowH());
-        // 沉浸式聊天：手机聊天时女仆回复不出现在左下角公屏聊天栏
-        int rowY2 = ly(L, baseY, L.msgRow[2]);
-        drawToggleRow(g, font, rectX, rectW, rowY2, "沉浸式聊天", HuhuTalkClientSettings.isImmersiveChatEnabled());
+            List<PhoneRow> rows = section.rows();
+            for (int r = 0; r < rows.size(); r++) {
+                PhoneRow row = rows.get(r);
+                if (r < rows.size() - 1) {
+                    int dy = originY + row.y() + row.height();
+                    g.fill(originX + card[0] + PhoneText.px(DIVIDER_PAD), dy,
+                            originX + card[0] + card[2] - PhoneText.px(DIVIDER_PAD), dy + 1,
+                            c.divider());
+                }
+                row.render(g, originX, originY);
+            }
+        }
     }
 
     /**
-     * 救援 分组（2 行）。
-     * <ul>
-     *   <li><b>药水复活</b>：关掉 = 死亡后不再触发女仆远程送药（功能本身不生效，省 token）。</li>
-     *   <li><b>远程补给触发女仆回复</b>：只决定补给链路要不要让她主动开口；
-     *       关掉后补给照常（物品照样消耗、手机页照样留痕），只是不再为那几种情况多调一次 AI，
-     *       事实仍会写进她的记忆。</li>
-     * </ul>
-     * 两个开关拨动时都会立刻同步给服务端，因为判定都发生在服务端。
+     * 把控件状态对齐到配置值。
+     * <p>
+     * 旧实现每帧都直接从 {@code HuhuTalkClientSettings} 读值来画，所以"别处改了配置，设置页立刻反映"。
+     * 控件持有自己的状态，于是每帧同步一次来保住这个性质
+     * （{@code setValue} 不触发回调，不会反写配置）。
+     * <p>
+     * ⚠ 拖动中的滑块<b>不同步</b>：拖动值先写进配置再读回来会有取整往返，
+     * 会造成把手抖动。松手（{@code onCommit}）之后下一帧自然对上。
      */
-    private void renderRescueGroup(GuiGraphics g, Font font, Layout L, int baseX, int baseY) {
-        int rectX = baseX + UiFont.sh(10);
-        int rectW = PhoneOverlay.getPhoneWidth() - UiFont.sh(20);
-        drawScaledText(g, font, "救援", baseX + UiFont.sh(12), ly(L, baseY, L.rescueTitleY),
-                GROUP_TITLE_COLOR, UiFont.sc(GROUP_SCALE));
-        UiShapes.fillRoundedRect(g, rectX, ly(L, baseY, L.rescueRectY), rectW, L.rescueRectH, CARD_R, CARD_BG);
-        int rowY = ly(L, baseY, L.rescueRow[0]);
-        drawToggleRow(g, font, rectX, rectW, rowY, "药水复活", HuhuTalkClientSettings.isPotionRescueEnabled());
-        drawDivider(g, rectX, rectW, rowY + rowH());
-        int rowY1 = ly(L, baseY, L.rescueRow[1]);
-        drawToggleRow(g, font, rectX, rectW, rowY1, "远程补给女仆回复",
-                HuhuTalkClientSettings.isRemoteSupplyReplyEnabled());
-    }
+    private void syncFromSettings() {
+        dndSwitch.setValue(HuhuTalkClientSettings.isDndEnabled());
+        whisperSwitch.setValue(HuhuTalkClientSettings.isMaidWhisperEnabled());
+        immersiveSwitch.setValue(HuhuTalkClientSettings.isImmersiveChatEnabled());
+        potionRescueSwitch.setValue(HuhuTalkClientSettings.isPotionRescueEnabled());
+        supplyReplySwitch.setValue(HuhuTalkClientSettings.isRemoteSupplyReplyEnabled());
+        messageAnimSwitch.setValue(HuhuTalkClientSettings.isMessageAnimationEnabled());
+        uiAnimSwitch.setValue(HuhuTalkClientSettings.isUiAnimationEnabled());
 
-    private void renderAnimGroup(GuiGraphics g, Font font, Layout L, int baseX, int baseY) {
-        int rectX = baseX + UiFont.sh(10);
-        int rectW = PhoneOverlay.getPhoneWidth() - UiFont.sh(20);
-        drawScaledText(g, font, "动画", baseX + UiFont.sh(12), ly(L, baseY, L.animTitleY), GROUP_TITLE_COLOR, UiFont.sc(GROUP_SCALE));
-        UiShapes.fillRoundedRect(g, rectX, ly(L, baseY, L.animRectY), rectW, L.animRectH, CARD_R, CARD_BG);
-        // 消息动画
-        int y0 = ly(L, baseY, L.animRow[0]);
-        drawToggleRow(g, font, rectX, rectW, y0, "消息动画", HuhuTalkClientSettings.isMessageAnimationEnabled());
-        drawDivider(g, rectX, rectW, y0 + rowH());
-        // 每字耗时
-        int y1 = ly(L, baseY, L.animRow[1]);
-        drawStepperRow(g, font, rectX, rectW, y1, "每次耗时(ms)", HuhuTalkClientSettings.getCharTypingMs());
-        drawDivider(g, rectX, rectW, y1 + rowH());
-        // 单句上限
-        int y2 = ly(L, baseY, L.animRow[2]);
-        drawStepperRow(g, font, rectX, rectW, y2, "单句上限(ms)", HuhuTalkClientSettings.getMaxTypingMs());
-        drawDivider(g, rectX, rectW, y2 + rowH());
-        // 切屏动画（全局界面动画总开关）
-        int y3 = ly(L, baseY, L.animRow[3]);
-        drawToggleRow(g, font, rectX, rectW, y3, "切屏动画", HuhuTalkClientSettings.isUiAnimationEnabled());
-    }
+        charTypingStepper.setValue(HuhuTalkClientSettings.getCharTypingMs());
+        maxTypingStepper.setValue(HuhuTalkClientSettings.getMaxTypingMs());
+        fontScaleStepper.setValue(HuhuTalkClientSettings.getUiFontScale());
 
-    private void renderColorGroup(GuiGraphics g, Font font, Layout L, int baseX, int baseY) {
-        int rectX = baseX + UiFont.sh(10);
-        int rectW = PhoneOverlay.getPhoneWidth() - UiFont.sh(20);
-        drawScaledText(g, font, "配色", baseX + UiFont.sh(12), ly(L, baseY, L.colorTitleY), GROUP_TITLE_COLOR, UiFont.sc(GROUP_SCALE));
-        UiShapes.fillRoundedRect(g, rectX, ly(L, baseY, L.colorRectY), rectW, L.colorRectH, CARD_R, CARD_BG);
-        // 配色方案
-        int y0 = ly(L, baseY, L.colorRow[0]);
-        drawButtonRow(g, font, rectX, rectW, y0, "配色方案：" + ThemeManager.getActive().displayName(), "切换");
-        drawDivider(g, rectX, rectW, y0 + rowH());
-        // 手机壳
-        int y1 = ly(L, baseY, L.colorRow[1]);
-        String caseText = HuhuTalkClientSettings.getPhoneCaseBlock();
-        String caseDisplay = caseText.isBlank() ? "手机壳：默认"
-                : "手机壳：" + caseText.substring(caseText.indexOf(':') + 1);
-        // 物品 ID 可能很长：在留出右侧「选壳」按钮的前提下截断，过长加"…"
-        int selectBtnW = btnW(font, "选壳");
-        int caseLabelMaxW = rectW - selectBtnW - UiFont.sh(28);
-        caseDisplay = truncateUi(font, caseDisplay, caseLabelMaxW);
-        drawButtonRow(g, font, rectX, rectW, y1, caseDisplay, "选壳");
-    }
-
-    private void renderDisplayGroup(GuiGraphics g, Font font, Layout L, int baseX, int baseY) {
-        int rectX = baseX + UiFont.sh(10);
-        int rectW = PhoneOverlay.getPhoneWidth() - UiFont.sh(20);
-        drawScaledText(g, font, "显示", baseX + UiFont.sh(12), ly(L, baseY, L.dispTitleY), GROUP_TITLE_COLOR, UiFont.sc(GROUP_SCALE));
-        UiShapes.fillRoundedRect(g, rectX, ly(L, baseY, L.dispRectY), rectW, L.dispRectH, CARD_R, CARD_BG);
-        // 屏幕比例
-        int y0 = ly(L, baseY, L.dispRow[0]);
-        drawButtonRow(g, font, rectX, rectW, y0, "屏幕比例：" + HuhuTalkClientSettings.getPhoneAspect(),
-                "切换");
-        drawDivider(g, rectX, rectW, y0 + rowH());
-        // 屏幕大小（滑块）
-        int y1 = ly(L, baseY, L.dispRow[1]);
-        drawSizeRow(g, font, rectX, rectW, y1);
-        if (sizeDragging) {
-            Minecraft mc = Minecraft.getInstance();
-            double mx = mc.mouseHandler.xpos() * mc.getWindow().getGuiScaledWidth() / mc.getWindow().getScreenWidth();
-            updateSizeFromRelX(mx - baseX, rectW);
+        if (!phoneSizeSlider.dragging()) {
+            phoneSizeSlider.setValue(sizeToNormalized(HuhuTalkClientSettings.getPhoneSize()));
         }
-        drawDivider(g, rectX, rectW, y1 + rowH());
-        // 字体倍率（stepper）
-        int y2 = ly(L, baseY, L.dispRow[2]);
-        drawScaleStepperRow(g, font, rectX, rectW, y2);
-        drawDivider(g, rectX, rectW, y2 + rowH());
-        // 屏幕亮度（滑块，0~100% 叠黑色滤镜）
-        int y3 = ly(L, baseY, L.dispRow[3]);
-        drawBrightnessRow(g, font, rectX, rectW, y3);
-        if (brightnessDragging) {
-            Minecraft mc = Minecraft.getInstance();
-            double mx = mc.mouseHandler.xpos() * mc.getWindow().getGuiScaledWidth() / mc.getWindow().getScreenWidth();
-            updateBrightnessFromRelX(mx - baseX, rectW);
+        if (!brightnessSlider.dragging()) {
+            brightnessSlider.setValue(HuhuTalkClientSettings.getScreenBrightness());
         }
-        drawDivider(g, rectX, rectW, y3 + rowH());
-        // HuhuTalk 图标风格
-        int y4 = ly(L, baseY, L.dispRow[4]);
-        drawButtonRow(g, font, rectX, rectW, y4, "HuhuTalk图标：" + iconStyleLabel(), "切换");
-    }
-
-    // ==================== 控件绘制 ====================
-
-    private void drawToggleRow(GuiGraphics g, Font font, int rectX, int rectW, int y,
-                               String label, boolean on) {
-        drawScaledText(g, font, label, rectX + UiFont.sh(12), y + (rowH() - textH(font)) / 2 + 1,
-                TEXT_COLOR, UiFont.sc(1.0f));
-        // 胶囊开关（右对齐）：激活 #de7e7e，未激活淡灰
-        int swH = contH(font);
-        int swW = swH * 2;
-        int swX = rectX + rectW - swW - UiFont.sh(10);
-        int swY = y + (rowH() - swH) / 2;
-        UiShapes.fillRoundedRect(g, swX, swY, swW, swH, swH / 2, on ? BTN_COLOR : SWITCH_OFF);
-        int knob = on ? swX + swW - swH + 1 : swX + 1;
-        UiShapes.fillRoundedRect(g, knob, swY + 1, swH - 2, swH - 2, (swH - 2) / 2, 0xFFFFFFFF);
-    }
-
-    private void drawStepperRow(GuiGraphics g, Font font, int rectX, int rectW, int y,
-                                String label, long value) {
-        drawScaledText(g, font, label + "：" + value, rectX + UiFont.sh(12),
-                y + (rowH() - textH(font)) / 2 + 1, TEXT_COLOR, UiFont.sc(1.0f));
-        // 竖排上下箭头（▲ 增 / ▼ 减），每个 0.5 倍字体大小，#de7e7e
-        int btn = contH(font);
-        int gap = UiFont.sh(2);
-        int right = rectX + rectW - btn - UiFont.sh(10);
-        int topY = y + (rowH() - (btn * 2 + gap)) / 2;
-        arrowBtn(g, font, right, topY, btn, "▲");
-        arrowBtn(g, font, right, topY + btn + gap, btn, "▼");
-    }
-
-    /** 字体倍率 stepper：与「每字耗时」同款竖排上下箭头，档位 0.5/0.75/1.0/1.5/2.0 */
-    private void drawScaleStepperRow(GuiGraphics g, Font font, int rectX, int rectW, int y) {
-        float v = HuhuTalkClientSettings.getUiFontScale();
-        drawScaledText(g, font, "字体倍率：×" + formatScale(v), rectX + UiFont.sh(12),
-                y + (rowH() - textH(font)) / 2 + 1, TEXT_COLOR, UiFont.sc(1.0f));
-        int btn = contH(font);
-        int gap = UiFont.sh(2);
-        int right = rectX + rectW - btn - UiFont.sh(10);
-        int topY = y + (rowH() - (btn * 2 + gap)) / 2;
-        arrowBtn(g, font, right, topY, btn, "▲");
-        arrowBtn(g, font, right, topY + btn + gap, btn, "▼");
-    }
-
-    private static String formatScale(float v) {
-        int iv = (int) v;
-        if (v == iv) return String.valueOf(iv);
-        return String.valueOf(v);
-    }
-
-    private void drawButtonRow(GuiGraphics g, Font font, int rectX, int rectW, int y,
-                               String label, String btnText) {
-        drawScaledText(g, font, label, rectX + UiFont.sh(12), y + (rowH() - textH(font)) / 2 + 1,
-                TEXT_COLOR, UiFont.sc(1.0f));
-        int btnH = contH(font);
-        int bw = btnW(font, btnText);
-        int btnX = rectX + rectW - bw - UiFont.sh(10);
-        int btnY = y + (rowH() - btnH) / 2;
-        capsuleBtn(g, font, btnX, btnY, bw, btnH, btnText, BTN_COLOR);
-    }
-
-    private void drawSizeRow(GuiGraphics g, Font font, int rectX, int rectW, int y) {
-        float size = HuhuTalkClientSettings.getPhoneSize();
-        drawScaledText(g, font, "屏幕大小：" + Math.round(size * 100) + "%",
-                rectX + UiFont.sh(12), y + UiFont.sh(6), TEXT_COLOR, UiFont.sc(1.0f));
-        // 横向滑块轨道
-        int trackLeft = rectX + UiFont.sh(12);
-        int trackRight = rectX + rectW - UiFont.sh(12);
-        int trackY = y + rowH() - UiFont.sh(8);
-        UiShapes.fillRoundedRect(g, trackLeft, trackY, trackRight - trackLeft, 3, 1, 0xFFAAAAAA);
-        int handleX = trackLeft + (int) ((size - 0.5f) / 0.5f * (trackRight - trackLeft));
-        UiShapes.fillRoundedRect(g, handleX - 5, trackY - 3, 10, 9, 4, 0xFFDE7E7E);
-    }
-
-    /** 屏幕亮度滑块：0~100% 对应叠加 0~50% 黑色滤镜 */
-    private void drawBrightnessRow(GuiGraphics g, Font font, int rectX, int rectW, int y) {
-        float b = HuhuTalkClientSettings.getScreenBrightness();
-        drawScaledText(g, font, "屏幕亮度：" + Math.round(b * 100) + "%",
-                rectX + UiFont.sh(12), y + UiFont.sh(6), TEXT_COLOR, UiFont.sc(1.0f));
-        // 横向滑块轨道
-        int trackLeft = rectX + UiFont.sh(12);
-        int trackRight = rectX + rectW - UiFont.sh(12);
-        int trackY = y + rowH() - UiFont.sh(8);
-        UiShapes.fillRoundedRect(g, trackLeft, trackY, trackRight - trackLeft, 3, 1, 0xFFAAAAAA);
-        int handleX = trackLeft + (int) (b * (trackRight - trackLeft));
-        UiShapes.fillRoundedRect(g, handleX - 5, trackY - 3, 10, 9, 4, 0xFFDE7E7E);
-    }
-
-    /** 按钮高度 = 0.9 倍缩放后默认字体大小 */
-    private static int contH(Font font) {
-        return Math.max(1, (int) (font.lineHeight * UiFont.sc(0.9f)));
-    }
-
-    /** 按钮宽度：正好包裹文字（文字缩放后宽度 + 两侧留白） */
-    private static int btnW(Font font, String text) {
-        return (int) (font.width(text) * UiFont.sc(BTN_TEXT_SCALE)) + UiFont.sh(10);
-    }
-
-    /** 把以默认 1.0 倍绘制、宽度受限于 maxW（物理像素）的文字截断，过长补"…" */
-    private static String truncateUi(Font font, String text, int maxW) {
-        if (text == null || text.isEmpty()) return text;
-        float scale = UiFont.sc(1.0f);
-        if (maxW <= 0 || font.width(text) * scale <= maxW) return text;
-        int room = Math.max(1, (int) ((maxW - font.width("…") * scale) / scale));
-        String cut = font.plainSubstrByWidth(text, room);
-        return cut.isEmpty() ? "" : cut + "…";
-    }
-
-    /** 竖排箭头（每个 0.5 倍字体大小，只保留箭头本身、去掉背景包裹，取色 #de7e7e） */
-    private void arrowBtn(GuiGraphics g, Font font, int x, int y, int size, String text) {
-        float s = UiFont.sc(0.5f);
-        drawScaledText(g, font, text, x + (size - font.width(text) * s) / 2f,
-                y + (size - font.lineHeight * s) / 2f, BTN_COLOR, s);
-    }
-
-    private void capsuleBtn(GuiGraphics g, Font font, int x, int y, int w, int h, String text, int bg) {
-        UiShapes.fillRoundedRect(g, x, y, w, h, h / 2, bg);
-        float s = UiFont.sc(BTN_TEXT_SCALE);
-        drawScaledText(g, font, text, x + (w - font.width(text) * s) / 2f,
-                y + (h - font.lineHeight * s) / 2f, 0xFFFFFFFF, s);
-    }
-
-    /** 以任意倍率绘制文本（无阴影） */
-    private static void drawScaledText(GuiGraphics g, Font font, String text, float x, float y,
-                                       int color, float scale) {
-        float inv = 1.0f / scale;
-        g.pose().pushPose();
-        g.pose().scale(scale, scale, 1.0f);
-        g.drawString(font, text, x * inv, y * inv, color, false);
-        g.pose().popPose();
-    }
-
-    private static void drawDivider(GuiGraphics g, int rectX, int rectW, int y) {
-        g.fill(rectX + UiFont.sh(8), y, rectX + rectW - UiFont.sh(8), y + 1, DIVIDER);
     }
 
     // ==================== 交互 ====================
 
+    @Override
+    protected boolean onContentClick(double localX, double localY, int button, int action) {
+        layout(); // 命中前重新摆一遍，保证与刚才那次渲染用的是同一份布局
+
+        if (action == GLFW.GLFW_PRESS
+                && hit(sosX(), scrollY(sosY()), sosW(), sosH(), localX, localY)) {
+            PacketDistributor.sendToServer(new C2SSOSPacket());
+            return true;
+        }
+        for (Section section : sections) {
+            for (PhoneRow row : section.rows()) {
+                if (action == GLFW.GLFW_PRESS && row.mousePressed(localX, localY, button)) {
+                    return true;
+                }
+                if (action == GLFW.GLFW_RELEASE && row.mouseReleased(localX, localY, button)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    @Override
+    protected void onContentMoved(double localX, double localY) {
+        layout();
+        for (Section section : sections) {
+            for (PhoneRow row : section.rows()) {
+                row.mouseDragged(localX, localY); // 只有被按下的那个控件会收到
+            }
+        }
+    }
+
+    // ==================== 数据与文案 ====================
+
+    private static float sizeToNormalized(float size) {
+        return (size - 0.5f) / 0.5f;
+    }
+
+    private static float normalizedToSize(double t) {
+        return (float) (0.5 + t * 0.5);
+    }
+
+    /** 手机壳行：物品 id 可能很长，在留出右侧「选壳」按钮的前提下截断。 */
+    private String phoneCaseLabel() {
+        String id = HuhuTalkClientSettings.getPhoneCaseBlock();
+        String text = id.isBlank() ? "手机壳：默认" : "手机壳：" + shortName(id);
+        Font font = font();
+        int buttonW = PhoneText.width(font, "选壳", PhoneText.scale(CapsuleButton.TEXT_SCALE))
+                + PhoneText.px(10);
+        int avail = width() - PhoneText.px(CARD_PAD) * 2 - PhoneText.px(ROW_PAD) * 2
+                - buttonW - PhoneText.px(8);
+        return PhoneText.truncate(font, text, Math.max(0, avail), PhoneText.scale(1.0f));
+    }
+
+    private static String shortName(String id) {
+        int idx = id.indexOf(':');
+        return idx >= 0 ? id.substring(idx + 1) : id;
+    }
+
+    /** 在 20:9 / 9:16 / 4:3 之间循环。 */
     private void cycleAspect() {
         String cur = HuhuTalkClientSettings.getPhoneAspect();
         int idx = ASPECT_OPTIONS.indexOf(cur);
@@ -529,196 +536,64 @@ public class SettingsPage implements IPhonePage {
         HuhuTalkClientSettings.setHuhutalkIconStyle(next);
     }
 
-    private void updateSizeFromRelX(double relX, int w) {
-        float f = 0.5f + (float) ((relX - 12) / (double) (w - 24)) * 0.5f;
-        HuhuTalkClientSettings.setPhoneSizeRaw(f);
-    }
+    // ==================== 行内小胶囊按钮 ====================
 
-    private void updateBrightnessFromRelX(double relX, int w) {
-        float b = (float) ((relX - 12) / (double) (w - 24));
-        HuhuTalkClientSettings.setScreenBrightnessRaw(b);
-    }
+    /**
+     * 行右侧的小胶囊按钮（「切换」/「选壳」）。
+     * <p>
+     * 它替代了旧实现里的 {@code btnW()} / {@code contH()} / {@code capsuleBtn()} /
+     * {@code hitButton()} 四段算术 —— 宽度与高度由控件自报，矩形由 {@link PhoneRow} 摆，
+     * 命中由 {@link PhoneWidget#hit} 判，三者是同一份数据。
+     */
+    private static final class CapsuleButton extends PhoneWidget {
 
-    private static boolean hit(double x, double y, int rx, int ry, int rw, int rh) {
-        return x >= rx && x <= rx + rw && y >= ry && y <= ry + rh;
-    }
+        /** 按钮文字相对字号（与旧实现 {@code BTN_TEXT_SCALE} 一致） */
+        static final float TEXT_SCALE = 0.7f;
+        /** 按钮高度占字行高的比例（与旧实现 {@code contH} 一致） */
+        private static final float BOX_SCALE = 0.9f;
+        /** 文字两侧留白 */
+        private static final int PAD_PX = 10;
 
-    @Override
-    public boolean mouseClicked(double relX, double relY, int button, int action) {
-        // 松开：结束滑块拖动并落盘
-        if (action == GLFW.GLFW_RELEASE) {
-            if (sizeDragging) {
-                sizeDragging = false;
-                HuhuTalkClientSettings.save();
+        private final String text;
+        private final Runnable action;
+
+        CapsuleButton(String text, Runnable action) {
+            this.text = text;
+            this.action = action;
+        }
+
+        @Override
+        public int preferredWidth(Font font) {
+            return PhoneText.width(font, text, PhoneText.scale(TEXT_SCALE)) + PhoneText.px(PAD_PX);
+        }
+
+        @Override
+        public int preferredHeight(Font font) {
+            return Math.max(1, PhoneText.height(font, PhoneText.scale(BOX_SCALE)));
+        }
+
+        @Override
+        public void render(GuiGraphics g, int originX, int originY) {
+            int w = width();
+            int h = height();
+            if (w <= 0 || h <= 0) {
+                return;
             }
-            if (brightnessDragging) {
-                brightnessDragging = false;
-                HuhuTalkClientSettings.save();
+            int x = originX + x();
+            int y = originY + y();
+            // 取主题强调色（与旧实现硬编码的 #de7e7e 同值），换配色方案时会跟着变
+            PhoneShapes.fillRoundedRect(g, x, y, w, h, h / 2, ThemeManager.getActive().accent());
+            PhoneText.drawCenteredIn(g, Minecraft.getInstance().font, text, x, y, w, h,
+                    0xFFFFFFFF, PhoneText.scale(TEXT_SCALE));
+        }
+
+        @Override
+        public boolean mousePressed(double px, double py, int button) {
+            if (!enabled() || !isPrimaryPress(button) || !hit(px, py)) {
+                return false;
             }
+            action.run();
             return true;
         }
-        if (action != GLFW.GLFW_PRESS) return false;
-        int w = PhoneOverlay.getPhoneWidth();
-        int rectX = UiFont.sh(10);
-        int rectW = w - UiFont.sh(20);
-        Layout L = computeLayout();
-        double ly = relY + scrollOffset;
-
-        // SOS 紧急呼叫（页面顶部首位）
-        if (relY >= L.sosY && relY <= L.sosY + L.sosH) {
-            PacketDistributor.sendToServer(new C2SSOSPacket());
-            return true;
-        }
-
-        // 消息：免打扰
-        if (hit(relX, ly, rectX, L.msgRow[0], rectW, rowH())) {
-            HuhuTalkClientSettings.setDndEnabled(!HuhuTalkClientSettings.isDndEnabled());
-            return true;
-        }
-        // 消息：女仆悄悄话
-        if (hit(relX, ly, rectX, L.msgRow[1], rectW, rowH())) {
-            HuhuTalkClientSettings.setMaidWhisperEnabled(!HuhuTalkClientSettings.isMaidWhisperEnabled());
-            return true;
-        }
-        // 消息：沉浸式聊天
-        if (hit(relX, ly, rectX, L.msgRow[2], rectW, rowH())) {
-            HuhuTalkClientSettings.setImmersiveChatEnabled(!HuhuTalkClientSettings.isImmersiveChatEnabled());
-            return true;
-        }
-
-        // 救援：药水复活开关。判定在服务端（死亡瞬间），所以改完立刻同步新值
-        if (hit(relX, ly, rectX, L.rescueRow[0], rectW, rowH())) {
-            boolean next = !HuhuTalkClientSettings.isPotionRescueEnabled();
-            HuhuTalkClientSettings.setPotionRescueEnabled(next);
-            PacketDistributor.sendToServer(new C2SPotionRescueSettingPacket(next));
-            return true;
-        }
-        // 救援：远程补给触发女仆回复开关。同样由服务端决定要不要多调一次 AI，改完立刻同步
-        if (hit(relX, ly, rectX, L.rescueRow[1], rectW, rowH())) {
-            boolean next = !HuhuTalkClientSettings.isRemoteSupplyReplyEnabled();
-            HuhuTalkClientSettings.setRemoteSupplyReplyEnabled(next);
-            PacketDistributor.sendToServer(new C2SRemoteSupplyReplySettingPacket(next));
-            return true;
-        }
-
-        // 动画：消息动画开关
-        if (hit(relX, ly, rectX, L.animRow[0], rectW, rowH())) {
-            HuhuTalkClientSettings.setMessageAnimation(!HuhuTalkClientSettings.isMessageAnimationEnabled());
-            return true;
-        }
-        // 动画：每字耗时 stepper（▲ 增 / ▼ 减）
-        int charStep = hitStepper(relX, ly, L.animRow[1], rectW);
-        if (charStep != 0) {
-            long v = HuhuTalkClientSettings.getCharTypingMs();
-            if (charStep == 1) {
-                HuhuTalkClientSettings.setCharTypingMs(v + 50);
-            } else {
-                HuhuTalkClientSettings.setCharTypingMs(Math.max(50, v - 50));
-            }
-            return true;
-        }
-        // 动画：单句上限 stepper（▲ 增 / ▼ 减）
-        int maxStep = hitStepper(relX, ly, L.animRow[2], rectW);
-        if (maxStep != 0) {
-            long v = HuhuTalkClientSettings.getMaxTypingMs();
-            if (maxStep == 1) {
-                HuhuTalkClientSettings.setMaxTypingMs(v + 100);
-            } else {
-                HuhuTalkClientSettings.setMaxTypingMs(Math.max(100, v - 100));
-            }
-            return true;
-        }
-        // 动画：切屏动画（全局界面动画总开关）
-        if (hit(relX, ly, rectX, L.animRow[3], rectW, rowH())) {
-            HuhuTalkClientSettings.setUiAnimation(!HuhuTalkClientSettings.isUiAnimationEnabled());
-            return true;
-        }
-
-        // 配色：配色方案切换
-        if (hitButton(relX, ly, L.colorRow[0], rectW, "切换")) {
-            ThemeManager.cycleNext();
-            return true;
-        }
-        // 配色：手机壳
-        if (hitButton(relX, ly, L.colorRow[1], rectW, "选壳")) {
-            PhoneOverlay.pushPage(new PhoneCasePickerPage());
-            return true;
-        }
-
-        // 显示：屏幕比例
-        if (hitButton(relX, ly, L.dispRow[0], rectW, "切换")) {
-            cycleAspect();
-            return true;
-        }
-        // 显示：屏幕大小滑块（按下开始拖动）
-        if (hit(relX, ly, rectX, L.dispRow[1], rectW, rowH())) {
-            sizeDragging = true;
-            updateSizeFromRelX(relX, rectW);
-            return true;
-        }
-        // 显示：字体倍率 stepper（▲ 增大 / ▼ 减小，0.5~2.0 档位循环）
-        int fontStep = hitStepper(relX, ly, L.dispRow[2], rectW);
-        if (fontStep != 0) {
-            int idx = indexOfScaleStep(HuhuTalkClientSettings.getUiFontScale());
-            int next = (idx + (fontStep == 1 ? 1 : -1) + FONT_SCALE_STEPS.length) % FONT_SCALE_STEPS.length;
-            HuhuTalkClientSettings.setUiFontScale(FONT_SCALE_STEPS[next]);
-            return true;
-        }
-        // 显示：屏幕亮度滑块（按下开始拖动）
-        if (hit(relX, ly, rectX, L.dispRow[3], rectW, rowH())) {
-            brightnessDragging = true;
-            updateBrightnessFromRelX(relX, rectW);
-            return true;
-        }
-        // 显示：HuhuTalk 图标风格切换
-        if (hitButton(relX, ly, L.dispRow[4], rectW, "切换")) {
-            cycleIconStyle();
-            return true;
-        }
-        return false;
-    }
-
-    private static int indexOfScaleStep(float v) {
-        int best = 0;
-        float bestDist = Float.MAX_VALUE;
-        for (int i = 0; i < FONT_SCALE_STEPS.length; i++) {
-            float d = Math.abs(FONT_SCALE_STEPS[i] - v);
-            if (d < bestDist) {
-                bestDist = d;
-                best = i;
-            }
-        }
-        return best;
-    }
-
-    /** 命中 stepper 行竖排箭头：返回 1=▲增、2=▼减、0=未命中 */
-    private int hitStepper(double x, double y, int rowY, int rectW) {
-        Font font = Minecraft.getInstance().font;
-        int btn = contH(font);
-        int gap = UiFont.sh(2);
-        int right = UiFont.sh(10) + rectW - btn - UiFont.sh(10);
-        int topY = rowY + (rowH() - (btn * 2 + gap)) / 2;
-        if (hit(x, y, right, topY, btn, btn)) return 1;
-        if (hit(x, y, right, topY + btn + gap, btn, btn)) return 2;
-        return 0;
-    }
-
-    /** 命中单按钮行（切换/选壳）的按钮区域 */
-    private boolean hitButton(double x, double y, int rowY, int rectW, String btnText) {
-        Font font = Minecraft.getInstance().font;
-        int btnH = contH(font);
-        int bw = btnW(font, btnText);
-        int btnX = UiFont.sh(10) + rectW - bw - UiFont.sh(10);
-        int btnY = rowY + (rowH() - btnH) / 2;
-        return hit(x, y, btnX, btnY, bw, btnH);
-    }
-
-    @Override
-    public boolean mouseScrolled(double relX, double relY, double scrollDelta) {
-        Layout L = computeLayout();
-        int viewH = Math.max(0, PhoneOverlay.getPhoneHeight() - L.navH);
-        int maxScroll = Math.max(0, L.contentH + scrollPad() - viewH);
-        scrollOffset = Math.max(0, Math.min(scrollOffset - (int) (scrollDelta * 20), maxScroll));
-        return true;
     }
 }

@@ -214,10 +214,12 @@ public boolean onLongPress(double relX, double relY) {   // 返回 true = 已消
 | 方法 | 说明 |
 |---|---|
 | `List<T> items()` | 数据源 |
-| `int itemHeight()` | 行高（像素，> 0） |
+| `int itemHeight()` | **固定**行高（像素，> 0）。混排行高改覆盖 `itemHeight(int)` |
+| `int itemHeight(int index)` | 第 i 行的行高。默认转发到 `itemHeight()`。**混排行高覆盖它** |
 | `void renderItem(g, index, item, x, y, w, h, hovered)` | 画一行。**坐标是屏幕坐标**，直接画 |
 | `void onItemClick(int index, T item)` | 行被点击（按下即触发） |
 | `int separatorColor()` | 行分隔线颜色，alpha=0 则不画。默认 `0x22000000` |
+| `int separatorColor(int index)` | 第 i 行下方的分隔线色。默认转发。分组标题下想不画线就返回 `0` |
 | `boolean acceptsButton(int button)` | 哪些键算「点击行」。默认仅左键（右键在手机里是「返回」，不挡掉会顺带点开一行） |
 
 ### 现成能力
@@ -233,8 +235,93 @@ public boolean onLongPress(double relX, double relY) {   // 返回 true = 已消
 | `indexAt(localX, localY)` | **内容坐标点在哪一行（命中用）** |
 | `maxScroll()` / `scrollOffset()` / `setScrollOffset(int)` | 滚动状态 |
 | `itemCount()` / `totalHeight()` | 尺寸 |
+| `invalidateLayout()` | **声明行高变了**。行数变化会自动检测；行高随数据变（折叠分组）必须手动调 |
 
 `itemY` 与 `indexAt` **严格互逆**，是本类存在的意义。滚动之后依然点得准。
+
+> **可变行高怎么实现的**：各行的 `itemHeight(i)` 累成一份**前缀和**，`itemY` 读它、`indexAt` 对它二分。
+> 所以"画在一处、点在另一处"在混排行高下同样不可能。零高度的行会被二分自动跳过（点不到）。
+
+### 5.1 混排行高（分组标题 + 条目）
+
+```java
+@Override protected int itemHeight() { return 40; }            // 只作占位，内部走下面那个
+@Override protected int itemHeight(int i) {
+    return rows.get(i).isHeader() ? 18 : 40;
+}
+
+// 点击分组标题 → 折叠。⚠ 改完数据必须 invalidateLayout()
+@Override protected void onItemClick(int i, Row r) {
+    if (r.isHeader()) {
+        r.toggle();
+        invalidateLayout();
+        return;
+    }
+    PhoneOverlay.pushPage(new MaidInfoPage(r.stableId(), r.name()));
+}
+```
+
+---
+
+## 5.2 `PhoneGrid<T>`：多列网格
+
+`PhoneList` 是单列、行高可变的「列表」；`PhoneGrid` 是**列数固定、格子等大**的「网格」。
+两者是同一条纪律的两个形状，不是替代关系：
+
+| 形态 | 用哪个 | 例子 |
+|---|---|---|
+| 单列 / 行高可变 / 带分组 | `PhoneList` | 消息列表、联系人、设置条目 |
+| 多列 / 格子等大 | **`PhoneGrid`** | 手机壳方块（4 列）、传文件背包格（5 列）、图库缩略图（3 列） |
+
+不把列数做成 `PhoneList` 的参数，是因为两套命中数学不同：网格是**整除取余**（O(1)），
+列表是**前缀和二分**（可变行高）。
+
+### 子类实现
+
+| 方法 | 说明 |
+|---|---|
+| `List<T> items()` | 数据源，按行优先展开（第 i 格 = 第 `i / columns()` 行、第 `i % columns()` 列） |
+| `int columns()` | 列数，> 0 |
+| `int cellWidth()` / `int cellHeight()` | 格子尺寸，> 0 |
+| `int gapX()` / `int gapY()` | 列/行间距。默认 0 |
+| `int padLeft()` / `int padTop()` | 网格整体相对视口的缩进。默认 0 |
+| `void renderCell(g, index, item, x, y, w, h, hovered)` | 画一格。**坐标是屏幕坐标** |
+| `void onCellClick(int index, T item)` | 格子被点击（按下即触发） |
+| `boolean acceptsButton(int button)` | 默认仅左键 |
+
+### 现成能力
+
+| 方法 | 说明 |
+|---|---|
+| `setViewport(x, y, w, h)` | 视口（**内容坐标**） |
+| `render(g, originX, originY)` | 绘制可见格并裁剪 |
+| `mouseClicked(...)` / `mouseScrolled(delta)` / `mouseMoved(...)` | 命中 / 滚动 / 悬停 |
+| `cellX(int index)` / `cellY(int index)` | **第 i 格的内容坐标（渲染用）** |
+| `indexAt(localX, localY)` | **内容坐标点在哪一格（命中用）** |
+| `itemCount()` / `rowCount()` / `totalHeight()` / `maxScroll()` | 尺寸 |
+| `scrollOffset()` / `setScrollOffset(int)` / `scrollBy(delta)` / `invalidateLayout()` | 滚动状态 |
+
+> **落在间距里不算命中**：`indexAt` 在 `gapX/gapY` 区间返回 `-1`。
+> 否则"点空白也选中"会让多选网格（图库批量删）误触。
+
+---
+
+## 5.3 `PhoneLayout`：给**不继承 `PhonePage`** 的页面用
+
+`PhonePage.hit(...)` 是 `protected`，只有骨架子类用得到。这几类页面必须自绘、拿不到骨架：
+`ChatPage`（相机宿主，取景要透明，不能继承 `PhonePage`）、`MainPage`（桌面，无顶栏）、
+实现 `PhoneCameraHost` 的相机页。它们各自抄了一份 `hit` / `drawTopShadow`。
+
+| 方法 | 说明 |
+|---|---|
+| `hit(px, py, x, y, w, h)` | 矩形命中（半开区间）。**⚠ 参数顺序是「先点、后矩形」** |
+| `topShadow(g, x, y, w)` | 一条 2 层递减的细水平阴影，用于分区视觉分隔 |
+| `horizontalShadow(g, x, y, w, layers)` | 可调层数版 |
+
+> ⚠ **`PhoneLayout.hit` 与 `PhonePage.hit` 参数顺序不同**：
+> `PhonePage.hit(x, y, w, h, px, py)` 是「先矩形、后点」（它只是 `PhoneLayout.hit` 的转发壳）；
+> `PhoneLayout.hit(px, py, x, y, w, h)` 是「先点、后矩形」——与既有页面里三个私有副本
+> （`ChatPage` / `MaidInfoPage` / `SettingsPage`）的顺序一致，所以迁过去时调用点一个字都不用改。
 
 ---
 
@@ -290,6 +377,14 @@ PhoneImages.drawRegion(g, skin, x, y, 30, 30, 8, 8, 8, 8, 64, 64);
 | `drawCenteredIn(g, font, text, x, y, w, h, color, scale)` | 在矩形内水平+垂直居中 |
 | `drawLeftIn(g, font, text, x, y, w, h, padLeft, color, scale)` | 垂直居中、左对齐；**超出宽度自动截断补「…」** |
 | `truncate(font, text, maxWidth, scale)` | 单独要截断时用 |
+
+### 7.1 `FormattedCharSequence` 重载
+
+`draw` / `drawShaded` / `drawCenteredIn` / `width` 各有一个 `FormattedCharSequence` 重载。
+**什么时候必须用它**：emoji、`Component.literal(..).getVisualOrderText()`、已排版的富文本
+——它们都不是 `String`。换算与 `String` 版逐字节一致（`1/scale` 反算坐标）。
+
+> 在此之前 `ChatPage` 的气泡与 `PhoneOverlay` 的状态栏 / Dock 各抄了一份这个重载（两处私有副本）。
 
 ---
 
@@ -423,13 +518,36 @@ private void layoutRows() {
 
 ## 11. 和现有页面的关系
 
-**现有 12 个页面一行没改，继续照旧工作。**（唯一例外：`MainPage` 的桌面底色接到了主题上。）
+### 11.1 现行策略：**分批全量迁移**（已推翻上一轮的"按需顺手迁"）
 
-- 新页面（包括附属模组的页面）**一律用骨架**；
-- 现有页面**按需顺手迁**——下次因为功能原因本来就要动它时，顺手换成骨架，一次一个、可单独验收；
-- 不搞大爆炸式重构：那要一次性改动 10 个能跑的页面，回归风险与验收成本都不划算。
+上一轮的结论是「现有 12 个页面一行不改，按需顺手迁，不搞大爆炸式重构」。
+**作者已改主意**：硬编码页面的重复量太大（9 份 `drawScaledText`、8 份 `navH()` 且 4 种公式、
+5 份 `textH`、4 份 `truncate`、3 份 `hit`、7+ 处无 `try/finally` 的 `enableScissor` 配对），
+继续"顺手迁"意味着这套重复要再存在很久。现在按 **6 个批次**推进，每批独立编译、独立验收：
 
-短期内会存在「两套写法」，这是刻意的取舍。
+| 批次 | 内容 | 状态 |
+|---|---|---|
+| 0 | 扩公开 API：`PhoneText` 的 `FormattedCharSequence` 重载、`PhoneList` 可变行高、`PhoneGrid`、`PhoneLayout`、`PhonePage.bottomInset()`；**并把顶栏高度统一到内置页真实公式（17px）** | ✅ 完成 |
+| 1 | 删死代码 `MaidListPage` / `MaidSettingsPage`（−428 行）；`ComingSoonPage` / `PhoneCasePickerPage` 迁骨架；全工程 `UiShapes` → `PhoneShapes`（11 文件 ≈60 处） | ✅ 完成 |
+| 2 | `SettingsPage` → `PhonePage` + `PhoneRow` + 四种控件（单点收益最大） | ✅ 完成 |
+| 3 | `MessageListPage` / `ContactListPage` / `MaidInfoPage` 迁骨架 | 待办 |
+| 4 | `ManualPage`（保持对外 API 签名）/ `FileTransferPage` 迁骨架；`MainPage` 只换 helper | 待办 |
+| 5 | `ChatPage` **只换 helper**（它是相机宿主，不继承 `PhonePage`） | 待办 |
+
+### 11.2 哪些页面**不**继承 `PhonePage`（不是漏了，是刻意的）
+
+| 页面 | 为什么不能继承 | 怎么办 |
+|---|---|---|
+| `ChatPage` | ① `PhonePage.render` 是 `final` 且**必定**用 `pageBackground()` 铺满内容区，与相机取景需要的**透明**冲突；② `PhonePage` 只认**一个** `scrollOffset`，而聊天页有**三套**独立滚动（消息 / 表情 / 图片画廊）；③ 底栏是输入框 + 5 图标扩展栏 + 多个浮层，`contentTop()` 那一刀切不进来 | 保持 `implements PhoneCameraHost`，只把 `drawScaledText` / `drawTopShadow` / `hit` / 内联截断换成 `PhoneText` / `PhoneLayout` / `PhoneText.truncate` |
+| `MainPage` | 桌面启动器：无顶栏、无滚动、有自己的槽位命中与启动动画 | 只换 helper |
+| `PhoneCameraPage` | 相机取景必须自绘，骨架会盖死取景框（见 §12 与 `phone-camera-api.md`） | 只换 helper |
+
+### 11.3 配色：统一走主题色
+
+迁移后页面底色从硬编码的 `#F5EBF2` / `#F5EBEE` / `#F0E4EA` 变成主题的
+`pageBg`(`#F2E8EF`) / `pageBgList`(`#EDE1E7`)，**有轻微色差，这是接受的**——
+这样以后加配色方案时这些页面会一起变，不会出现"两台不同的手机"。
+顶栏仍显式返回 `PhonePage.BRAND_TOPBAR_BG`，与聊天/消息这些页面保持一致。
 
 ---
 
@@ -439,11 +557,11 @@ private void layoutRows() {
 |---|---|
 | **圆角图片** | `PhoneShapes`（`api/phone/ui`，旧名 `com.huhutalk.phone.UiShapes` 已 `@Deprecated`）只能填纯色圆角矩形；圆角贴图要遮罩或自定义着色器。头像目前是方块 |
 | **滚动条** | 已决定搁置。只提供 `scrollOffset` / `maxScroll()`，需要时自己画 |
-| **控件放进 `PhoneList` 行内** | 需自己接线：列表行的 y 随滚动变化，行内控件要每帧按行位置 `bounds(...)`；`PhoneRow` 是为页面级行设计的 |
+| **控件放进 `PhoneList` / `PhoneGrid` 行内** | 需自己接线：行的 y 随滚动变化，行内控件要每帧按行位置 `bounds(...)`；`PhoneRow` 是为页面级行设计的 |
 | **⚠ 滚动页里的控件坐标** | `PhoneWidget.render` 只在 `bounds` 的 y 上加**内容区原点、不含滚动偏移**。所以滚动页里必须 `bounds(x, scrollY(logical), ...)`（**视图坐标**），命中则传未滚动的 `localY` —— 依据 `scrollY(logicalY(localY)) == localY`。用逻辑坐标会"渲染钉在屏幕上、命中却还对得上"（实测踩过）。`PhoneRow` 同理：`row.layout(font, 0, scrollY(y), w)` + `row.mousePressed(localX, localY, btn)` |
-| **多列网格列表** | `PhoneList` 只有单列。`PhoneCasePickerPage` 那种网格暂不支持 |
-| **吸顶分组头** | 没有 |
+| **吸顶分组头** | 没有。`PhoneList` 的可变行高能画分组标题行，但它会跟着滚走 |
 | **文本输入框** | 页面内没有可用的输入控件。需要打字时既有做法是借用真 `Screen`（见 `PhoneInputScreen`，输入法可用） |
+| **网格的横向滚动** | `PhoneGrid` 只纵向滚（与 `PhoneList` 一致） |
 
 ---
 
@@ -452,11 +570,13 @@ private void layoutRows() {
 | 文件 | 说明 |
 |---|---|
 | `src/main/java/com/huhutalk/api/phone/ui/PhonePage.java` | 页面骨架 |
-| `src/main/java/com/huhutalk/api/phone/ui/PhoneList.java` | 虚拟化行列表 |
+| `src/main/java/com/huhutalk/api/phone/ui/PhoneList.java` | 虚拟化行列表（固定/可变行高） |
+| `src/main/java/com/huhutalk/api/phone/ui/PhoneGrid.java` | 虚拟化多列网格 |
+| `src/main/java/com/huhutalk/api/phone/ui/PhoneLayout.java` | 给不继承骨架的页面用的命中 / 阴影小工具 |
 | `src/main/java/com/huhutalk/api/phone/ui/PhoneRow.java` | 标签 + 控件行 |
 | `src/main/java/com/huhutalk/api/phone/ui/PhoneSwitch.java` 等 4 个 | 开关 / stepper / 滑块 / 下拉 |
 | `src/main/java/com/huhutalk/api/phone/ui/PhoneImages.java` | 画图 |
-| `src/main/java/com/huhutalk/api/phone/ui/PhoneText.java` | 画字 |
+| `src/main/java/com/huhutalk/api/phone/ui/PhoneText.java` | 画字（含 `FormattedCharSequence` 重载） |
 | `src/main/java/com/huhutalk/client/debug/PhoneAppSelfTest.java` | 6 个自检 App 与示例页（默认关闭） |
 | [phone-app-api.md](phone-app-api.md) | App 注册 API |
 | [phone-ui-toolkit-handoff.md](phone-ui-toolkit-handoff.md) | **工作日志与交接**（先读这个） |

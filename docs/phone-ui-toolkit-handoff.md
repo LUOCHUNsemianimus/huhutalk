@@ -71,12 +71,114 @@
 **尚未处理**：`PhoneCameraPage` 还直接用了非公开的 `UiFont`（`sh` / `sc`）。
 `PhoneText.px(int)` 与 `PhoneText.scale(float)` 是它的公开等价物，可以之后一并迁掉。
 
+### 1.6 本轮（迁移现有硬编码页面）· 批次 0：补齐公开 API
+
+**背景**：作者决定推翻上一轮的「现有页面按需顺手迁」策略，改为**分批全量迁移**。
+理由是把重复量量化之后太吓人：9 份 `drawScaledText`、8 份 `navH()`（**4 种不同公式**）、
+5 份 `textH`、4 份 `truncate`、3 份 `hit`、7+ 处**没有 `try/finally`** 的 `enableScissor` 配对、
+421 处裸 `UiFont.sh/sc/uiScale` 调用。
+
+动手前先补齐骨架覆盖不到的部分（**全部是纯新增，既有页面零改动**）：
+
+| 新增 | 内容 | 为什么必须有 |
+|---|---|---|
+| `PhoneText` +4 个重载 | `draw` / `drawShaded` / `drawCenteredIn` / `width` 的 `FormattedCharSequence` 版 | emoji 与 `Component.getVisualOrderText()` 拿到的不是 `String`；`ChatPage` 与 `PhoneOverlay` 各抄了一份 |
+| `PhoneList.itemHeight(int)` | 第 i 行的行高（默认转发到 `itemHeight()`），内部改走**行高前缀和 + 二分** | `ContactListPage` 是「分组标题 18px + 条目 N px」的混排行高。`itemHeight()` 由 `abstract` 放宽为带默认实现（源码/二进制都向后兼容） |
+| `PhoneList.invalidateLayout()` | 声明行高已变，前缀和下次查询时重建 | 折叠/展开分组会改行高，不声明的话命中算的还是旧值 |
+| `PhoneList.separatorColor(int)` | 按行决定分隔线色 | 分组标题下面要**不画**线 |
+| `PhoneGrid<T>`（新类） | 列数固定、格子等大的虚拟化网格 | `PhoneCasePickerPage`(4 列) / `FileTransferPage`(5 列) / 图库(3 列)。**没有**做成 `PhoneList.columns(int)`：网格命中是整除取余 O(1)，列表是前缀和二分，两套数学 |
+| `PhoneLayout`（新类） | `hit(px,py,x,y,w,h)` / `topShadow` / `horizontalShadow` | `PhonePage.hit` 是 `protected`，`ChatPage`（相机宿主）/ `MainPage`（桌面）/ 相机页都用不到，各自抄了一份 |
+| `PhonePage.bottomInset()` | 内容区底部预留高度，只影响 `maxScroll()` | 底部 Dock 是**悬浮**的（`getBottomNavHeight()` 恒为 0），既有页面各自写 `maxScroll + 0 + sh(30)` 兜遮挡；收成一处 |
+| `PhonePage.hit` | 改为转发 `PhoneLayout.hit` | 消除最后一份矩形命中的重复 |
+
+**顺手修掉的一个真 bug**：`PhoneList.render` 里是 `int y = top + itemY(i)`，而
+`top = originY + viewY`、`itemY(i)` 里**又加了一次 `viewY`** —— `viewY != 0` 时整列行会下移
+一个 `viewY`。既有用法都是 `setViewport(0, 0, ..)` 所以一直没暴露。已改为
+`originY + itemY(i)`（`itemY` 给的是内容坐标，只需再加内容区屏幕原点）。
+
+**⚠ `PhoneLayout.hit` 与 `PhonePage.hit` 参数顺序不同**（前者「先点后矩形」、后者「先矩形后点」）：
+前者刻意对齐 `ChatPage` / `MaidInfoPage` / `SettingsPage` 三个现存私有副本的顺序，
+这样迁过去时调用点一个字都不用改。
+
+**编译状态**：批次 0 已通过 IDE 全项目编译（`build_project` → `isSuccess: true, problems: []`）。
+后续批次见 [phone-page-skeleton.md](phone-page-skeleton.md) §11.1 的进度表。
+
+### 1.7 批次 0 的追加项：顶栏高度统一（**一个打破既有观感的改动**）
+
+动手迁页面时发现：`PhonePage` 的顶栏高度公式 `max(height * 0.08, lineHeight + 4)`（默认 **≈25px**）
+抄的是 `MaidListPage` / `MaidSettingsPage` —— 而那正是本轮要删掉的<b>两个死页面</b>。
+活着的内置页面用的都是另一套：`lineHeight * UiFont.sc(1.0f) + UiFont.sh(8)`（默认 **17px**）。
+
+| 页面 | 顶栏公式 | 高度 |
+|---|---|---|
+| 聊天 / 消息 / 联系人 / 设置 / 女仆信息 / 手机壳选择 | `lineHeight*sc(1.0f) + sh(8)` | 17px |
+| `MaidListPage` / `MaidSettingsPage`（**已删**） | `h * 0.08` | 27px ← 骨架抄的来源 |
+| `PhonePage`（改动前） | `max(h*0.08, lineHeight+4)` | ≈25px |
+
+**作者拍板统一到 17px**（内置页现高）。已迁移到骨架的 4 个页面
+（`SettingsAppPage` / `VisionModelSettingsPage` / `GalleryPage` / `GalleryViewerPage`）
+顶栏因此变矮 8px、内容整体上移 —— 因为它们全都用 `contentTop()` / `topBarHeight()` 动态定位
+（`GalleryDeleteButton.hit(...)` 是把 `topBarHeight()` 当参数传进去的），
+**没有任何一页需要校正布局常量**。
+
+顺带修了一个同路径上的真 bug：`renderTopBar` 算标题垂直居中用的是 `font.lineHeight`（1 倍行高），
+字体倍率调到 2.0 时顶栏变高而文字仍按 9px 居中 → 标题明显偏下。
+现已改用新增的 `PhonePage.topBarLineHeight()`（随全局字体倍率），
+并且返回键与标题的绘制也换成 `PhoneText.draw`（此前用 `drawString`，不受字体倍率影响）。
+
+### 1.8 批次 1：删死代码 + 两个页面迁骨架 + `UiShapes` 全量改名
+
+| 项 | 变化 |
+|---|---|
+| `MaidListPage.java`（176 行）、`MaidSettingsPage.java`（252 行） | **删除**。全工程（含两个附属模组）无任何 `new`，顶栏还是老的深灰 `#333333` + 1 倍字号 |
+| `ComingSoonPage.java` | 22 行裸 `IPhonePage` → `extends PhonePage`。旧实现**连页面底色都没画**（桌面底色直接透过来）、文案钉在硬编码 `(110, 160)`、命中框是 `220×340` 魔数。现在底色/顶栏/返回键由骨架给，文案用 `PhoneText.drawCenteredIn` 真正居中并跟随字体倍率 |
+| `PhoneCasePickerPage.java` | 189 → 约 200 行但**删掉了全部样板**：手绘顶栏、手写 `navH()`、手写 `drawScaledText`、手写 scissor 配对、以及**渲染与命中各算一遍**的网格坐标。网格改用新的 `PhoneGrid`。⚠ 滚轮速度从 ≈40px/单位变成统一的 10px/单位（与 `PhoneList` 一致）<br>**保留了「点已选中的方块 → 恢复默认」这条既有交互** |
+| `UiShapes` → `PhoneShapes` | 11 个文件、约 60 处调用点全部改名（`PhoneOverlay` / `PhoneGroupNameInputScreen` / `SettingsPage` / `ManualPage` / `MainPage` / `MaidInfoPage` / `GalleryPage` / `GalleryDeleteButton` / `FileTransferPage` / `ChatPage` / `PhoneCaseRenderer`）。**主模组内已无 `UiShapes` 调用点**，约 30 条弃用告警清零 |
+| `phone/UiShapes.java` | **保留**（未删除）：它是 `public` 类，第三方附属模组可能引用。javadoc 已改为「主模组已无调用点，仅为兼容保留」 |
+
+**编译状态**：批次 1 已通过 IDE 全项目编译（`isSuccess: true, problems: []`）。
+
+### 1.9 公开 API 的默认行为变化汇总（附属模组回归检查用）
+
+| 变化 | 影响 |
+|---|---|
+| `PhonePage.topBarHeight()`：≈25px → 17px | 凡是继承 `PhonePage` 的页面（含**附属模组的页面**）内容区整体上移 8px |
+| `PhonePage.renderTopBar` 用 `PhoneText.draw` + `topBarLineHeight()` | 标题与返回键现在**跟随全局字体倍率**缩放（此前是固定 1 倍） |
+| `PhoneList.itemHeight()`：`abstract` → 带默认实现 | 向后兼容；只覆盖 `itemHeight()` 的既有子类行为不变 |
+| `PhoneList.render` 修 `viewY` 重复计数 | `viewY != 0` 的调用方才看得出差别；`setViewport(0,0,..)` 行为不变 |
+
+### 1.10 批次 2：`SettingsPage` 改用骨架 + 控件（**724 → 约 570 行，净删约 150 行样板**）
+
+旧实现 724 行里真正的设置内容只有 16 行，其余是样板：手绘顶栏与 SOS 胶囊、
+`navH()`/`rowH()`/`textH`/`contH`/`btnW`/`truncateUi`/`drawScaledText` 七个私有工具、
+手写开关（胶囊 + 圆点）、手写滑块（轨道 + 把手）、手写 stepper（▲▼ + 命中）、
+手写 scissor 配对，以及**渲染与命中各算一遍**每个行坐标
+（`Layout` 里 5 个分组每行的 y，在 `mouseClicked` 里用 `hit(relX, ly, rectX, L.xxxRow[i], rectW, rowH())` 再写一遍）。
+
+现在：`PhoneRow` 负责「标签 + 右侧控件」的布局与命中，`PhoneSwitch` / `PhoneStepper` / `PhoneSlider`
+负责三种控件，页面里只剩一个 `CapsuleButton`（「切换 / 选壳」小胶囊，约 45 行）。
+**两个 `dragging` 布尔量消失**——谁在被拖动由 `PhoneRow` 代管，落盘时机由 `PhoneSlider.onCommit` 承担。
+
+**刻意接受的差异**（实机验收时重点看这几条）：
+
+| 项 | 旧 | 新 |
+|---|---|---|
+| 页面底色 | 硬编码 `#F0E4EA` | 主题 `pageBgList` `#EDE1E7` |
+| 分组标题色 | 硬编码 `#555555` | 主题 `textMuted` `#8A7C82` |
+| 行高 | 固定 `sh(24)` | `PhoneRow` 按「文字高 + 控件高 + 留白」自动算（约 19~22px） |
+| 每字耗时 / 单句上限 | 无限 `+50 / -50` | **离散档位** 50ms / 100ms 一档（上限 3000 / 10000ms），默认值 500 / 2400 都落在网格上 |
+| 内容裁剪下界 | 裁到「手机底 − 导航高 − sh(4)」 | 只裁到手机底（`bottomInset()` 改为预留滚动余量，与消息/联系人页一致） |
+
+**编译状态**：批次 2 已通过 IDE 全项目编译与告警检查（`problems: []`）。
+
 ---
 
 ## 2. 开工前必读：四条纪律
 
 1. **客户端 only**。整套 API 依赖 `IPhonePage`（客户端类型）。注册走 `Dist.CLIENT` 的入口或 `PhoneAppRegisterEvent`。
-2. **不动内置页面**。现有 12 个页面照旧工作。新 App 一律另开新页面；内置页面只在"因为功能原因本来就要动它"时顺手迁到骨架，**一次一个、可单独验收**。
+2. ~~**不动内置页面**~~ → **已改为「分批全量迁移」**。原有 12 个页面不再"按需顺手迁"，而是按
+   [phone-page-skeleton.md](phone-page-skeleton.md) §11.1 的 6 个批次推平；每批独立编译、独立验收。
+   **但 `ChatPage` 与 `MainPage` 不继承 `PhonePage`**（原因见该文档 §11.2），它们只换 helper。
 3. **色板是默认值，不是强制**。大多数页面不覆盖 `colors()` 就自动跟着主题走；**自带视觉风格的 App（例如深色底的内容页）应当覆盖 `colors()` / `pageBackground()`，或干脆用自己的品牌色**——不要把色板当成必须遵守的规范。
 4. **我们是第一作者，可以随手改公共方法**（作者原话）。发现接口别扭就直接加/减/改，不用为兼容性背包袱；改完更新本文档即可。
 
@@ -89,7 +191,10 @@
 | 往桌面加一个 App | `PhoneApp.builder(id, 名称).color(..).icon(..)/.center(..).page(MyPage::new).build()` + `PhoneAppRegistry.register(...)` 或订阅 `PhoneAppRegisterEvent` |
 | 写一个页面 | `extends PhonePage`，实现 `title()` + `renderContent(...)` + `onContentClick(...)` |
 | 页面要滚动 | 重写 `contentHeight()`，渲染用 `scrollY(logical)`、命中用 `logicalY(local)` |
-| 行式列表 | `PhoneList<T>`：`items()` / `itemHeight()` / `renderItem(...)` / `onItemClick(...)` |
+| 行式列表 | `PhoneList<T>`：`items()` / `itemHeight()` / `renderItem(...)` / `onItemClick(...)`；混排行高覆盖 `itemHeight(int)` + 改完调 `invalidateLayout()` |
+| 多列网格 | `PhoneGrid<T>`：`items()` / `columns()` / `cellWidth()` / `cellHeight()` / `renderCell(...)` / `onCellClick(...)` |
+| 矩形命中 / 细阴影 | `PhoneLayout.hit(px, py, x, y, w, h)` / `PhoneLayout.topShadow(...)`（**不继承 `PhonePage` 的页面**也能用） |
+| 给底部悬浮 Dock 留白 | `PhonePage.bottomInset()`（只影响 `maxScroll()`，默认 0 = 不留白） |
 | 画头像 / 照片 | `PhoneImages.drawCover(...)`；源纹理取自 `MaidAvatarManager` 或 `PhotoLibrary` |
 | 画圆角矩形 / 胶囊 | `PhoneShapes.fillRoundedRect(...)`（**不要**再用 `com.huhutalk.phone.UiShapes`，它已 `@Deprecated`） |
 | 画文字 | `PhoneText.draw / drawCenteredIn / drawLeftIn`（都跟随全局字体倍率） |
@@ -224,9 +329,9 @@ public final class GalleryPage extends PhonePage {
 |---|---|
 | **圆角图片** | `UiShapes` 只能填纯色圆角矩形，圆角贴图需要遮罩或着色器，**没做**。头像目前是方块。 |
 | **滚动条** | 作者决定搁置。只提供 `scrollOffset` / `maxScroll()`，需要时自己画。 |
-| **控件放进 `PhoneList` 的行里** | **需要自己接线**：列表行的 y 随滚动变化，行内控件必须每帧按行位置 `bounds(...)`。目前 `PhoneRow` 是为页面级行设计的。 |
-| **多列网格列表** | `PhoneList` 只有单列。`PhoneCasePickerPage` 那种网格不支持。 |
-| **吸顶分组头** | 没有。 |
+| **控件放进 `PhoneList` / `PhoneGrid` 的行里** | **需要自己接线**：行的 y 随滚动变化，行内控件必须每帧按行位置 `bounds(...)`。目前 `PhoneRow` 是为页面级行设计的。 |
+| **吸顶分组头** | 没有。`PhoneList` 的可变行高能画分组标题行，但它会跟着滚走。 |
+| **网格横向滚动** | `PhoneGrid` 只纵向滚（与 `PhoneList` 一致）。 |
 | **App 启动动画** | ✅ **已开放**（本轮）。`PhoneApp.Builder.launchAnimation(boolean)`，默认开启；机制是 `PhoneOverlay.launchDesktopApp(page, slot)` —— 与「进入 HuhuTalk 内容区（底部导航）」彻底解耦（不再置 `inChatApp`）。内置 App 仍走各自的既有通路（HuhuTalk 用 `openChatApp()`，手册/设置用 `pushPage`），不受影响。详见 [phone-app-api.md](phone-app-api.md) §5.1 |
 | **未读红点 / 隐藏 / 运行时注销** | 均未开放。 |
 
@@ -342,6 +447,16 @@ public final class GalleryPage extends PhonePage {
 | `MainPage.java` | 桌面底色改为 `ThemeManager.getActive().pageBg()` | 底色从 `#F0E4EA` 变为 `#F2E8EF`；切主题时会一起变 |
 | `ColorScheme.java` | +7 字段；`pageBg` 值改为 `#F2E8EF` | **`PhoneCasePickerPage` 底色跟着变**（唯一读 `pageBg` 的既有页面） |
 | 其余 11 个页面 | **未改动** | — |
+
+### 9.2 批次 0：公开件本身的变化（回归检查用）
+
+| 文件 | 改动 | 回归注意 |
+|---|---|---|
+| `PhoneText.java` | **+4 个 `FormattedCharSequence` 重载**（`draw` / `drawShaded` / `drawCenteredIn` / `width`） | 纯新增。既有 `String` 重载一字未改 |
+| `PhoneLayout.java` | **新增**（`hit` / `topShadow` / `horizontalShadow`） | 纯新增，还没有调用点 |
+| `PhoneGrid.java` | **新增**（多列虚拟化网格） | 纯新增，还没有调用点 |
+| `PhoneList.java` | ① `itemHeight()` 由 `abstract` 放宽为**带默认实现**（返回 0）② **+`itemHeight(int)`** ③ **+`invalidateLayout()`** ④ **+`separatorColor(int)`** ⑤ 内部改走**行高前缀和 + 二分** ⑥ **修 `render` 的 `viewY` 重复计数 bug** | 既有子类（`PhoneAppSelfTest` 里的自检页）只覆盖 `itemHeight()`，行为不变。**⑥ 是行为修正**：`viewY != 0` 时原先整列行会下移 `viewY`；既有用法都是 `setViewport(0, 0, ..)`，所以实机看不出差别 |
+| `PhonePage.java` | ① **+`bottomInset()`**（默认 0，扣在 `contentViewHeight()` 上）② `contentViewHeight()` 现在减去 `bottomInset()` ③ `hit()` 改为转发 `PhoneLayout.hit` | ①默认 0 → 已在用的 4 个骨架页（设置 App / 识图模型 / 图库 / 图库阅览）行为**逐字节不变**；③参数顺序未变 |
 
 ### 9.1 排布改为「槽位」（本轮新增，含对外语义变更）
 

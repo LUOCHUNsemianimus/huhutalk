@@ -12,8 +12,9 @@ import net.minecraft.client.renderer.texture.TextureAtlasSprite;
  *         {@code PhoneSlider} / {@code PhoneTextInput}）都在用它，但"只用 {@code api/phone/ui}
  *         写页面"这条标准在圆角矩形上做不到 —— 必须去 import 一个非公开类。
  *         <p>
- *         本壳保留是为了让既有页面<b>一行都不用改</b>；新代码请直接用 {@link PhoneShapes}，
- *         老页面可以之后再慢慢迁（迁移是纯改名：{@code UiShapes} → {@code PhoneShapes}）。
+ *         <b>主模组内已无任何调用点</b>（批次 1 把 11 个文件、约 60 处全部改名为
+ *         {@link PhoneShapes}）。本壳保留<b>仅为不破坏可能引用它的第三方附属模组</b>；
+ *         新代码一律用 {@link PhoneShapes}。
  */
 @Deprecated
 public final class UiShapes {

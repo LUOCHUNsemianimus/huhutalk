@@ -19,7 +19,7 @@ import com.huhutalk.network.C2SRequestMaidStatusPacket;
 import com.huhutalk.phone.PhoneInputScreen;
 import com.huhutalk.phone.PhoneOverlay;
 import com.huhutalk.phone.UiFont;
-import com.huhutalk.phone.UiShapes;
+import com.huhutalk.api.phone.ui.PhoneShapes;
 import com.huhutalk.phone.voice.VoiceInput;
 import com.huhutalk.util.MessageSplitter;
 import com.mojang.blaze3d.vertex.PoseStack;
@@ -1137,7 +1137,7 @@ public class ChatPage implements PhoneCameraHost {
         int iBottom = inputBottom(baseY);
         int iW = inputRight(baseX) - inputLeft(baseX);
         int iH = iBottom - iTop;
-        UiShapes.fillRoundedRect(g, inputLeft(baseX), iTop, iW, iH, iH / 2, 0xFFFFF5F8);
+        PhoneShapes.fillRoundedRect(g, inputLeft(baseX), iTop, iW, iH, iH / 2, 0xFFFFF5F8);
 
         int textX = inputLeft(baseX) + PAD_X;
         int lineH = lh() + 1;
@@ -1180,7 +1180,7 @@ public class ChatPage implements PhoneCameraHost {
         int sH = sendH();
         int sX = sendX(baseX);
         int sY = sendY(baseY);
-        UiShapes.fillRoundedRect(g, sX, sY, sW, sH, sH / 2, 0xFFB1CEDE);
+        PhoneShapes.fillRoundedRect(g, sX, sY, sW, sH, sH / 2, 0xFFB1CEDE);
         String sendLabel = "发送";
         drawScaledText(g, font, sendLabel,
                 sX + (sW - font.width(sendLabel) * UiFont.sc(1.0f)) / 2,
@@ -1195,7 +1195,7 @@ public class ChatPage implements PhoneCameraHost {
         int btnR = btnSize / 2;
         for (int i = 0; i < iconCount; i++) {
             int cx = baseX + i * iconSlotW + iconSlotW / 2;
-            UiShapes.fillRoundedRect(g, cx - btnSize / 2, extCenterY - btnSize / 2, btnSize, btnSize, btnR, 0xFFFFF5F8);
+            PhoneShapes.fillRoundedRect(g, cx - btnSize / 2, extCenterY - btnSize / 2, btnSize, btnSize, btnR, 0xFFFFF5F8);
             String icon = BOTTOM_ICONS[i];
             // 去掉默认字体阴影，避免 emoji 图标发糊
             drawScaledText(g, font, icon, cx - font.width(icon) * UiFont.sc(1.0f) / 2,
@@ -1203,13 +1203,13 @@ public class ChatPage implements PhoneCameraHost {
             // 图片栏（🖼️，index 2）有选中图时，图标右上角加一个小方形粉点（#de6f8d）示意有选中
             if (i == 2 && selectedImageKey != null) {
                 int dot = UiFont.sh(5);
-                UiShapes.fillRoundedRect(g, cx + btnSize / 2 - dot - UiFont.sh(1),
+                PhoneShapes.fillRoundedRect(g, cx + btnSize / 2 - dot - UiFont.sh(1),
                         extCenterY - btnSize / 2 + UiFont.sh(1), dot, dot, 1, 0xFFDE6F8D);
             }
             // 附加栏（第5个"+"，index 4）有待随消息发送的物品时同样标粉点
             if (i == 4 && hasPendingTransfers()) {
                 int dot = UiFont.sh(5);
-                UiShapes.fillRoundedRect(g, cx + btnSize / 2 - dot - UiFont.sh(1),
+                PhoneShapes.fillRoundedRect(g, cx + btnSize / 2 - dot - UiFont.sh(1),
                         extCenterY - btnSize / 2 + UiFont.sh(1), dot, dot, 1, 0xFFDE6F8D);
             }
         }
@@ -1303,7 +1303,7 @@ public class ChatPage implements PhoneCameraHost {
         if (isPlayer) {
             int bubbleRight = baseX + phoneW - AVATAR - MARGIN;
             int bubbleLeft = bubbleRight - bubbleW;
-            UiShapes.fillRoundedRect(g, bubbleLeft, yTop, bubbleW, bubbleH, radius, bgColor);
+            PhoneShapes.fillRoundedRect(g, bubbleLeft, yTop, bubbleW, bubbleH, radius, bgColor);
             int ty = yTop + UiFont.sh(2);
             for (FormattedCharSequence line : lines) {
                 drawScaledText(g, font, line, bubbleLeft + UiFont.sh(4), ty, textColor, UiFont.sc(1.0f));
@@ -1317,7 +1317,7 @@ public class ChatPage implements PhoneCameraHost {
             }
         } else {
             int bubbleLeft = baseX + AVATAR + MARGIN;
-            UiShapes.fillRoundedRect(g, bubbleLeft, yTop, bubbleW, bubbleH, radius, bgColor);
+            PhoneShapes.fillRoundedRect(g, bubbleLeft, yTop, bubbleW, bubbleH, radius, bgColor);
             int ty = yTop + UiFont.sh(2);
             for (FormattedCharSequence line : lines) {
                 drawScaledText(g, font, line, bubbleLeft + UiFont.sh(4), ty, textColor, UiFont.sc(1.0f));
@@ -1478,7 +1478,7 @@ public class ChatPage implements PhoneCameraHost {
         // 已使用的特殊发送换一个底色（墨绿），与普通待领取文件气泡（蓝灰）一眼可辨；
         // 玩家侧用与玩家文字/图片气泡同一个亮蓝，方向一眼可辨
         int bubbleColor = isPlayer ? 0xFF5294BF : (payload.used ? 0xFF4E6B5A : 0xFF525A6E);
-        UiShapes.fillRoundedRect(g, bubbleLeft, yTop, bubbleW, bubbleH, radius, bubbleColor);
+        PhoneShapes.fillRoundedRect(g, bubbleLeft, yTop, bubbleW, bubbleH, radius, bubbleColor);
 
         // 第一行：预览图标（最多 shown 个）
         int iconCenterY = yTop + 6 + ib / 2;
@@ -1486,7 +1486,7 @@ public class ChatPage implements PhoneCameraHost {
         for (int i = 0; i < shown; i++) {
             ItemStack st = previewToStack(previews.get(i));
             // 图标底色框
-            UiShapes.fillRoundedRect(g, cx - ib / 2 - 1, iconCenterY - ib / 2 - 1,
+            PhoneShapes.fillRoundedRect(g, cx - ib / 2 - 1, iconCenterY - ib / 2 - 1,
                     ib + 2, ib + 2, 4, 0x33000000);
             drawItemIcon(g, st, cx, iconCenterY);
             // 每个物品的数量小字（右上角）
@@ -1677,7 +1677,7 @@ public class ChatPage implements PhoneCameraHost {
             int row = i / cols;
             int x = startX + col * (tileS + gap);
             int y = startY + row * (tileS + labelH + UiFont.sh(2));
-            UiShapes.fillRoundedRect(g, x, y, tileS, tileS, Math.max(3, tileS / 5), 0xFFFFFFFF);
+            PhoneShapes.fillRoundedRect(g, x, y, tileS, tileS, Math.max(3, tileS / 5), 0xFFFFFFFF);
             String icon = EXTRA_TOOLS[i][0];
             float ts = UiFont.sc(1.5f);
             drawScaledText(g, font, icon,
@@ -1736,7 +1736,7 @@ public class ChatPage implements PhoneCameraHost {
         int cy = (pTop + pBottom) / 2;
         // 录音中高亮为更深的强调色
         int color = voiceActive ? 0xFFC2605A : 0xFFDE7E7E;
-        UiShapes.fillRoundedRect(g, cx - d / 2, cy - d / 2, d, d, d / 2, color);
+        PhoneShapes.fillRoundedRect(g, cx - d / 2, cy - d / 2, d, d, d / 2, color);
         String label = voiceActive ? "松开发送" : "按住说话";
         float ts = UiFont.sc(0.9f);
         drawScaledText(g, font, label, cx - font.width(label) * ts / 2f,
@@ -1955,7 +1955,7 @@ public class ChatPage implements PhoneCameraHost {
             if (tex != null) {
                 int tx = baseX + thumbX;
                 int ty = baseY + thumbY;
-                UiShapes.fillRoundedRect(g, tx, ty, thumbSize, thumbSize, UiFont.sh(3), 0xCCFFFFFF);
+                PhoneShapes.fillRoundedRect(g, tx, ty, thumbSize, thumbSize, UiFont.sh(3), 0xCCFFFFFF);
                 g.blit(tex, tx, ty, thumbSize, thumbSize, 0.0f, 0.0f, d[0], d[1], d[0], d[1]);
             }
         }
@@ -1967,9 +1967,9 @@ public class ChatPage implements PhoneCameraHost {
         int sx = baseX + shutterX;
         int sy = baseY + shutterY;
         int ring = Math.max(2, shutterD / 10);
-        UiShapes.fillRoundedRect(g, sx, sy, shutterD, shutterD, shutterD / 2, 0xFFFFFFFF);
+        PhoneShapes.fillRoundedRect(g, sx, sy, shutterD, shutterD, shutterD / 2, 0xFFFFFFFF);
         int inner = shutterD - ring * 2;
-        UiShapes.fillRoundedRect(g, sx + ring, sy + ring, inner, inner, inner / 2, 0xFFDE7E7E);
+        PhoneShapes.fillRoundedRect(g, sx + ring, sy + ring, inner, inner, inner / 2, 0xFFDE7E7E);
 
         String key = cameraKeyHint(true);
         int keyW = Math.max(1, font.width(key));
@@ -2026,7 +2026,7 @@ public class ChatPage implements PhoneCameraHost {
     /** 画一颗动作胶囊：底色 + 居中文字；文字字号自适应胶囊宽度（键名可能很长）。 */
     private void drawActionPill(GuiGraphics g, Font font, int x, int y, int w, int h,
                                 int bgColor, int textColor, String label) {
-        UiShapes.fillRoundedRect(g, x, y, w, h, h / 2, bgColor);
+        PhoneShapes.fillRoundedRect(g, x, y, w, h, h / 2, bgColor);
         float ts = Math.min(UiFont.sc(1.0f), (w - UiFont.sh(6)) / Math.max(1f, (float) font.width(label)));
         ts = Math.max(0.25f, ts);
         float tw = font.width(label) * ts;
@@ -2215,7 +2215,7 @@ public class ChatPage implements PhoneCameraHost {
             // 选中描边
             boolean selected = selectedImageKey != null && selectedImageKey.equals(key);
             int border = selected ? 0xFFDE7E7E : 0xFFFFFFFF;
-            UiShapes.fillRoundedRect(g, x, itemY, itemSize, itemSize, UiFont.sh(4), border);
+            PhoneShapes.fillRoundedRect(g, x, itemY, itemSize, itemSize, UiFont.sh(4), border);
             ResourceLocation tex = PhotoLibrary.getOrLoadTexture(key);
             if (tex != null) {
                 int[] d = PhotoLibrary.getTextureSize(key);
@@ -2509,7 +2509,7 @@ public class ChatPage implements PhoneCameraHost {
             if (y + p[1] < pTop || y > pBottom) {
                 continue;
             }
-            UiShapes.fillRoundedRect(g, x, y, p[1], p[1], p[1] / 4, 0xFFFFFFFF);
+            PhoneShapes.fillRoundedRect(g, x, y, p[1], p[1], p[1] / 4, 0xFFFFFFFF);
             int inset = UiFont.sh(2);
             g.blit(e.loc(), x + inset, y + inset, p[1] - inset * 2, p[1] - inset * 2,
                     0.0f, 0.0f, e.w(), e.h(), e.w(), e.h());
@@ -2605,7 +2605,7 @@ public class ChatPage implements PhoneCameraHost {
         if (isPlayer) {
             int bubbleRight = baseX + phoneW - AVATAR - MARGIN;
             int bubbleLeft = bubbleRight - bubbleW;
-            UiShapes.fillRoundedRect(g, bubbleLeft, yTop, bubbleW, bubbleH, radius, 0xFF5294BF);
+            PhoneShapes.fillRoundedRect(g, bubbleLeft, yTop, bubbleW, bubbleH, radius, 0xFF5294BF);
             if (rl != null) {
                 g.blit(rl, bubbleLeft + pad, yTop + pad, EMOTE_DRAW_SIZE, EMOTE_DRAW_SIZE,
                         0.0f, 0.0f, sw, sh, sw, sh);
@@ -2616,7 +2616,7 @@ public class ChatPage implements PhoneCameraHost {
             drawAvatarPlaceholder(g, baseX + phoneW - AVATAR - 2, yTop, true);
         } else {
             int bubbleLeft = baseX + AVATAR + MARGIN;
-            UiShapes.fillRoundedRect(g, bubbleLeft, yTop, bubbleW, bubbleH, radius, 0xFF525A6E);
+            PhoneShapes.fillRoundedRect(g, bubbleLeft, yTop, bubbleW, bubbleH, radius, 0xFF525A6E);
             if (rl != null) {
                 g.blit(rl, bubbleLeft + pad, yTop + pad, EMOTE_DRAW_SIZE, EMOTE_DRAW_SIZE,
                         0.0f, 0.0f, sw, sh, sw, sh);
@@ -2657,7 +2657,7 @@ public class ChatPage implements PhoneCameraHost {
         int[] d = PhotoLibrary.getTextureSize(m.image());
 
         int bubbleLeft = baseX + phoneW - AVATAR - MARGIN - bubbleW; // 玩家图片在右侧
-        UiShapes.fillRoundedRect(g, bubbleLeft, yTop, bubbleW, bubbleH, radius, 0xFF5294BF);
+        PhoneShapes.fillRoundedRect(g, bubbleLeft, yTop, bubbleW, bubbleH, radius, 0xFF5294BF);
         if (rl != null) {
             g.blit(rl, bubbleLeft + pad, yTop + pad, IMAGE_DRAW_SIZE, IMAGE_DRAW_SIZE,
                     0.0f, 0.0f, d[0], d[1], d[0], d[1]);

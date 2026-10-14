@@ -1,7 +1,7 @@
 package com.huhutalk.client.theme;
 
 import com.huhutalk.client.settings.HuhuTalkClientSettings;
-import com.huhutalk.phone.UiShapes;
+import com.huhutalk.api.phone.ui.PhoneShapes;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.renderer.block.BlockRenderDispatcher;
@@ -58,11 +58,11 @@ public final class PhoneCaseRenderer {
 
         if (useTexture) {
             // 自定义材质壳：按行平铺纹理到圆角外框（内部镂空内容区）
-            UiShapes.fillRoundedRectFrameTiled(g, sprite, outerX, outerY, outerW, outerH,
+            PhoneShapes.fillRoundedRectFrameTiled(g, sprite, outerX, outerY, outerW, outerH,
                     holeX, holeY, holeW, holeH, CORNER_RADIUS);
         } else {
             // 默认纯色外壳：圆角外框 + 矩形镂空
-            UiShapes.fillRoundedRectFrame(g, outerX, outerY, outerW, outerH,
+            PhoneShapes.fillRoundedRectFrame(g, outerX, outerY, outerW, outerH,
                     holeX, holeY, holeW, holeH, CORNER_RADIUS, borderColor);
         }
     }

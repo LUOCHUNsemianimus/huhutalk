@@ -6,7 +6,7 @@ import com.huhutalk.api.phone.ui.PhoneText;
 import com.huhutalk.client.PhotoLibrary;
 import com.huhutalk.phone.PhoneOverlay;
 import com.huhutalk.phone.UiFont;
-import com.huhutalk.phone.UiShapes;
+import com.huhutalk.api.phone.ui.PhoneShapes;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.resources.ResourceLocation;
 import org.lwjgl.glfw.GLFW;
@@ -172,7 +172,7 @@ public class GalleryPage extends PhonePage {
         int bx = x + (cell - box) / 2;
         int by = y + (cell - box) / 2;
 
-        UiShapes.fillRoundedRect(g, bx, by, box, box, UiFont.sh(4), on ? ACCENT : 0xFFFFFFFF);
+        PhoneShapes.fillRoundedRect(g, bx, by, box, box, UiFont.sh(4), on ? ACCENT : 0xFFFFFFFF);
 
         int inset = UiFont.sh(2);
         ResourceLocation tex = PhotoLibrary.getOrLoadTexture(key);

@@ -21,7 +21,7 @@ import com.huhutalk.phone.IPhonePage;
 import com.huhutalk.phone.PhoneGroupNameInputScreen;
 import com.huhutalk.phone.PhoneOverlay;
 import com.huhutalk.phone.UiFont;
-import com.huhutalk.phone.UiShapes;
+import com.huhutalk.api.phone.ui.PhoneShapes;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
@@ -333,7 +333,7 @@ public class MaidInfoPage implements IPhonePage {
             int msgY = baseY + h - UiFont.sh(30);
             int boxTop = msgY - UiFont.sh(3);
             int boxH = textH(font) + UiFont.sh(6);
-            UiShapes.fillRoundedRect(g, baseX + UiFont.sh(4), boxTop, w - UiFont.sh(8), boxH, 8, 0xCC000000);
+            PhoneShapes.fillRoundedRect(g, baseX + UiFont.sh(4), boxTop, w - UiFont.sh(8), boxH, 8, 0xCC000000);
             drawScaledText(g, font, flashText, baseX + (w - msgW) / 2f, boxTop + (boxH - textH(font)) / 2f + 1,
                     0xFFFFFFFF, UiFont.sc(1.0f));
         }
@@ -355,7 +355,7 @@ public class MaidInfoPage implements IPhonePage {
             int th = d != null ? d[1] : size;
             g.blit(tex, avX, avY, size, size, 0.0f, 0.0f, tw, th, tw, th);
         } else {
-            UiShapes.fillRoundedRect(g, avX, avY, size, size, 8, 0xFFB0BEC5);
+            PhoneShapes.fillRoundedRect(g, avX, avY, size, size, 8, 0xFFB0BEC5);
         }
 
         String status = MaidStatusCache.get(stableId);
@@ -370,7 +370,7 @@ public class MaidInfoPage implements IPhonePage {
         drawScaledText(g, font, "管理", baseX + UiFont.sh(12), ly(L, baseY, L.manageTitleY) - UiFont.sh(4), GROUP_TITLE_COLOR, UiFont.sc(1.0f));
         // 大矩形（含 4 行，灰色横线分隔）
         int rectY = ly(L, baseY, L.manageRectY);
-        UiShapes.fillRoundedRect(g, rectX, rectY, rectW, L.manageRectH, CARD_R, CARD_BG);
+        PhoneShapes.fillRoundedRect(g, rectX, rectY, rectW, L.manageRectH, CARD_R, CARD_BG);
         String[] labels = {"💬 发消息", "🗑 删除记录", "☠ 删除联系人", "📷 更新头像"};
         int[] colors = {TEXT_COLOR, TEXT_COLOR, DANGER, 0xFF2E7D32};
         for (int i = 0; i < 4; i++) {
@@ -389,7 +389,7 @@ public class MaidInfoPage implements IPhonePage {
         drawScaledText(g, font, "SOS 呼叫", baseX + UiFont.sh(12), ly(L, baseY, L.sosTitleY) - UiFont.sh(4), GROUP_TITLE_COLOR, UiFont.sc(1.0f));
         // 大矩形（含 SOS呼叫 / 工作模式 2 行 + 展开时的工作模式列表）
         int rectY = ly(L, baseY, L.sosRectY);
-        UiShapes.fillRoundedRect(g, rectX, rectY, rectW, L.sosRectH, CARD_R, CARD_BG);
+        PhoneShapes.fillRoundedRect(g, rectX, rectY, rectW, L.sosRectH, CARD_R, CARD_BG);
 
         boolean bound = SosBindCache.isBound(stableId);
         // SOS 呼叫（绑定开关）
@@ -423,7 +423,7 @@ public class MaidInfoPage implements IPhonePage {
                 int idx = windowStart + i;
                 int rowY = listY + i * dropdownRowH();
                 if (idx == modeCursor) {
-                    UiShapes.fillRoundedRect(g, rectX + UiFont.sh(4), rowY, rectW - UiFont.sh(8), dropdownRowH(), 6, 0xFF4A6FB5);
+                    PhoneShapes.fillRoundedRect(g, rectX + UiFont.sh(4), rowY, rectW - UiFont.sh(8), dropdownRowH(), 6, 0xFF4A6FB5);
                     drawScaledText(g, font, formatTaskName(tasks.get(idx)), rectX + UiFont.sh(12),
                             rowY + (dropdownRowH() - textH(font)) / 2 + 1, 0xFFFFFFFF, UiFont.sc(1.0f));
                 } else {
@@ -441,7 +441,7 @@ public class MaidInfoPage implements IPhonePage {
         drawScaledText(g, font, "分组设置", baseX + UiFont.sh(12), ly(L, baseY, L.groupTitleY) - UiFont.sh(4), GROUP_TITLE_COLOR, UiFont.sc(1.0f));
         // 大矩形（含当前分组折叠栏 + 展开时的选项/新建分组）
         int rectY = ly(L, baseY, L.groupRectY);
-        UiShapes.fillRoundedRect(g, rectX, rectY, rectW, L.groupRectH, CARD_R, CARD_BG);
+        PhoneShapes.fillRoundedRect(g, rectX, rectY, rectW, L.groupRectH, CARD_R, CARD_BG);
 
         String current = currentGroup();
         int boxY = ly(L, baseY, L.groupBoxY);
@@ -487,7 +487,7 @@ public class MaidInfoPage implements IPhonePage {
         int dlgH = UiFont.sh(80);
         int dlgX = baseX + (w - dlgW) / 2;
         int dlgY = baseY + (L.navH + h) / 2 - dlgH / 2;
-        UiShapes.fillRoundedRect(g, dlgX, dlgY, dlgW, dlgH, 8, 0xFFFAFAFA);
+        PhoneShapes.fillRoundedRect(g, dlgX, dlgY, dlgW, dlgH, 8, 0xFFFAFAFA);
 
         int textY = dlgY + UiFont.sh(12);
         drawScaledText(g, font, "确认删除？此操作无法恢复", dlgX + UiFont.sh(10), textY, TEXT_COLOR, UiFont.sc(1.0f));
@@ -499,10 +499,10 @@ public class MaidInfoPage implements IPhonePage {
         int btnY = dlgY + dlgH - btnH - UiFont.sh(8);
         int cancelX = dlgX + UiFont.sh(10);
         int delX = dlgX + dlgW - UiFont.sh(10) - btnW;
-        UiShapes.fillRoundedRect(g, cancelX, btnY, btnW, btnH, btnH / 2, 0xFFE0E0E0);
+        PhoneShapes.fillRoundedRect(g, cancelX, btnY, btnW, btnH, btnH / 2, 0xFFE0E0E0);
         drawScaledText(g, font, "取消", cancelX + (btnW - font.width("取消") * UiFont.sc(1.0f)) / 2f,
                 btnY + (btnH - textH(font)) / 2 + 1, TEXT_COLOR, UiFont.sc(1.0f));
-        UiShapes.fillRoundedRect(g, delX, btnY, btnW, btnH, btnH / 2, 0xFFE53935);
+        PhoneShapes.fillRoundedRect(g, delX, btnY, btnW, btnH, btnH / 2, 0xFFE53935);
         drawScaledText(g, font, "确认", delX + (btnW - font.width("确认") * UiFont.sc(1.0f)) / 2f,
                 btnY + (btnH - textH(font)) / 2 + 1, 0xFFFFFFFF, UiFont.sc(1.0f));
     }

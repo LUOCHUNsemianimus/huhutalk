@@ -58,8 +58,8 @@ import org.lwjgl.glfw.GLFW;
  */
 public abstract class PhonePage implements IPhonePage {
 
-    /** 顶栏高度占手机内容区高度的比例（与既有页面的 {@code h * 0.08} 保持一致） */
-    private static final float TOP_BAR_RATIO = 0.08f;
+    /** 顶栏文字上下的留白基准像素（随全局字体倍率缩放） */
+    private static final int TOP_BAR_PAD_PX = 8;
     /** 返回键命中区域宽度（自左边缘算起） */
     private static final int BACK_HIT_WIDTH = 60;
     /** 返回键文案 */
@@ -124,6 +124,27 @@ public abstract class PhonePage implements IPhonePage {
      * 参见 {@link PhoneList} 的类注释。
      */
     protected int contentHeight() {
+        return 0;
+    }
+
+    /**
+     * 内容区底部预留高度（逻辑像素）——让最后一行能滑出<b>悬浮底部导航</b>的遮挡。
+     *
+     * <h2>为什么需要它</h2>
+     * 底部导航（Dock）是<b>悬浮</b>在页面之上的，不是占位色块：{@code PhoneOverlay.getBottomNavHeight()}
+     * 恒为 {@code 0}，内容区一直延伸到水印栏。于是内容滚到底时，最后一行会被 Dock 盖住。
+     * 既有页面各自用 {@code maxScroll = contentH + PhoneOverlay.getBottomNavHeight() + UiFont.sh(30) - viewH}
+     * 兜这件事（那个 {@code +0} 就是这么来的历史包袱）。
+     * <p>
+     * 本钩子把这件事收成一处：返回的像素会从 {@link #contentViewHeight()} 里扣掉，
+     * 于是 {@link #maxScroll()} 自然多出一段底部留白。<b>只影响可滚动距离，不影响绘制裁剪</b>
+     * ——内容仍可画到水印栏（与既有页面一致）。
+     * <p>
+     * 默认 {@code 0}（不留白）。带底部导航的 tab 顶层页建议返回
+     * {@code PhoneOverlay.getBottomNavHeight() + PhoneText.px(30)}（与历史行为一致），
+     * 子页面/App 页返回 0 即可。
+     */
+    protected int bottomInset() {
         return 0;
     }
 
@@ -197,13 +218,34 @@ public abstract class PhonePage implements IPhonePage {
         return Minecraft.getInstance().font;
     }
 
-    /** 顶栏高度。顶栏关闭时为 0。 */
+    /**
+     * 顶栏高度 = 一行字（随全局字体倍率）+ 8px 留白。顶栏关闭时为 0。
+     *
+     * <h2>为什么是这个公式</h2>
+     * 这是<b>内置页面真正在用的高度</b>：聊天页 / 消息页 / 联系人页 / 设置页 / 女仆信息页 /
+     * 手机壳选择页写的都是 {@code font.lineHeight * UiFont.sc(1.0f) + UiFont.sh(8)}（默认 ≈ 17px）。
+     * <p>
+     * ⚠ 本方法曾经是 {@code max(height * 0.08, font.lineHeight + 4)}（默认 ≈ 25px，比内置页高 8px）。
+     * 那个 {@code 0.08} 抄的是两个<b>已被删除</b>的死页面（{@code MaidListPage} / {@code MaidSettingsPage}），
+     * 从未与活着的页面一致过 —— 于是已迁到骨架的页面和内置页面并排时像"两台不同的手机"。
+     * 现已统一到内置页的真实高度；因为所有页面都用 {@link #contentTop()} 定位，
+     * 这次改动只是让内容整体上移，<b>不需要逐页校正布局常量</b>。
+     */
     protected int topBarHeight() {
         if (!showTopBar()) {
             return 0;
         }
-        // 取「按比例」与「放得下一行字」的较大者，避免字号调大后标题被夹住
-        return Math.max((int) (height() * TOP_BAR_RATIO), Minecraft.getInstance().font.lineHeight + 4);
+        return topBarLineHeight() + PhoneText.px(TOP_BAR_PAD_PX);
+    }
+
+    /**
+     * 顶栏里一行字的高度（随全局字体倍率缩放）。
+     * <p>
+     * {@code render} 与子类的顶栏绘制都该用它算垂直居中，<b>不要直接用 {@code font.lineHeight}</b>
+     * ——那是 1 倍字号的行高，字体倍率调大后标题会偏下（顶栏变高但文字按 9px 居中）。
+     */
+    protected final int topBarLineHeight() {
+        return Math.max(1, PhoneText.height(font(), PhoneText.scale(1.0f)));
     }
 
     /** 内容区在手机内容区坐标系里的上边界（= 顶栏高度）。 */
@@ -211,9 +253,13 @@ public abstract class PhonePage implements IPhonePage {
         return topBarHeight();
     }
 
-    /** 内容区可视高度 */
+    /**
+     * 内容区可视高度。
+     * <p>
+     * 已扣掉顶栏与 {@link #bottomInset()}。
+     */
     protected final int contentViewHeight() {
-        return Math.max(0, height() - contentTop());
+        return Math.max(0, height() - contentTop() - bottomInset());
     }
 
     /** 当前滚动偏移。 */
@@ -250,7 +296,7 @@ public abstract class PhonePage implements IPhonePage {
 
     /** 矩形命中测试：给定内容坐标下的矩形与点击点。 */
     protected static boolean hit(int x, int y, int w, int h, double px, double py) {
-        return px >= x && px < x + w && py >= y && py < y + h;
+        return PhoneLayout.hit(px, py, x, y, w, h);
     }
 
     // ==================== 模板方法 ====================
@@ -293,13 +339,17 @@ public abstract class PhonePage implements IPhonePage {
         graphics.fill(baseX, baseY, baseX + w, baseY + barH, topBarBackground());
 
         Font font = Minecraft.getInstance().font;
-        int textY = baseY + (barH - font.lineHeight) / 2;
+        // 用 topBarLineHeight() 而不是 font.lineHeight：字体倍率调大后顶栏变高，
+        // 若还按 1 倍行高居中，标题会明显偏下
+        int lineH = topBarLineHeight();
+        int textY = baseY + (barH - lineH) / 2;
         if (showBackButton()) {
-            graphics.drawString(font, BACK_LABEL, baseX + 4, textY, c.topBarText());
+            PhoneText.draw(graphics, font, BACK_LABEL, baseX + 4, textY, c.topBarText(), PhoneText.scale(1.0f));
         }
         String t = title();
         if (!t.isEmpty()) {
-            graphics.drawString(font, t, baseX + (w - font.width(t)) / 2, textY, c.topBarText());
+            PhoneText.draw(graphics, font, t, baseX + (w - PhoneText.width(font, t, PhoneText.scale(1.0f))) / 2f,
+                    textY, c.topBarText(), PhoneText.scale(1.0f));
         }
         renderTopBarExtras(graphics, baseX, baseY, w, barH, textY);
     }

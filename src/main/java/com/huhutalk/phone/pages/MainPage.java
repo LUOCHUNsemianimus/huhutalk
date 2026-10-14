@@ -8,7 +8,7 @@ import com.huhutalk.client.settings.HuhuTalkClientSettings;
 import com.huhutalk.phone.IPhonePage;
 import com.huhutalk.phone.PhoneOverlay;
 import com.huhutalk.phone.UiFont;
-import com.huhutalk.phone.UiShapes;
+import com.huhutalk.api.phone.ui.PhoneShapes;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
@@ -375,7 +375,7 @@ public class MainPage implements IPhonePage {
 
             // 圆角正方形图标
             int r = Math.max(4, iconW / 4);
-            UiShapes.fillRoundedRect(graphics, x, y, iconW, iconH, r, app.color | 0xFF000000);
+            PhoneShapes.fillRoundedRect(graphics, x, y, iconW, iconH, r, app.color | 0xFF000000);
 
             // 图标中心内容：HuhuTalk 按玩家选择的风格（高清/低清贴图或狐狸 emoji），其它用文字/emoji
             // 判据是 behavior 而不是名字——名字是给玩家看的文案，改名/挪位不该让图标画法失联

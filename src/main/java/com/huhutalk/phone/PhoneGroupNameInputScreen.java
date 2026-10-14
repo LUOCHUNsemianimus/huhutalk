@@ -1,5 +1,6 @@
 package com.huhutalk.phone;
 
+import com.huhutalk.api.phone.ui.PhoneShapes;
 import com.huhutalk.client.settings.HuhuTalkClientSettings;
 import com.huhutalk.phone.pages.MaidInfoPage;
 import net.minecraft.client.Minecraft;
@@ -79,11 +80,11 @@ public class PhoneGroupNameInputScreen extends Screen {
     public void render(GuiGraphics g, int mouseX, int mouseY, float partialTick) {
         // 全屏半透明遮罩 + 居中对话框
         g.fill(0, 0, this.width, this.height, 0x66000000);
-        UiShapes.fillRoundedRect(g, dlgX, dlgY, dlgW, dlgH, 8, 0xFFFAFAFA);
+        PhoneShapes.fillRoundedRect(g, dlgX, dlgY, dlgW, dlgH, 8, 0xFFFAFAFA);
 
         g.drawString(this.font, "新建分组", dlgX + 14, dlgY + 10, 0xFF333333);
         // 输入框底（圆角）
-        UiShapes.fillRoundedRect(g, boxX, boxY, boxW, boxH, boxH / 2, 0xFFFFF5F8);
+        PhoneShapes.fillRoundedRect(g, boxX, boxY, boxW, boxH, boxH / 2, 0xFFFFF5F8);
         // 占位/内容
         String text = this.box.getValue();
         if (text.isEmpty()) {
@@ -97,10 +98,10 @@ public class PhoneGroupNameInputScreen extends Screen {
         }
 
         // 按钮
-        UiShapes.fillRoundedRect(g, cancelX, btnY, btnW, btnH, btnH / 2, 0xFFE0E0E0);
+        PhoneShapes.fillRoundedRect(g, cancelX, btnY, btnW, btnH, btnH / 2, 0xFFE0E0E0);
         g.drawString(this.font, "取消", cancelX + (btnW - this.font.width("取消")) / 2,
                 btnY + (btnH - this.font.lineHeight) / 2 + 1, 0xFF333333, false);
-        UiShapes.fillRoundedRect(g, okX, btnY, btnW, btnH, btnH / 2, 0xFFDE7E7E);
+        PhoneShapes.fillRoundedRect(g, okX, btnY, btnW, btnH, btnH / 2, 0xFFDE7E7E);
         g.drawString(this.font, "确定", okX + (btnW - this.font.width("确定")) / 2,
                 btnY + (btnH - this.font.lineHeight) / 2 + 1, 0xFFFFFFFF, false);
     }

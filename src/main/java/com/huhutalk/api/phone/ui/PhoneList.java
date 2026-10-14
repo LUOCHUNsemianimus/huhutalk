@@ -43,6 +43,26 @@ import java.util.List;
  * // 滚轮
  * list.mouseScrolled(delta);
  * }</pre>
+ *
+ * <h2>混排行高（分组标题 + 条目）</h2>
+ * 默认是固定行高。要「分组标题一行、下面若干条目」这种混排，改覆盖
+ * {@link #itemHeight(int)}，并在分组折叠/展开后调一次 {@link #invalidateLayout()}：
+ * <pre>{@code
+ * @Override protected int itemHeight() { return 40; }          // 只作占位，内部走下面那个
+ * @Override protected int itemHeight(int i) {
+ *     return rows.get(i).isHeader() ? 18 : 40;
+ * }
+ *
+ * // 点击分组标题 → 折叠
+ * @Override protected void onItemClick(int i, Row r) {
+ *     if (r.isHeader()) { r.toggle(); invalidateLayout(); }     // ← 行高变了，必须声明
+ * }
+ * }</pre>
+ * 前缀和在下次查询时重建，所以渲染与命中依然共用同一份「第 i 行在哪」。
+ * 分组标题行下面不想画分隔线就覆盖 {@link #separatorColor(int)} 返回 {@code 0}。
+ *
+ * <h2>多列网格</h2>
+ * 本类只有<b>单列</b>。多列用 {@link PhoneGrid}。
  */
 public abstract class PhoneList<T> {
 
@@ -55,14 +75,51 @@ public abstract class PhoneList<T> {
     private int scrollOffset = 0;
     /** 悬停行下标，-1 = 无 */
     private int hoveredIndex = -1;
+    /** 行高前缀和（长度 = 行数 + 1）：{@code offsets[i]} = 前 i 行的总高。可变行高的唯一真相 */
+    private int[] offsets;
+    /** 前缀和对应的行数；与当前行数不符时重建 */
+    private int offsetsCount = -1;
+    /** 行高可能已变（由 {@link #invalidateLayout()} 置位） */
+    private boolean layoutDirty = true;
 
     // ==================== 子类实现 ====================
 
     /** 数据源。每次渲染/命中会调用一次，直接返回你的 List 字段即可。 */
     protected abstract List<T> items();
 
-    /** 行高（像素），必须 > 0。 */
-    protected abstract int itemHeight();
+    /**
+     * 固定行高（像素），必须 &gt; 0。
+     * <p>
+     * 固定行高的列表实现它即可。需要「分组标题 + 条目」这类<b>混排行高</b>的列表，
+     * 改为覆盖 {@link #itemHeight(int)}（内部一律走那一个）；此时本方法可以返回任意非 0 值占位
+     * ——它只在 {@link #itemHeight(int)} 的默认实现里被读到。
+     */
+    protected int itemHeight() {
+        return 0;
+    }
+
+    /**
+     * 第 {@code index} 行的行高（像素）。默认转发到 {@link #itemHeight()}（固定行高）。
+     * <p>
+     * 覆盖它即可得到可变行高。内部把各行的行高累成<b>前缀和</b>，{@link #itemY(int)} 与
+     * {@link #indexAt(double, double)} 都从同一份前缀和走，所以「画在一处、点在另一处」
+     * 在结构上依然不可能（这正是本类存在的意义）。
+     * <p>
+     * ⚠ 行高随数据变化时（例如点分组标题折叠/展开、某个条目长高），在改完数据之后调一次
+     * {@link #invalidateLayout()}，否则命中算的还是旧行高。
+     */
+    protected int itemHeight(int index) {
+        return itemHeight();
+    }
+
+    /**
+     * 声明「行高已经变了」，让前缀和在下次查询时重建。
+     * <p>
+     * 只在行高<b>真的</b>随数据变化时才需要调用（行数变化会被自动检测到）。
+     */
+    public final void invalidateLayout() {
+        layoutDirty = true;
+    }
 
     /**
      * 画一行。
@@ -82,6 +139,15 @@ public abstract class PhoneList<T> {
         return 0x22000000;
     }
 
+    /**
+     * 第 {@code index} 行<b>下方</b>分隔线的颜色。默认转发到 {@link #separatorColor()}。
+     * <p>
+     * 可变行高的列表用它跳过某些行：例如分组标题行下面不该有线，就返回 {@code 0}。
+     */
+    protected int separatorColor(int index) {
+        return separatorColor();
+    }
+
     // ==================== 视口与滚动 ====================
 
     /** 设置视口（内容坐标）。在 {@link PhonePage#renderContent} 里按布局调一次即可。 */
@@ -98,9 +164,29 @@ public abstract class PhoneList<T> {
         return items().size();
     }
 
+    /**
+     * 各行行高的前缀和：{@code offsets()[i]} = 前 i 行的总高（长度 = 行数 + 1）。
+     * <p>
+     * 唯一的「第 i 行在哪」真相。行数变了或 {@link #invalidateLayout()} 被调用过就重建。
+     */
+    private int[] offsets() {
+        int n = itemCount();
+        if (offsets == null || offsetsCount != n || layoutDirty) {
+            int[] o = new int[n + 1];
+            for (int i = 0; i < n; i++) {
+                o[i + 1] = o[i] + Math.max(0, itemHeight(i));
+            }
+            offsets = o;
+            offsetsCount = n;
+            layoutDirty = false;
+        }
+        return offsets;
+    }
+
     /** 全部内容高度 */
     public final int totalHeight() {
-        return itemCount() * itemHeight();
+        int[] o = offsets();
+        return o[o.length - 1];
     }
 
     /** 最大可滚动距离 */
@@ -126,13 +212,16 @@ public abstract class PhoneList<T> {
 
     /** 第 {@code index} 行的<b>内容坐标</b> Y。 */
     public final int itemY(int index) {
-        return viewY + index * itemHeight() - scrollOffset;
+        int[] o = offsets();
+        int i = Math.max(0, Math.min(index, o.length - 1));
+        return viewY + o[i] - scrollOffset;
     }
 
     /**
      * 内容坐标点落在哪一行；不在任何行上返回 -1。
      * <p>
      * 与 {@link #itemY(int)} 严格互逆——这两个方法就是本类存在的意义。
+     * 可变行高下走前缀和二分：找「第一个底边在点之后」的行，零高度的行会被自动跳过。
      */
     public final int indexAt(double localX, double localY) {
         if (localX < viewX || localX >= viewX + viewW) {
@@ -141,12 +230,26 @@ public abstract class PhoneList<T> {
         if (localY < viewY || localY >= viewY + viewH) {
             return -1;
         }
-        int h = itemHeight();
-        if (h <= 0) {
+        int n = itemCount();
+        if (n == 0) {
             return -1;
         }
-        int index = (int) Math.floor((localY - viewY + scrollOffset) / (double) h);
-        return (index >= 0 && index < items().size()) ? index : -1;
+        int logical = (int) (localY - viewY) + scrollOffset;
+        if (logical < 0) {
+            return -1;
+        }
+        int[] o = offsets();
+        int lo = 0, hi = n - 1, found = -1;
+        while (lo <= hi) {
+            int mid = (lo + hi) >>> 1;
+            if (o[mid + 1] > logical) {
+                found = mid;
+                hi = mid - 1;
+            } else {
+                lo = mid + 1;
+            }
+        }
+        return found;
     }
 
     // ==================== 渲染 / 交互 ====================
@@ -160,23 +263,29 @@ public abstract class PhoneList<T> {
         if (viewW <= 0 || viewH <= 0) {
             return;
         }
-        int h = itemHeight();
-        if (h <= 0) {
+        List<T> list = items();
+        if (list.isEmpty()) {
             return;
         }
-        List<T> list = items();
+        int[] o = offsets();
         int left = originX + viewX;
         int top = originY + viewY;
 
         g.enableScissor(left, top, left + viewW, top + viewH);
         try {
-            int sep = separatorColor();
             for (int i = 0; i < list.size(); i++) {
-                int y = top + itemY(i); // ← 唯一映射
+                int h = o[i + 1] - o[i];
+                if (h <= 0) {
+                    continue;
+                }
+                // ⚠ itemY 给的是「内容坐标」，所以要加的是内容区屏幕原点 originY，
+                //   不是已经含了 viewY 的 top —— 曾经写成 top + itemY(i)，viewY != 0 时行会整体下移 viewY。
+                int y = originY + itemY(i); // ← 唯一映射
                 if (y + h < top || y > top + viewH) {
                     continue; // 视口外，跳过
                 }
                 renderItem(g, i, list.get(i), left, y, viewW, h, i == hoveredIndex);
+                int sep = separatorColor(i);
                 if (((sep >>> 24) & 0xFF) != 0 && i < list.size() - 1) {
                     g.fill(left, y + h - 1, left + viewW, y + h, sep);
                 }

@@ -4,7 +4,7 @@ import com.huhutalk.client.PhotoLibrary;
 import com.huhutalk.phone.IPhonePage;
 import com.huhutalk.phone.PhoneOverlay;
 import com.huhutalk.phone.UiFont;
-import com.huhutalk.phone.UiShapes;
+import com.huhutalk.api.phone.ui.PhoneShapes;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
@@ -372,7 +372,7 @@ public class ManualPage implements IPhonePage {
             // 被滚出上边界的那几行直接跳过（继续累加 cy，不能 break —— 下面的行还有可能露出来）
             if (cy + rowH < top) { cy += rowH + gap; continue; }
             if (cy > bottom) break;
-            UiShapes.fillRoundedRect(g, baseX + pad, cy, w - pad * 2, rowH, UiFont.sh(8), CARD_BG);
+            PhoneShapes.fillRoundedRect(g, baseX + pad, cy, w - pad * 2, rowH, UiFont.sh(8), CARD_BG);
             drawScaledText(g, font, "›  " + s.title(), baseX + pad + UiFont.sh(10),
                     cy + (rowH - lineH(font)) / 2, TEXT_COLOR, UiFont.sc(0.9f));
             cy += rowH + gap;
@@ -403,7 +403,7 @@ public class ManualPage implements IPhonePage {
         for (ManualEntry e : currentSection.entries()) {
             if (cy + rowH < top) { cy += rowH + gap; continue; }
             if (cy > bottom) break;
-            UiShapes.fillRoundedRect(g, baseX + pad, cy, w - pad * 2, rowH, UiFont.sh(8), CARD_BG);
+            PhoneShapes.fillRoundedRect(g, baseX + pad, cy, w - pad * 2, rowH, UiFont.sh(8), CARD_BG);
             drawScaledText(g, font, "›  " + e.title(), baseX + pad + UiFont.sh(10),
                     cy + (rowH - lineH(font)) / 2, TEXT_COLOR, UiFont.sc(0.9f));
             cy += rowH + gap;
