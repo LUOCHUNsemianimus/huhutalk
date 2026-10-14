@@ -218,11 +218,6 @@ public final class PhoneScreenTarget {
         modelView.setTranslation(0.0F, 0.0F, -11000.0F);
         RenderSystem.applyModelViewMatrix();
 
-        // ⚠ 这里的 GuiGraphics 由公共构造函数建立，内部 managed 标志是 **false** ——
-        //    unmanaged 状态下 GuiGraphics 会"每次 fill 都 flush()"，
-        //    对逐像素行实现的圆角矩形等于每帧几百次 draw call。
-        //    所以 renderExternal 内部整段包了 drawManaged（详见该方法的 javadoc），
-        //    它进出各 flush 一次；下面这句是兜底，成本为零。
         GuiGraphics graphics = new GuiGraphics(mc, mc.renderBuffers().bufferSource());
         PhoneOverlay.renderExternal(graphics, partialTick, usedCanvasW, usedCanvasH);
         graphics.flush();

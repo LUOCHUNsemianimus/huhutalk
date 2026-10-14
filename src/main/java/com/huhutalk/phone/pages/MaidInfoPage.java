@@ -31,6 +31,7 @@ import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 
 /**
  * 联系人设置页（消息列表页 / 联系人列表页点击女仆统一进入）。
@@ -162,16 +163,32 @@ public class MaidInfoPage extends PhonePage {
         return MaidGroupHelper.resolveGroup(stableId, currentStatus());
     }
 
-    /** 分组可选列表：默认分组 + 玩家自定义分组（保持顺序） */
+    /**
+     * 分组可选列表。
+     * <p>
+     * <b>玩家自定义分组在上、默认（状态）分组在下</b>：默认分组由女仆实时状态决定且<b>不可删</b>，
+     * 把可删的自定义分组排在上面，删除标记（✕）就集中在列表上半段，
+     * 不会和"点一下就把女仆改到别的组"混在一起 —— 改错组只要再点一下就好，删错组却要找回来。
+     * <p>
+     * 名单来源：
+     * <ul>
+     *   <li>自定义分组 = {@link HuhuTalkClientSettings#getCustomGroupNames()}（玩家建过、持久化在设置文件里）；</li>
+     *   <li>默认分组 = 四个状态组常量。顺序与 {@code MaidGroupHelper.groupSortIndex} 一致。</li>
+     * </ul>
+     * 这里会再过滤一次"名字撞上默认分组"的条目：{@code addCustomGroup} 现在已经拦了，
+     * 但<b>老设置文件</b>里可能残留（那个校验是后加的），过滤掉才不会出现两个「在线」。
+     */
     private List<String> groupOptions() {
         List<String> list = new ArrayList<>();
+        for (String g : HuhuTalkClientSettings.getCustomGroupNames()) {
+            if (!HuhuTalkClientSettings.isDefaultGroupName(g) && !list.contains(g)) {
+                list.add(g);
+            }
+        }
         list.add(MaidGroupHelper.GROUP_ONLINE);
         list.add(MaidGroupHelper.GROUP_OFFLINE);
         list.add(MaidGroupHelper.GROUP_SHUTDOWN);
         list.add(MaidGroupHelper.GROUP_DEAD);
-        for (String g : HuhuTalkClientSettings.getCustomGroupNames()) {
-            if (!list.contains(g)) list.add(g);
-        }
         return list;
     }
 
@@ -543,7 +560,14 @@ public class MaidInfoPage extends PhonePage {
                 int col = isCurrent ? 0xFFB06A6A : c.textPrimary();
                 PhoneText.draw(g, font, slot.label(), rectX + PhoneText.px(12), textY, col, s);
                 if (isCurrent) {
-                    PhoneText.draw(g, font, "✓", rectX + rectW - PhoneText.px(18), textY, 0xFFB06A6A, s);
+                    PhoneText.draw(g, font, "✓", rectX + rectW - PhoneText.px(40), textY, 0xFFB06A6A, s);
+                }
+                // 自定义分组右端画「✕」= 可删除；默认（状态）分组不画（判据只有 isDeletableGroup 一处）
+                if (isDeletableGroup(slot.label())) {
+                    int markX = deleteMarkX(rectX, rectW);
+                    int markW = deleteMarkW();
+                    PhoneText.draw(g, font, "✕",
+                            markX + (markW - PhoneText.width(font, "✕", s)) / 2f, textY, 0xFFC62828, s);
                 }
                 drawDivider(g, c, rectX, rectW, y + slot.h());
             }
@@ -552,16 +576,69 @@ public class MaidInfoPage extends PhonePage {
     }
 
     /**
+     * 该分组名是否<b>可删除</b>（= 不是四个默认状态分组）。
+     * <p>
+     * 渲染"画不画 ✕"与命中"响不响应删除"共用它 —— 只有一处判据，
+     * 不会出现"画了 ✕ 却删不掉"或"没画 ✕ 却能删"。
+     */
+    private static boolean isDeletableGroup(String name) {
+        return !HuhuTalkClientSettings.isDefaultGroupName(name);
+    }
+
+    /** 「✕」标记矩形的左边界（分组行的内容坐标）。渲染与命中共享。 */
+    private static int deleteMarkX(int rectX, int rectW) {
+        return rectX + rectW - PhoneText.px(26);
+    }
+
+    /** 「✕」标记矩形的宽度（约 2.7 个字宽：够拇指点，又不会和"点整行改分组"抢边界）。 */
+    private static int deleteMarkW() {
+        return PhoneText.px(24);
+    }
+
+    /**
+     * 删除一个<b>自定义</b>分组。
+     *
+     * <h2>为什么必须连带把女仆收回默认分组</h2>
+     * 女仆的分组是"手动分组优先、否则按状态"（{@code MaidGroupHelper.resolveGroup}）。
+     * 只删分组名的话，原本手动分到该组的女仆<b>手动分组字段还指着那个已经不存在的名字</b>，
+     * 于是联系人列表里照样有一个分组标题 —— 一个既选不中、又删不掉的<b>幽灵分组</b>。
+     * 所以这里遍历一次手动分组映射，把指向本组的条目清空（清空 = 回到按状态分组）。
+     *
+     * <p>默认（状态）分组一律拒绝：与 UI 上不画 ✕ 是同一条判据。
+     */
+    private void deleteGroup(String name) {
+        if (!isDeletableGroup(name)) {
+            return;
+        }
+        HuhuTalkClientSettings.removeCustomGroup(name);
+        for (Map.Entry<String, String> e : HuhuTalkClientSettings.getMaidGroups().entrySet()) {
+            if (name.equals(e.getValue())) {
+                HuhuTalkClientSettings.setMaidGroup(e.getKey(), "");
+            }
+        }
+        showFlash("🗑 已删除分组「" + name + "」");
+    }
+
+    /**
      * 「新建分组」内联输入框那一行（分组栏收起时自动收成零尺寸）。
      *
-     * <h2>⚠ 坐标系：{@code bounds} 用<b>视图坐标</b>，命中传<b>未滚动的</b> {@code localY}</h2>
-     * {@link com.huhutalk.api.phone.ui.PhoneWidget#render} 只在 y 上加内容区原点，
-     * 它<b>不知道滚动偏移</b>；而页面自己画的东西走 {@code originY + scrollY(logical)}。
-     * 所以控件必须按同一套坐标摆（{@code scrollY(logical)}），
-     * 而命中时传未滚动的 {@code localY} —— 两者恰好差一个 {@code scrollOffset}，正好抵消。
-     * <p>
-     * 同样的规矩写在 {@code VisionModelSettingsPage.placeControls} 的注释里；
-     * 写错的表现是"控件钉在屏幕上不动、它所在的卡片却正常滚动"。
+     * <h2>⚠ 坐标系：页面自己画的用<b>屏幕坐标</b>，控件的 {@code bounds} 用<b>内容坐标</b></h2>
+     * 这是本页最容易写错的一处，写错的表现极具迷惑性，务必读完：
+     * <ul>
+     *   <li>{@link PhoneShapes#fillRoundedRect} / {@code g.fill} / {@link PhoneText#draw}
+     *       收的是<b>屏幕坐标</b>，页面里的调用点必须自己带上 {@code originX/originY}
+     *       （看上面的分组行渲染：{@code originY + scrollY(slot.y())}）；</li>
+     *   <li>{@link com.huhutalk.api.phone.ui.PhoneWidget#render} 收的
+     *       {@code bounds} 是<b>内容坐标</b>，它内部<b>自己会加</b> {@code originX/originY}
+     *       （顺便也就"不知道滚动偏移"，所以 bounds 用 {@code scrollY(logical)}）。</li>
+     * </ul>
+     * ⚠ <b>本方法曾经把对比底色条按内容坐标画（漏了 origin），于是整条底色上移了约一行，
+     * 正好盖住分组列表最后一行的文字</b> —— 表现为"最后一个分组变成了一个灰色圆角方框"，
+     * 而点它仍然会切到那个分组（命中用的是 {@code slot.y()}，本来就是那一行）。
+     * 换排序之后受害者从"最新建的自定义分组"变成了"死亡"，非常难认。
+     * <b>教训：同一个方法里混用两套坐标系时，宁可把 {@code originX/originY} 写在每一行上。</b>
+     *
+     * <p>命中由整行负责（见 {@code onContentClick}）：输入框比行矮，点在行内空白处也该算点它。
      */
     private void renderNewGroupRow(GuiGraphics g, ColorScheme c, Layout L, int originX, int originY) {
         if (L.groupNewRowY < 0) {
@@ -576,10 +653,12 @@ public class MaidInfoPage extends PhonePage {
         int inH = groupNewInput.preferredHeight(font());
         int inY = scrollY(L.groupNewRowY + (L.groupNewRowH - inH) / 2);
 
-        // 垫一层比卡片深一档的底：输入框自己的底色就是 cardBg()，直接压在卡片上会看不见
-        PhoneShapes.fillRoundedRect(g, inX - PhoneText.px(2), inY - PhoneText.px(2),
+        // 垫一层比卡片深一档的底：输入框自己的底色也是 cardBg()，直接压在卡片上等于没有边框。
+        // ⚠ 屏幕坐标（+ originX/originY）—— 见上面的坐标说明，漏了就是"灰条上移一行"那个 bug。
+        PhoneShapes.fillRoundedRect(g, originX + inX - PhoneText.px(2), originY + inY - PhoneText.px(2),
                 inW + PhoneText.px(4), inH + PhoneText.px(4), 6, c.pageBgList());
 
+        // 控件用内容坐标（它自己加 origin），与上面那行只差这一次换算
         groupNewInput.bounds(inX, inY, inW, inH);
         groupNewInput.render(g, originX, originY);
     }
@@ -738,6 +817,15 @@ public class MaidInfoPage extends PhonePage {
         // 展开时的分组选项（都在折叠栏内部）
         for (GroupSlot slot : L.groupSlots) {
             if (!PhoneLayout.hit(localX, logical, cardX, slot.y(), cardW, slot.h())) continue;
+            // 右端「✕」= 删除该自定义分组。判据（isDeletableGroup）与渲染画不画 ✕ 是同一条；
+            // 命中矩形（deleteMarkX/W）也和渲染共用，不会"画在一处、点在另一处"。
+            // ⚠ 必须先判 ✕ 再判整行，否则点 ✕ 会被当成"把女仆改到该组"。
+            if (isDeletableGroup(slot.label())
+                    && PhoneLayout.hit(localX, logical, deleteMarkX(cardX, cardW), slot.y(),
+                            deleteMarkW(), slot.h())) {
+                deleteGroup(slot.label());
+                return true;
+            }
             HuhuTalkClientSettings.setMaidGroup(stableId, slot.label());
             groupDropdownOpen = false;
             showFlash("已分到「" + slot.label() + "」");

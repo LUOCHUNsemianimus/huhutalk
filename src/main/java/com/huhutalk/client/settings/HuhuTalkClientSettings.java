@@ -272,7 +272,13 @@ public final class HuhuTalkClientSettings {
         save();
     }
 
-    private static boolean isDefaultGroupName(String name) {
+    /**
+     * 是否是<b>默认（状态）分组</b>名：在线 / 离线 / 已关机 / 死亡。
+     * <p>
+     * 这四个由女仆实时状态决定、<b>不可删除</b>，也不允许被建成同名自定义分组。
+     * 分组管理 UI 用它来决定"这一行画不画 ✕"——判据只有这一处，避免渲染与命中各写一份名单。
+     */
+    public static boolean isDefaultGroupName(String name) {
         return "在线".equals(name) || "离线".equals(name)
                 || "已关机".equals(name) || "死亡".equals(name);
     }

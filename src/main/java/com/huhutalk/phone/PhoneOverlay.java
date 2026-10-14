@@ -1631,57 +1631,12 @@ public class PhoneOverlay {
      * <p>
      * 与屏幕模式共用 {@link #render} 的全部绘制逻辑，只是把「屏幕尺寸/位置」换成「画布尺寸/左上角」。
      * 调用方负责：绑定离屏帧缓冲、设置与之匹配的正交投影与模型视图。
-     *
-     * <h2>⚠ 为什么整段必须包在 {@code drawManaged} 里（性能，不是洁癖）</h2>
-     * 调用方 {@code PhoneScreenTarget} 用的是 {@code new GuiGraphics(mc, bufferSource)} ——
-     * 这个公共构造函数<b>不设置内部的 {@code managed} 标志</b>（字段默认 {@code false}），
-     * 而 {@code GuiGraphics} 在 <b>unmanaged</b> 状态下的行为是「<b>每次绘制立刻 flush</b>」：
-     *
-     * <pre>
-     * // GuiGraphics.java（1.21.1 源）
-     * public void fill(...) {
-     *     VertexConsumer vc = this.bufferSource.getBuffer(renderType);
-     *     ... 4 个顶点 ...
-     *     this.flushIfUnmanaged();      // managed == false ⇒ 立刻 this.flush()
-     * }
-     * public void flush() {
-     *     RenderSystem.disableDepthTest();
-     *     this.bufferSource.endBatch();  // ← 一次真正的 draw call
-     *     RenderSystem.enableDepthTest();
-     * }
-     * </pre>
-     *
-     * 而本模组的圆角矩形是<b>逐像素行 {@code fill} </b>实现的
-     * （{@link PhoneShapes#fillRoundedRect} / {@link #fillRoundedRect}）：一个 200px 高的圆角矩形
-     * = 200 次 {@code fill} = <b>200 次 {@code endBatch} + 400 次深度测试开关</b>。
-     * 手机壳外框 + 页面底 + 状态栏 + 水印栏 + 每个圆角卡片叠起来，
-     * 模型屏**每帧几百到上千次 draw call** —— 而模型屏在光标一动就 {@code markDirty()} 重绘。
-     *
-     * {@code drawManaged} 就是原版为这件事准备的开关（{@code Gui.render} 画记分板侧栏用的就是它）：
-     * 它在执行期间把 {@code managed} 置真，于是
-     * <ul>
-     *   <li>{@code fill} / {@code blit} / {@code drawString} <b>不再 flush</b>，
-     *       同一 RenderType 的连续绘制攒成一次 draw call；</li>
-     *   <li>{@code enableScissor} / {@code disableScissor} 依然 flush
-     *       （{@code applyScissor} 里是 {@code flushIfManaged}）——
-     *       这正是必须的：裁剪边界处必须先把已攒的几何落盘，否则会被新裁剪矩形误裁；</li>
-     *   <li>进出各 flush 一次，所以离屏靶解绑前一定干净。</li>
-     * </ul>
-     * 净效果：draw call 数从「O(绘制调用数)」降到「O(RenderType 切换数)」——
-     * 圆角矩形从"高度那么多次"变成 <b>1 次</b>。
-     *
-     * <p>⚠ 这条<b>只影响性能，不影响画面</b>：同一 RenderType 内的提交顺序原样保留，
-     * 跨 RenderType 时切换即刷出，深度值也不变。物品图标（{@code renderItem} 内部自己调
-     * {@code flush()}）仍然是逐个立即落盘，行为不变。
-     * <p>⚠ 悬浮窗（{@code Gui} 那条路）不走本方法 —— 那边的 {@code GuiGraphics} 由原版创建，
-     * 生命周期与批处理边界都归原版管，别去插手。
      */
-    @SuppressWarnings("deprecation") // drawManaged 是 @Deprecated，但它仍是唯一能切换 managed 的公开入口
     public static void renderExternal(GuiGraphics graphics, float partialTick, int viewportW, int viewportH) {
         externalW = viewportW;
         externalH = viewportH;
         try {
-            graphics.drawManaged(() -> render(graphics, partialTick));
+            render(graphics, partialTick);
         } finally {
             externalW = -1;
             externalH = -1;
