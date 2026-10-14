@@ -197,7 +197,7 @@ RenderSystem.colorMask(true, true, true, true);
 | 项 | 内容 |
 |---|---|
 | **排序**（D） | `MaidInfoPage.groupOptions()` 改成**自定义分组在上、四个默认状态分组在下**。理由：默认分组（在线/离线/已关机/死亡）不可删，可删的排上面，✕ 就集中在列表上半段。顺手过滤掉"名字撞上默认分组"的残留项（`addCustomGroup` 已拦，但老设置文件可能有） |
-| **删除分组**（C） | 自定义分组行右端画红色「✕」，点它删除。判据只有 `isDeletableGroup()` 一处（渲染画不画 ✕ 与命中响不响应共用），✕ 的矩形也由 `deleteMarkX/deleteMarkW` 一处产出 —— 不会"画在一处、点在另一处" |
+| **删除分组**（C） | 自定义分组行右端画红色「✕」；点 ✕ **不直接删**，而是弹**与「删除联系人」同一个二次确认框**（同一个 `ConfirmLayout` 几何、同位置的取消/确认按钮，只有两行文案不同）。判据只有 `isDeletableGroup()` 一处（渲染画不画 ✕ 与命中响不响应共用），✕ 的矩形也由 `deleteMarkX/deleteMarkW` 一处产出 —— 不会"画在一处、点在另一处"。<br>⚠ 弹窗状态原来是 `boolean confirmDeletePending`，现在换成**互斥枚举** `Confirm{NONE, DELETE_CONTACT, DELETE_GROUP}` + `confirmGroup` 载荷：两种确认结构上互斥（只有一个弹窗），两个 boolean 迟早出现"都真"的非法状态；`handleConfirmClick` 里的「确认」按 `confirm` **显式分支**（一个入口承担两种语义是踩过的坑，见模型屏交接 §5.5-31） |
 
 **⚠ 删除必须连带把女仆收回默认分组**（否则会造出幽灵分组）：
 
@@ -867,5 +867,6 @@ public final class GalleryPage extends PhonePage {
 | [phone-page-skeleton.md](phone-page-skeleton.md) | 页面骨架 / 两种滚动模型 / 控件 / 图片 / 文字 / 主题 |
 | **[camera-black-screen-handoff.md](camera-black-screen-handoff.md)** | **✅ 已修复**的相机黑屏 bug 复盘：根因（alpha 钉底漏排除取景态）、排除重构嫌疑的完整证据链、二分实验步骤。**保留作记录**，也示范了一次"先排除再动手"的排查过程 |
 | [phone-camera-api.md](phone-camera-api.md) | 相机契约（`PhoneCameraHost` 四个判据 / 取景透明 / 侧键路由） |
+| **[maid-appearance-handoff.md](maid-appearance-handoff.md)** | **⬜ 待开工**：「你的样貌 / 女仆的样貌」两个栏位，让女仆能认出自己与主人。含识图链路全图、`composite` 6 分量硬约束、提示词两套写法、两个栏位的落点、控件选型与 5 个待拍板点 |
 | [douyin-webview-verification-report.md](douyin-webview-verification-report.md) | 抖音网页版验证结论（含三个必踩的坑）——做 MCEF 类 App 前必读 |
 | [douyin-webview-feasibility-handoff.md](douyin-webview-feasibility-handoff.md) | 内嵌浏览器完整调研与 MCEF API 清单 |

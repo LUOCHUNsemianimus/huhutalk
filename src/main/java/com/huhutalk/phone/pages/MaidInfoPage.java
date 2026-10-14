@@ -97,10 +97,31 @@ public class MaidInfoPage extends PhonePage {
     /** SOS 工作模式下拉是否展开 + 高亮光标下标 */
     private boolean modeDropdownOpen = false;
     private int modeCursor = 0;
-    /** 是否处于「删除联系人」二次确认状态（弹确认框） */
-    private boolean confirmDeletePending = false;
+
+    /**
+     * 二次确认弹窗正在确认什么。
+     * <p>
+     * 用一个字段而不是两个 boolean：两种确认<b>结构上互斥</b>（弹窗只有一个），
+     * 两个 boolean 迟早会出现"两个都为真"的非法状态。
+     */
+    private enum Confirm { NONE, DELETE_CONTACT, DELETE_GROUP }
+
+    private Confirm confirm = Confirm.NONE;
+    /** {@link Confirm#DELETE_GROUP} 时：待删除的分组名（空 = 无） */
+    private String confirmGroup = "";
+
     /** 分组设置折叠栏是否展开 */
     private boolean groupDropdownOpen = false;
+
+    /** 是否有二次确认弹窗打开（弹窗期间吞掉页面的其它输入） */
+    private boolean isConfirming() {
+        return confirm != Confirm.NONE;
+    }
+
+    private void clearConfirm() {
+        confirm = Confirm.NONE;
+        confirmGroup = "";
+    }
 
     /**
      * 「新建分组」的内联输入框（分组设置展开时，作为列表最后一行出现）。
@@ -427,8 +448,16 @@ public class MaidInfoPage extends PhonePage {
                     0xFFFFFFFF, PhoneText.scale(1.0f));
         }
 
-        if (confirmDeletePending) {
-            renderConfirmDialog(g, font, c, originX, originY, w, h);
+        if (isConfirming()) {
+            if (confirm == Confirm.DELETE_GROUP) {
+                renderConfirmDialog(g, font, c, originX, originY, w, h,
+                        "删除分组「" + confirmGroup + "」？",
+                        "组里的女仆会回到「按状态分组」");
+            } else {
+                renderConfirmDialog(g, font, c, originX, originY, w, h,
+                        "确认删除？此操作无法恢复",
+                        "将同时清除聊天记录与联系人");
+            }
         }
     }
 
@@ -693,9 +722,16 @@ public class MaidInfoPage extends PhonePage {
         return new ConfirmLayout(dlgX, dlgY, dlgW, dlgH, btnW, btnH, btnY, cancelX, delX);
     }
 
-    /** 渲染删除联系人二次确认弹窗 */
+    /**
+     * 二次确认弹窗（渲染与命中共用 {@link #confirmLayout} 那一份几何）。
+     * <p>
+     * 两行文字由调用方给：删除联系人与删除分组共用同一个框，
+     * 只有"确认的是什么"不同 —— 这样两处确认的观感与操作方式完全一致（同一个位置、
+     * 同样大小的取消/确认按钮），玩家只需要学一次。
+     */
     private void renderConfirmDialog(GuiGraphics g, Font font, ColorScheme c,
-                                     int originX, int originY, int w, int h) {
+                                     int originX, int originY, int w, int h,
+                                     String title, String detail) {
         float s = PhoneText.scale(1.0f);
         int lineH = Math.max(1, PhoneText.height(font, s));
         g.fill(originX, originY, originX + w, originY + h, 0x66000000);
@@ -706,9 +742,9 @@ public class MaidInfoPage extends PhonePage {
         PhoneShapes.fillRoundedRect(g, dlgX, dlgY, d.w(), d.h(), 8, 0xFFFAFAFA);
 
         int textY = dlgY + PhoneText.px(12);
-        PhoneText.draw(g, font, "确认删除？此操作无法恢复", dlgX + PhoneText.px(10), textY, c.textPrimary(), s);
+        PhoneText.draw(g, font, title, dlgX + PhoneText.px(10), textY, c.textPrimary(), s);
         textY += lineH + PhoneText.px(2);
-        PhoneText.draw(g, font, "将同时清除聊天记录与联系人", dlgX + PhoneText.px(10), textY, c.textSecondary(), s);
+        PhoneText.draw(g, font, detail, dlgX + PhoneText.px(10), textY, c.textSecondary(), s);
 
         int btnY = originY + d.btnY();
         int btnTextY = btnY + (d.btnH() - lineH) / 2 + 1;
@@ -727,7 +763,7 @@ public class MaidInfoPage extends PhonePage {
     /** 弹窗打开时，顶栏点击也必须先给弹窗（旧实现在返回键判定之前就处理弹窗） */
     @Override
     protected boolean onTopBarClick(double relX, double relY, int button, int action) {
-        if (!confirmDeletePending) return false;
+        if (!isConfirming()) return false;
         if (button != GLFW.GLFW_MOUSE_BUTTON_LEFT || action != GLFW.GLFW_PRESS) return false;
         handleConfirmClick(relX, relY - contentTop());
         return true;
@@ -739,7 +775,7 @@ public class MaidInfoPage extends PhonePage {
         if (action != GLFW.GLFW_PRESS) return false;
         Layout L = layout();
 
-        if (confirmDeletePending) {
+        if (isConfirming()) {
             // 弹窗打开时吞掉内容区的一切左键（旧实现同样总是返回 true）
             handleConfirmClick(localX, localY);
             return true;
@@ -768,7 +804,7 @@ public class MaidInfoPage extends PhonePage {
             return true;
         }
         if (PhoneLayout.hit(localX, logical, cardX, L.cardY[2], cardW, cardH())) {
-            confirmDeletePending = true;
+            confirm = Confirm.DELETE_CONTACT;
             return true;
         }
         if (PhoneLayout.hit(localX, logical, cardX, L.cardY[3], cardW, cardH())) {
@@ -823,7 +859,10 @@ public class MaidInfoPage extends PhonePage {
             if (isDeletableGroup(slot.label())
                     && PhoneLayout.hit(localX, logical, deleteMarkX(cardX, cardW), slot.y(),
                             deleteMarkW(), slot.h())) {
-                deleteGroup(slot.label());
+                // 与「删除联系人」同样走二次确认：删分组会把组里的女仆全部改回按状态分组，
+                // 单次点击就生效太容易误触（这里离"点一下切分组"只有 24px）。
+                confirm = Confirm.DELETE_GROUP;
+                confirmGroup = slot.label();
                 return true;
             }
             HuhuTalkClientSettings.setMaidGroup(stableId, slot.label());
@@ -842,24 +881,38 @@ public class MaidInfoPage extends PhonePage {
         return false;
     }
 
-    /** @param x/y 弹窗坐标（弹窗画在内容区里，所以是<b>内容坐标</b>） */
+    /**
+     * 二次确认弹窗的点击。
+     * <p>
+     * 「确认」按下去做什么由 {@link #confirm} 决定 —— 两种删除共用同一个框，
+     * 所以这里必须显式分支，不能想当然（早期版本的 {@code cameraBackAction} 就是因为
+     * 一个入口承担了两种语义而"点确认却退出了页面"）。
+     *
+     * @param x/y 弹窗坐标（弹窗画在内容区里，所以是<b>内容坐标</b>）
+     */
     private void handleConfirmClick(double x, double y) {
         ConfirmLayout d = confirmLayout(contentViewHeight());
 
         if (PhoneLayout.hit(x, y, d.delX(), d.btnY(), d.btnW(), d.btnH())) {
+            if (confirm == Confirm.DELETE_GROUP) {
+                String group = confirmGroup;
+                clearConfirm();
+                deleteGroup(group);   // 内部还会把组里的女仆收回默认分组
+                return;
+            }
             PacketDistributor.sendToServer(new C2SDeleteContactPacket(stableId));
             ChatHistoryStorage.deleteConversation(stableId);
             // 删除联系人/会话时，一并把未领取文件掉到玩家脚下
             PacketDistributor.sendToServer(new com.huhutalk.network.C2SDropTransferInboxPacket(stableId));
             HuhuTalkClientSettings.setMaidGroup(stableId, "");
-            confirmDeletePending = false;
+            clearConfirm();
             showFlash("☠ 已删除联系人");
             return;
         }
         boolean onCancel = PhoneLayout.hit(x, y, d.cancelX(), d.btnY(), d.btnW(), d.btnH());
         boolean insideDlg = PhoneLayout.hit(x, y, d.x(), d.y(), d.w(), d.h());
         if (onCancel || !insideDlg) {
-            confirmDeletePending = false;
+            clearConfirm();
         }
     }
 
@@ -870,7 +923,7 @@ public class MaidInfoPage extends PhonePage {
      */
     @Override
     public boolean mouseScrolled(double relX, double relY, double scrollDelta) {
-        if (confirmDeletePending) return true;
+        if (isConfirming()) return true;
         double localY = relY - contentTop();
         Layout L = layout();
         int cardX = PhoneText.px(10);
