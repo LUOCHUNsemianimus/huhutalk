@@ -5,7 +5,6 @@ import com.huhutalk.api.phone.ui.PhonePage;
 import com.huhutalk.api.phone.ui.PhoneText;
 import com.huhutalk.client.PhotoLibrary;
 import com.huhutalk.phone.PhoneOverlay;
-import com.huhutalk.phone.UiFont;
 import com.huhutalk.api.phone.ui.PhoneShapes;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.resources.ResourceLocation;
@@ -101,11 +100,11 @@ public class GalleryPage extends PhonePage {
     // ==================== 布局（渲染与命中共用） ====================
 
     private int margin() {
-        return UiFont.sh(8);
+        return PhoneText.px(8);
     }
 
     private int gap() {
-        return UiFont.sh(6);
+        return PhoneText.px(6);
     }
 
     /** 单格边长：把手机宽度按 3 列等分（含外边距与列间距） */
@@ -128,7 +127,7 @@ public class GalleryPage extends PhonePage {
 
     /** 第 index 格上缘（<b>逻辑</b>坐标，渲染时经 {@link #scrollY} 换到内容坐标） */
     private int cellY(int index) {
-        return UiFont.sh(8) + (index / COLS) * step();
+        return PhoneText.px(8) + (index / COLS) * step();
     }
 
     @Override
@@ -136,7 +135,7 @@ public class GalleryPage extends PhonePage {
         if (rowCount() == 0) {
             return 0;
         }
-        return UiFont.sh(8) * 2 + rowCount() * step() - gap();
+        return PhoneText.px(8) * 2 + rowCount() * step() - gap();
     }
 
     // ==================== 渲染 ====================
@@ -172,9 +171,9 @@ public class GalleryPage extends PhonePage {
         int bx = x + (cell - box) / 2;
         int by = y + (cell - box) / 2;
 
-        PhoneShapes.fillRoundedRect(g, bx, by, box, box, UiFont.sh(4), on ? ACCENT : 0xFFFFFFFF);
+        PhoneShapes.fillRoundedRect(g, bx, by, box, box, PhoneText.px(4), on ? ACCENT : 0xFFFFFFFF);
 
-        int inset = UiFont.sh(2);
+        int inset = PhoneText.px(2);
         ResourceLocation tex = PhotoLibrary.getOrLoadTexture(key);
         if (tex != null) {
             // getTextureSize 永不返回 null（取不到时兜底 24×24）
@@ -188,8 +187,8 @@ public class GalleryPage extends PhonePage {
         // 选中态：右上角小方块（边长 = 格子的 1/4，与聊天内图库页同比例）
         if (selecting) {
             int dot = Math.max(2, Math.round(box / 4f));
-            int dx = bx + box - dot - UiFont.sh(2);
-            int dy = by + UiFont.sh(2);
+            int dx = bx + box - dot - PhoneText.px(2);
+            int dy = by + PhoneText.px(2);
             g.fill(dx, dy, dx + dot, dy + dot, on ? ACCENT : DOT_OFF);
         }
     }

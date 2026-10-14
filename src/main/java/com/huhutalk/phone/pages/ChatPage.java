@@ -18,7 +18,8 @@ import com.huhutalk.network.C2SPhoneTypingDonePacket;
 import com.huhutalk.network.C2SRequestMaidStatusPacket;
 import com.huhutalk.phone.PhoneInputScreen;
 import com.huhutalk.phone.PhoneOverlay;
-import com.huhutalk.phone.UiFont;
+import com.huhutalk.api.phone.ui.PhoneLayout;
+import com.huhutalk.api.phone.ui.PhoneText;
 import com.huhutalk.api.phone.ui.PhoneShapes;
 import com.huhutalk.phone.voice.VoiceInput;
 import com.huhutalk.util.MessageSplitter;
@@ -835,11 +836,11 @@ public class ChatPage implements PhoneCameraHost {
     private int phoneH() { return PhoneOverlay.getPhoneHeight(); }
 
     /** 全局字体倍率 */
-    private static float uiScale() { return UiFont.uiScale(); }
+    private static float uiScale() { return PhoneText.scale(1.0f); }
     /** 缩放后默认字体的行高 */
-    private static int lh() { return Math.max(1, (int) (Minecraft.getInstance().font.lineHeight * UiFont.sc(1.0f))); }
+    private static int lh() { return Math.max(1, (int) (Minecraft.getInstance().font.lineHeight * PhoneText.scale(1.0f))); }
     /** 顶部导航栏高度：随字体倍率缩放 */
-    private int navH() { return lh() + UiFont.sh(8); }
+    private int navH() { return lh() + PhoneText.px(8); }
 
     /** 当前客户端世界游戏时间（tick）。无世界时返回 0 */
     private static long currentGameTime() {
@@ -862,7 +863,7 @@ public class ChatPage implements PhoneCameraHost {
 
     /** 气泡上方时间标签的高度（0.5 倍字号 + 间距） */
     private static int timeH() {
-        return (int) (Minecraft.getInstance().font.lineHeight * UiFont.sc(0.5f)) + UiFont.sh(2);
+        return (int) (Minecraft.getInstance().font.lineHeight * PhoneText.scale(0.5f)) + PhoneText.px(2);
     }
 
     // ==================== 输入区 / 拓展栏布局（动态高度） ====================
@@ -875,7 +876,7 @@ public class ChatPage implements PhoneCameraHost {
 
     /** 单行输入框高度（= 拓展栏高度 = 发送按钮高度） */
     private int singleLineH() {
-        return lh() + UiFont.sh(PAD_Y) * 2;
+        return lh() + PhoneText.px(PAD_Y) * 2;
     }
 
     /** 发送按钮宽度：约占屏幕 1/4 */
@@ -891,7 +892,7 @@ public class ChatPage implements PhoneCameraHost {
         Font font = Minecraft.getInstance().font;
         int lines = wrapToLines(font, currentInput, (int) (inputTextWidth() / uiScale())).size();
         lines = Math.max(1, Math.min(lines, MAX_VISIBLE_INPUT_LINES));
-        return lines * (lh() + 1) + UiFont.sh(PAD_Y) * 2;
+        return lines * (lh() + 1) + PhoneText.px(PAD_Y) * 2;
     }
 
     /** 拓展功能栏高度（与单行输入框一致），贴屏幕底部 */
@@ -913,7 +914,7 @@ public class ChatPage implements PhoneCameraHost {
         // 表情面板（左二 🦊）：更高，好放三列可滚动表情网格
         if (extPanelIcon == 1) return (int)(phoneH() * 0.45);
         // 图片面板（🖼️）：高度 = 缩放后的图片边长 + 上下留白，保证图片完整可见
-        if (extPanelIcon == 2) return galleryItemSize() + UiFont.sh(12);
+        if (extPanelIcon == 2) return galleryItemSize() + PhoneText.px(12);
         // 附加栏工具网格（第5个"+"）：略高于默认占位，好放 app 图标 + 名称
         if (extPanelIcon == 4) return (int)(phoneH() * 0.22);
         return (int)(phoneH() * 0.18);
@@ -1053,28 +1054,23 @@ public class ChatPage implements PhoneCameraHost {
         g.fill(baseX, baseY, baseX + w, baseY + navH(), 0xFFDE7E7E);
         int navCenterY = baseY + navH() / 2;
         // 返回按钮：仅保留白色箭头图标，删除"返回"文字
-        drawScaledText(g, font, "←", baseX + UiFont.sh(6), navCenterY - lh() / 2, 0xFFFFFFFF, UiFont.sc(1.0f));
+        PhoneText.draw(g, font, "←", baseX + PhoneText.px(6), navCenterY - lh() / 2, 0xFFFFFFFF, PhoneText.scale(1.0f));
         // 返回按钮右侧靠左放置女仆名称 + 状态（保留字号比例，垂直居中；超宽截断避免压住设置钮）
         String titleText = waitingResponse ? "对方正在输入…" : maidName;
-        int nameX = baseX + UiFont.sh(22);
-        int gearX = baseX + w - UiFont.sh(16);
-        int titleMaxW = gearX - nameX - UiFont.sh(8);
-        String displayTitle = titleText;
-        if (font.width(titleText) * UiFont.uiScale() > titleMaxW) {
-            int room = Math.max(1, (int) ((titleMaxW - font.width("…") * UiFont.uiScale()) / UiFont.uiScale()));
-            String cut = font.plainSubstrByWidth(titleText, room);
-            displayTitle = cut.isEmpty() ? "" : cut + "…";
-        }
-        drawScaledText(g, font, displayTitle, nameX, navCenterY - lh() / 2, 0xFFFFFFFF, UiFont.sc(1.0f));
+        int nameX = baseX + PhoneText.px(22);
+        int gearX = baseX + w - PhoneText.px(16);
+        int titleMaxW = gearX - nameX - PhoneText.px(8);
+        String displayTitle = PhoneText.truncate(font, titleText, titleMaxW, PhoneText.scale(1.0f));
+        PhoneText.draw(g, font, displayTitle, nameX, navCenterY - lh() / 2, 0xFFFFFFFF, PhoneText.scale(1.0f));
         // 状态小字（半字号，紧跟名称之后，保留原比例；等待回复时不显示）
         String status = MaidStatusCache.get(stableId);
         if (!waitingResponse && !status.isEmpty()) {
-            drawScaledText(g, font, status,
-                    nameX + font.width(displayTitle) * UiFont.sc(1.0f) + UiFont.sh(8),
-                    navCenterY - 3, 0xFF8A5B5B, UiFont.sc(STATUS_SCALE));
+            PhoneText.draw(g, font, status,
+                    nameX + font.width(displayTitle) * PhoneText.scale(1.0f) + PhoneText.px(8),
+                    navCenterY - 3, 0xFF8A5B5B, PhoneText.scale(STATUS_SCALE));
         }
         // 右上角设置按钮（保留原有功能）
-        drawScaledText(g, font, "⚙", gearX, navCenterY - lh() / 2, 0xFFFFFFFF, UiFont.sc(1.0f));
+        PhoneText.draw(g, font, "⚙", gearX, navCenterY - lh() / 2, 0xFFFFFFFF, PhoneText.scale(1.0f));
 
         // ==================== 消息区（面板打开时输入框上移，消息区同步上移） ====================
         int msgTop = baseY + navH();
@@ -1107,7 +1103,7 @@ public class ChatPage implements PhoneCameraHost {
         // ==================== 输入区衬底 + 顶部细阴影 ====================
         // 输入区整体与页面同色，顶部细阴影与消息列表分隔
         int iTop = inputTop(baseY);
-        drawTopShadow(g, baseX, iTop - 2, w);
+        PhoneLayout.topShadow(g, baseX, iTop - 2, w);
 
         // ==================== 上拉面板（位于拓展栏上方；打开时把输入框顶上去） ====================
         if (bottomPanelOpen) {
@@ -1127,9 +1123,9 @@ public class ChatPage implements PhoneCameraHost {
             } else {
                 int panelMidY = (pTop + pBottom) / 2;
                 String panelText = "🚧 面板开发中";
-                drawScaledText(g, font, panelText,
-                        baseX + (w - font.width(panelText) * UiFont.sc(1.0f)) / 2,
-                        panelMidY - lh() / 2, 0xFF8A6A6A, UiFont.sc(1.0f));
+                PhoneText.draw(g, font, panelText,
+                        baseX + (w - font.width(panelText) * PhoneText.scale(1.0f)) / 2,
+                        panelMidY - lh() / 2, 0xFF8A6A6A, PhoneText.scale(1.0f));
             }
         }
 
@@ -1145,18 +1141,18 @@ public class ChatPage implements PhoneCameraHost {
         if (currentInput.isEmpty()) {
             // 占位符（垂直居中）：灰色，75% 不透明度，无阴影
             int phY = iTop + (iH - lh()) / 2;
-            drawScaledText(g, font, "输入消息...", textX, phY, 0xBF9E9E9E, UiFont.sc(1.0f));
+            PhoneText.draw(g, font, "输入消息...", textX, phY, 0xBF9E9E9E, PhoneText.scale(1.0f));
             if (inputActive && isCursorVisible()) {
-                int cx = textX + (int) (font.width("输入消息...") * UiFont.sc(1.0f));
+                int cx = textX + (int) (font.width("输入消息...") * PhoneText.scale(1.0f));
                 g.fill(cx, phY - 1, cx + 1, phY + lh(), 0xFF8A6A6A);
             }
         } else {
             List<String> lines = wrapToLines(font, currentInput, (int) (inputTextWidth() / uiScale()));
             int startIdx = getVisibleStartIdx(lines.size());
-            int drawY = iTop + UiFont.sh(PAD_Y);
+            int drawY = iTop + PhoneText.px(PAD_Y);
 
             for (int i = startIdx; i < lines.size() && i < startIdx + MAX_VISIBLE_INPUT_LINES; i++) {
-                drawScaledText(g, font, lines.get(i), textX, drawY, 0xFF4A3F44, UiFont.sc(1.0f));
+                PhoneText.draw(g, font, lines.get(i), textX, drawY, 0xFF4A3F44, PhoneText.scale(1.0f));
                 drawY += lineH;
             }
 
@@ -1167,8 +1163,8 @@ public class ChatPage implements PhoneCameraHost {
                 if (globalLine >= startIdx && globalLine < startIdx + MAX_VISIBLE_INPUT_LINES) {
                     String targetLine = lines.get(globalLine);
                     int safeCol = Math.min(col, targetLine.length());
-                    int cursorDrawX = textX + (int) (font.width(targetLine.substring(0, safeCol)) * UiFont.sc(1.0f));
-                    int cursorDrawY = iTop + UiFont.sh(PAD_Y) + (globalLine - startIdx) * lineH;
+                    int cursorDrawX = textX + (int) (font.width(targetLine.substring(0, safeCol)) * PhoneText.scale(1.0f));
+                    int cursorDrawY = iTop + PhoneText.px(PAD_Y) + (globalLine - startIdx) * lineH;
                     g.fill(cursorDrawX, cursorDrawY - 1, cursorDrawX + 1,
                             cursorDrawY + lh(), 0xFF8A6A6A);
                 }
@@ -1182,35 +1178,35 @@ public class ChatPage implements PhoneCameraHost {
         int sY = sendY(baseY);
         PhoneShapes.fillRoundedRect(g, sX, sY, sW, sH, sH / 2, 0xFFB1CEDE);
         String sendLabel = "发送";
-        drawScaledText(g, font, sendLabel,
-                sX + (sW - font.width(sendLabel) * UiFont.sc(1.0f)) / 2,
-                sY + (sH - lh()) / 2, 0xFFFFFFFF, UiFont.sc(1.0f));
+        PhoneText.draw(g, font, sendLabel,
+                sX + (sW - font.width(sendLabel) * PhoneText.scale(1.0f)) / 2,
+                sY + (sH - lh()) / 2, 0xFFFFFFFF, PhoneText.scale(1.0f));
 
         // ==================== 拓展功能栏（高度=单行输入框，贴屏幕底部） ====================
         int extTop = extBarTop(baseY);
         int extCenterY = extTop + singleLineH() / 2;
         int iconCount = BOTTOM_ICONS.length;
         int iconSlotW = w / iconCount;
-        int btnSize = singleLineH() - UiFont.sh(6);
+        int btnSize = singleLineH() - PhoneText.px(6);
         int btnR = btnSize / 2;
         for (int i = 0; i < iconCount; i++) {
             int cx = baseX + i * iconSlotW + iconSlotW / 2;
             PhoneShapes.fillRoundedRect(g, cx - btnSize / 2, extCenterY - btnSize / 2, btnSize, btnSize, btnR, 0xFFFFF5F8);
             String icon = BOTTOM_ICONS[i];
             // 去掉默认字体阴影，避免 emoji 图标发糊
-            drawScaledText(g, font, icon, cx - font.width(icon) * UiFont.sc(1.0f) / 2,
-                    extCenterY - lh() / 2 + 1, 0xFF6A5A5A, UiFont.sc(1.0f));
+            PhoneText.draw(g, font, icon, cx - font.width(icon) * PhoneText.scale(1.0f) / 2,
+                    extCenterY - lh() / 2 + 1, 0xFF6A5A5A, PhoneText.scale(1.0f));
             // 图片栏（🖼️，index 2）有选中图时，图标右上角加一个小方形粉点（#de6f8d）示意有选中
             if (i == 2 && selectedImageKey != null) {
-                int dot = UiFont.sh(5);
-                PhoneShapes.fillRoundedRect(g, cx + btnSize / 2 - dot - UiFont.sh(1),
-                        extCenterY - btnSize / 2 + UiFont.sh(1), dot, dot, 1, 0xFFDE6F8D);
+                int dot = PhoneText.px(5);
+                PhoneShapes.fillRoundedRect(g, cx + btnSize / 2 - dot - PhoneText.px(1),
+                        extCenterY - btnSize / 2 + PhoneText.px(1), dot, dot, 1, 0xFFDE6F8D);
             }
             // 附加栏（第5个"+"，index 4）有待随消息发送的物品时同样标粉点
             if (i == 4 && hasPendingTransfers()) {
-                int dot = UiFont.sh(5);
-                PhoneShapes.fillRoundedRect(g, cx + btnSize / 2 - dot - UiFont.sh(1),
-                        extCenterY - btnSize / 2 + UiFont.sh(1), dot, dot, 1, 0xFFDE6F8D);
+                int dot = PhoneText.px(5);
+                PhoneShapes.fillRoundedRect(g, cx + btnSize / 2 - dot - PhoneText.px(1),
+                        extCenterY - btnSize / 2 + PhoneText.px(1), dot, dot, 1, 0xFFDE6F8D);
             }
         }
     }
@@ -1253,7 +1249,7 @@ public class ChatPage implements PhoneCameraHost {
         int maxTextW = (int) ((phoneW - AVATAR * 2 - MARGIN * 4) / uiScale());
         List<FormattedCharSequence> lines = font.split(Component.literal(m.text()), maxTextW);
         int lineH = lh() + 1;
-        int base = lines.size() * lineH + UiFont.sh(4);
+        int base = lines.size() * lineH + PhoneText.px(4);
         return base + (groupTop ? timeH() : 0);
     }
 
@@ -1292,10 +1288,10 @@ public class ChatPage implements PhoneCameraHost {
         for (FormattedCharSequence line : lines) {
             longest = Math.max(longest, font.width(line));
         }
-        int bubbleW = Math.min((int) (longest * uiScale()) + UiFont.sh(8),
+        int bubbleW = Math.min((int) (longest * uiScale()) + PhoneText.px(8),
                 phoneW - AVATAR * 2 - MARGIN * 2);
         int lineH = lh() + 1;
-        int bubbleH = lines.size() * lineH + UiFont.sh(4);
+        int bubbleH = lines.size() * lineH + PhoneText.px(4);
         int yTop = yBottom - bubbleH;
         // 圆角方框：圆角半径 = 1/4 方框高
         int radius = Math.max(2, bubbleH / 4);
@@ -1304,23 +1300,23 @@ public class ChatPage implements PhoneCameraHost {
             int bubbleRight = baseX + phoneW - AVATAR - MARGIN;
             int bubbleLeft = bubbleRight - bubbleW;
             PhoneShapes.fillRoundedRect(g, bubbleLeft, yTop, bubbleW, bubbleH, radius, bgColor);
-            int ty = yTop + UiFont.sh(2);
+            int ty = yTop + PhoneText.px(2);
             for (FormattedCharSequence line : lines) {
-                drawScaledText(g, font, line, bubbleLeft + UiFont.sh(4), ty, textColor, UiFont.sc(1.0f));
+                PhoneText.draw(g, font, line, bubbleLeft + PhoneText.px(4), ty, textColor, PhoneText.scale(1.0f));
                 ty += lineH;
             }
             drawAvatarPlaceholder(g, baseX + phoneW - AVATAR - 2, yTop, true);
             // 未送达（入离线队列）的玩家消息标红"!"
             if (m.pending()) {
-                drawScaledText(g, font, "!", bubbleLeft - UiFont.sh(8), yTop + UiFont.sh(2),
-                        0xFFFF3333, UiFont.sc(1.0f));
+                PhoneText.draw(g, font, "!", bubbleLeft - PhoneText.px(8), yTop + PhoneText.px(2),
+                        0xFFFF3333, PhoneText.scale(1.0f));
             }
         } else {
             int bubbleLeft = baseX + AVATAR + MARGIN;
             PhoneShapes.fillRoundedRect(g, bubbleLeft, yTop, bubbleW, bubbleH, radius, bgColor);
-            int ty = yTop + UiFont.sh(2);
+            int ty = yTop + PhoneText.px(2);
             for (FormattedCharSequence line : lines) {
-                drawScaledText(g, font, line, bubbleLeft + UiFont.sh(4), ty, textColor, UiFont.sc(1.0f));
+                PhoneText.draw(g, font, line, bubbleLeft + PhoneText.px(4), ty, textColor, PhoneText.scale(1.0f));
                 ty += lineH;
             }
             // 女仆头像按 1/4/7… 段位合并显示（同一条被拆消息只显示一次 / 每三条一次）
@@ -1332,9 +1328,9 @@ public class ChatPage implements PhoneCameraHost {
         if (groupTop) {
             String timeText = formatGameTime(m.gameTime());
             if (!timeText.isEmpty()) {
-                float ts = UiFont.sc(0.5f);
+                float ts = PhoneText.scale(0.5f);
                 int centerX = baseX + phoneW / 2;
-                drawScaledText(g, font, timeText,
+                PhoneText.draw(g, font, timeText,
                         centerX - font.width(timeText) * ts / 2f, yTop - timeH(), 0xFF9A8A90, ts);
             }
         }
@@ -1492,7 +1488,7 @@ public class ChatPage implements PhoneCameraHost {
             // 每个物品的数量小字（右上角）
             if (!st.isEmpty() && st.getCount() > 1) {
                 String cnt = String.valueOf(st.getCount());
-                drawScaledText(g, font, cnt,
+                PhoneText.draw(g, font, cnt,
                         cx + ib / 2f - font.width(cnt) * 0.6f, iconCenterY - ib / 2f - 2,
                         0xFFFFFFFF, 0.6f);
             }
@@ -1503,13 +1499,13 @@ public class ChatPage implements PhoneCameraHost {
         int textX = bubbleLeft + padX;
         int textY = yTop + 6 + ib + 4;
         if (!lineA.isEmpty()) {
-            drawScaledText(g, font, lineA, textX, textY, isPlayer ? 0xFFE4EEF8 : 0xFFD8DCE6, capTs);
+            PhoneText.draw(g, font, lineA, textX, textY, isPlayer ? 0xFFE4EEF8 : 0xFFD8DCE6, capTs);
         }
         // 第三行：领取/发送状态
         int stateY = textY + textH;
         int stateColor = isPlayer ? 0xFFCFE8FF
                 : (payload.used ? 0xFF9FE6B4 : (payload.claimed() ? 0xFF7FE08A : 0xFFFFE08A));
-        drawScaledText(g, font, lineB, textX, stateY, stateColor, capTs);
+        PhoneText.draw(g, font, lineB, textX, stateY, stateColor, capTs);
 
         if (showAvatar) {
             // 玩家侧头像在右（与玩家文字/图片气泡一致）
@@ -1518,9 +1514,9 @@ public class ChatPage implements PhoneCameraHost {
         if (groupTop) {
             String timeText = formatGameTime(m.gameTime());
             if (!timeText.isEmpty()) {
-                float ts = UiFont.sc(0.5f);
+                float ts = PhoneText.scale(0.5f);
                 int centerX = baseX + phoneW / 2;
-                drawScaledText(g, font, timeText,
+                PhoneText.draw(g, font, timeText,
                         centerX - font.width(timeText) * ts / 2f, yTop - timeH(), 0xFF9A8A90, ts);
             }
         }
@@ -1549,33 +1545,6 @@ public class ChatPage implements PhoneCameraHost {
                 g.fill(x, y, x + AVATAR, y + AVATAR, 0xFFB0BEC5);
             }
         }
-    }
-
-    /** 以任意倍率绘制文本（无阴影）。坐标按 1/scale 换算，保证缩放后落在原位 */
-    private static void drawScaledText(GuiGraphics g, Font font, String text, float x, float y, int color, float scale) {
-        float inv = 1.0f / scale;
-        g.pose().pushPose();
-        g.pose().scale(scale, scale, 1.0f);
-        g.drawString(font, text, x * inv, y * inv, color, false);
-        g.pose().popPose();
-    }
-
-    /** FormattedCharSequence 版（用于气泡内已换行文本） */
-    private static void drawScaledText(GuiGraphics g, Font font, FormattedCharSequence text, float x, float y, int color, float scale) {
-        float inv = 1.0f / scale;
-        g.pose().pushPose();
-        g.pose().scale(scale, scale, 1.0f);
-        g.drawString(font, text, x * inv, y * inv, color, false);
-        g.pose().popPose();
-    }
-
-    /**
-     * 绘制一条位于 y 位置的细水平阴影（用于输入区与消息列表的视觉分隔）。
-     * 通过叠加几层半透明深色线模拟轻微投影。
-     */
-    private static void drawTopShadow(GuiGraphics g, int baseX, int y, int width) {
-        g.fill(baseX, y, baseX + width, y + 1, 0x16000000);
-        g.fill(baseX, y + 1, baseX + width, y + 2, 0x0C000000);
     }
 
     private List<String> wrapToLines(Font font, String text, int maxWidth) {
@@ -1663,12 +1632,12 @@ public class ChatPage implements PhoneCameraHost {
 
     /** 绘制附加栏工具网格：app 风格圆角方块图标 + 名称。 */
     private void renderToolsPanel(GuiGraphics g, Font font, int baseX, int pTop, int pBottom, int w) {
-        int padX = UiFont.sh(8);
-        int padY = UiFont.sh(6);
+        int padX = PhoneText.px(8);
+        int padY = PhoneText.px(6);
         int labelH = lh();
         int availH = pBottom - pTop;
         int tileS = toolTile();
-        int gap = UiFont.sh(6);
+        int gap = PhoneText.px(6);
         int cols = Math.max(1, (w - padX * 2 + gap) / (tileS + gap));
         int startX = baseX + padX;
         int startY = pTop + padY;
@@ -1676,16 +1645,16 @@ public class ChatPage implements PhoneCameraHost {
             int col = i % cols;
             int row = i / cols;
             int x = startX + col * (tileS + gap);
-            int y = startY + row * (tileS + labelH + UiFont.sh(2));
+            int y = startY + row * (tileS + labelH + PhoneText.px(2));
             PhoneShapes.fillRoundedRect(g, x, y, tileS, tileS, Math.max(3, tileS / 5), 0xFFFFFFFF);
             String icon = EXTRA_TOOLS[i][0];
-            float ts = UiFont.sc(1.5f);
-            drawScaledText(g, font, icon,
+            float ts = PhoneText.scale(1.5f);
+            PhoneText.draw(g, font, icon,
                     x + (tileS - font.width(icon) * ts) / 2f,
                     y + (tileS - lh() * ts) / 2f, 0xFFDE6F8D, ts);
-            drawScaledText(g, font, EXTRA_TOOLS[i][1],
-                    x + (tileS - font.width(EXTRA_TOOLS[i][1]) * UiFont.sc(0.8f)) / 2f,
-                    y + tileS + 1, 0xFF6A5A5A, UiFont.sc(0.8f));
+            PhoneText.draw(g, font, EXTRA_TOOLS[i][1],
+                    x + (tileS - font.width(EXTRA_TOOLS[i][1]) * PhoneText.scale(0.8f)) / 2f,
+                    y + tileS + 1, 0xFF6A5A5A, PhoneText.scale(0.8f));
         }
     }
 
@@ -1699,12 +1668,12 @@ public class ChatPage implements PhoneCameraHost {
         if (relY < pTop || relY >= pBottom) {
             return false;
         }
-        int padX = UiFont.sh(8);
-        int padY = UiFont.sh(6);
+        int padX = PhoneText.px(8);
+        int padY = PhoneText.px(6);
         int labelH = lh();
         int availH = pBottom - pTop;
         int tileS = toolTile();
-        int gap = UiFont.sh(6);
+        int gap = PhoneText.px(6);
         int cols = Math.max(1, (phoneW() - padX * 2 + gap) / (tileS + gap));
         int startX = padX;
         int startY = pTop + padY;
@@ -1712,7 +1681,7 @@ public class ChatPage implements PhoneCameraHost {
             int col = i % cols;
             int row = i / cols;
             int x = startX + col * (tileS + gap);
-            int y = startY + row * (tileS + labelH + UiFont.sh(2));
+            int y = startY + row * (tileS + labelH + PhoneText.px(2));
             if (relX >= x && relX <= x + tileS && relY >= y && relY <= y + tileS) {
                 return true;
             }
@@ -1738,8 +1707,8 @@ public class ChatPage implements PhoneCameraHost {
         int color = voiceActive ? 0xFFC2605A : 0xFFDE7E7E;
         PhoneShapes.fillRoundedRect(g, cx - d / 2, cy - d / 2, d, d, d / 2, color);
         String label = voiceActive ? "松开发送" : "按住说话";
-        float ts = UiFont.sc(0.9f);
-        drawScaledText(g, font, label, cx - font.width(label) * ts / 2f,
+        float ts = PhoneText.scale(0.9f);
+        PhoneText.draw(g, font, label, cx - font.width(label) * ts / 2f,
                 cy - Minecraft.getInstance().font.lineHeight * ts / 2f, 0xFFFFFFFF, ts);
     }
 
@@ -1774,7 +1743,7 @@ public class ChatPage implements PhoneCameraHost {
 
     /** 相机取景框底（内容相对坐标，上方为取景区域，下方为控件条） */
     private int cameraViewBottom() {
-        return phoneH() - UiFont.sh(44);
+        return phoneH() - PhoneText.px(44);
     }
 
     /**
@@ -1805,14 +1774,14 @@ public class ChatPage implements PhoneCameraHost {
     private int[] cameraBarLayout(int w) {
         int h = phoneH();
         int barTop = cameraViewBottom();
-        int barH = Math.max(UiFont.sh(24), h - barTop);
-        int edge = UiFont.sh(5);
+        int barH = Math.max(PhoneText.px(24), h - barTop);
+        int edge = PhoneText.px(5);
 
-        int thumbSize = Math.max(UiFont.sh(14), barH - 8);
+        int thumbSize = Math.max(PhoneText.px(14), barH - 8);
         int thumbX = edge;
         int thumbY = barTop + (barH - thumbSize) / 2;
 
-        int shutterD = Math.max(UiFont.sh(SHUTTER_MIN), Math.round(w * SHUTTER_W_RATIO));
+        int shutterD = Math.max(PhoneText.px(SHUTTER_MIN), Math.round(w * SHUTTER_W_RATIO));
         int shutterX = w / 2 - shutterD / 2;
         int shutterY = barTop + (barH - shutterD) / 2;
 
@@ -1896,16 +1865,16 @@ public class ChatPage implements PhoneCameraHost {
         // 键名是玩家绑定的、可能很长，所以两段**共用同一个缩放**：宁可一起缩，也不让它们撞在一起。
         String backHint = "< 返回 " + cameraKeyHint(false);
         String title = shot ? ("长按" + cameraKeyHint(true) + "保存") : "拍照";
-        float barTs = UiFont.sc(0.85f);
-        int barAvail = w - UiFont.sh(10) - UiFont.sh(6);      // 左右边距 + 两段之间的间隔
+        float barTs = PhoneText.scale(0.85f);
+        int barAvail = w - PhoneText.px(10) - PhoneText.px(6);      // 左右边距 + 两段之间的间隔
         int barRaw = font.width(backHint) + font.width(title);
         if (barRaw > 0) {
             barTs = Math.min(barTs, barAvail / (float) barRaw);
         }
         barTs = Math.max(barTs, 0.40f);
         float barTextY = baseY + navH / 2f - font.lineHeight * barTs / 2f;
-        drawScaledText(g, font, backHint, baseX + UiFont.sh(4), barTextY, 0xFFFFFFFF, barTs);
-        drawScaledText(g, font, title, baseX + w - UiFont.sh(6) - font.width(title) * barTs,
+        PhoneText.draw(g, font, backHint, baseX + PhoneText.px(4), barTextY, 0xFFFFFFFF, barTs);
+        PhoneText.draw(g, font, title, baseX + w - PhoneText.px(6) - font.width(title) * barTs,
                 barTextY, 0xFFFFFFFF, barTs);
 
         if (shot) {
@@ -1920,15 +1889,15 @@ public class ChatPage implements PhoneCameraHost {
      * （左「上一张」预览、中圆形快门）。
      */
     private void renderViewfinder(GuiGraphics g, Font font, int baseX, int baseY, int w, int h, int navH) {
-        int viewTop = baseY + navH + UiFont.sh(8);
+        int viewTop = baseY + navH + PhoneText.px(8);
         int viewBottom = baseY + cameraViewBottom();
         int cx = baseX + w / 2;
         int cy = (viewTop + viewBottom) / 2;
 
         // 取景框：透明背景（游戏透出），仅画四角边框 + 十字准星
-        int fr = UiFont.sh(2);      // 框线宽
-        int corner = UiFont.sh(16); // 四角边长
-        int l = baseX + UiFont.sh(8), r = baseX + w - UiFont.sh(8);
+        int fr = PhoneText.px(2);      // 框线宽
+        int corner = PhoneText.px(16); // 四角边长
+        int l = baseX + PhoneText.px(8), r = baseX + w - PhoneText.px(8);
         g.fill(l, viewTop, l + corner, viewTop + fr, 0xCCFFFFFF);
         g.fill(r - corner, viewTop, r, viewTop + fr, 0xCCFFFFFF);
         g.fill(l, viewBottom - fr, l + corner, viewBottom, 0xCCFFFFFF);
@@ -1955,7 +1924,7 @@ public class ChatPage implements PhoneCameraHost {
             if (tex != null) {
                 int tx = baseX + thumbX;
                 int ty = baseY + thumbY;
-                PhoneShapes.fillRoundedRect(g, tx, ty, thumbSize, thumbSize, UiFont.sh(3), 0xCCFFFFFF);
+                PhoneShapes.fillRoundedRect(g, tx, ty, thumbSize, thumbSize, PhoneText.px(3), 0xCCFFFFFF);
                 g.blit(tex, tx, ty, thumbSize, thumbSize, 0.0f, 0.0f, d[0], d[1], d[0], d[1]);
             }
         }
@@ -1977,7 +1946,7 @@ public class ChatPage implements PhoneCameraHost {
         // 键名压到白圈上会糊在一起
         float ts = Math.min(inner * 0.86f / keyW, inner * 0.52f / Math.max(1f, font.lineHeight));
         ts = Math.max(0.20f, Math.min(ts, 0.70f));
-        drawScaledText(g, font, key, sx + (shutterD - keyW * ts) / 2f,
+        PhoneText.draw(g, font, key, sx + (shutterD - keyW * ts) / 2f,
                 sy + (shutterD - font.lineHeight * ts) / 2f, 0xFFFFFFFF, ts);
     }
 
@@ -2013,7 +1982,7 @@ public class ChatPage implements PhoneCameraHost {
         // 照片内容一花按钮就糊得看不清（这是全屏预览相对于缩略图版新引入的问题）。
         // ⚠ shotBarLayout 给的是**内容相对坐标**，画的时候要加 baseY。
         int[] L = shotBarLayout(w, h);
-        int scrimTop = baseY + L[1] - UiFont.sh(6);
+        int scrimTop = baseY + L[1] - PhoneText.px(6);
         g.fill(baseX, scrimTop, baseX + w, bottom, 0x66000000);
 
         // 左「重拍」（次要：白底红字） / 右「发送」（主操作：红底白字）
@@ -2027,10 +1996,10 @@ public class ChatPage implements PhoneCameraHost {
     private void drawActionPill(GuiGraphics g, Font font, int x, int y, int w, int h,
                                 int bgColor, int textColor, String label) {
         PhoneShapes.fillRoundedRect(g, x, y, w, h, h / 2, bgColor);
-        float ts = Math.min(UiFont.sc(1.0f), (w - UiFont.sh(6)) / Math.max(1f, (float) font.width(label)));
+        float ts = Math.min(PhoneText.scale(1.0f), (w - PhoneText.px(6)) / Math.max(1f, (float) font.width(label)));
         ts = Math.max(0.25f, ts);
         float tw = font.width(label) * ts;
-        drawScaledText(g, font, label, x + (w - tw) / 2f,
+        PhoneText.draw(g, font, label, x + (w - tw) / 2f,
                 y + (h - font.lineHeight * ts) / 2f, textColor, ts);
     }
 
@@ -2040,14 +2009,14 @@ public class ChatPage implements PhoneCameraHost {
      * @return {retakeX, retakeY, retakeW, retakeH, sendX, sendY, sendW, sendH}，内容区相对坐标
      */
     private int[] shotBarLayout(int w, int h) {
-        int margin = UiFont.sh(8);
-        int gap = UiFont.sh(6);
-        int btnH = Math.max(UiFont.sh(20), Math.round(h * 0.085f));
+        int margin = PhoneText.px(8);
+        int gap = PhoneText.px(6);
+        int btnH = Math.max(PhoneText.px(20), Math.round(h * 0.085f));
         // 宽度直接对半分，**不给固定最小宽度**：给了最小宽度在小手机/大字体倍率下
         // 右按钮会顶出屏幕（w=60、uiScale=2 时能溢出 14px）。宁可按钮窄、字号跟着缩，
         // 也不能画到手机外面去 —— 字号由 drawActionPill 按胶囊宽度自适应。
         int btnW = Math.max(1, (w - margin * 2 - gap) / 2);
-        int y = h - UiFont.sh(8) - btnH;
+        int y = h - PhoneText.px(8) - btnH;
         return new int[]{margin, y, btnW, btnH, margin + btnW + gap, y, btnW, btnH};
     }
 
@@ -2079,7 +2048,7 @@ public class ChatPage implements PhoneCameraHost {
      */
     private boolean handleCameraClick(double relX, double relY, int w) {
         // 左上角返回（含 nav 条左侧那颗"返回 <键名>"）
-        if (relY >= 0 && relY <= navH() && relX >= 0 && relX <= UiFont.sh(84)) {
+        if (relY >= 0 && relY <= navH() && relX >= 0 && relX <= PhoneText.px(84)) {
             cameraBackAction();
             return true;
         }
@@ -2169,17 +2138,17 @@ public class ChatPage implements PhoneCameraHost {
 
     /** 图片边长：随全局字体倍率缩放（GALLERY_ITEM 为基准；与面板高度联动，保证图片完整可见） */
     private int galleryItemSize() {
-        return UiFont.sh(GALLERY_ITEM);
+        return PhoneText.px(GALLERY_ITEM);
     }
 
     /** 图片栏内容总宽（用于滚动钳制） */
     private int galleryContentWidth() {
-        return Math.max(0, galleryDisplayItems().size() * (galleryItemSize() + UiFont.sh(8)) - UiFont.sh(8) + UiFont.sh(24));
+        return Math.max(0, galleryDisplayItems().size() * (galleryItemSize() + PhoneText.px(8)) - PhoneText.px(8) + PhoneText.px(24));
     }
 
     /** 图片栏可滚动范围 */
     private int galleryMaxScroll() {
-        int viewW = phoneW() - UiFont.sh(20);
+        int viewW = phoneW() - PhoneText.px(20);
         return Math.max(0, galleryContentWidth() - viewW);
     }
 
@@ -2192,16 +2161,16 @@ public class ChatPage implements PhoneCameraHost {
         List<String> items = galleryDisplayItems();
         int viewH = Math.max(0, pBottom - pTop);
         galleryScrollOffset = clampGalleryScroll(galleryScrollOffset);
-        int itemY = pTop + UiFont.sh(6);
+        int itemY = pTop + PhoneText.px(6);
         int itemSize = galleryItemSize();
-        int gap = UiFont.sh(8);
-        int startX = baseX + UiFont.sh(12) - galleryScrollOffset;
+        int gap = PhoneText.px(8);
+        int startX = baseX + PhoneText.px(12) - galleryScrollOffset;
 
         g.enableScissor(baseX, pTop, baseX + w, pBottom);
         if (items.isEmpty()) {
-            drawScaledText(g, font, "暂无照片，先用📷拍一张吧",
-                    baseX + (w - font.width("暂无照片，先用📷拍一张吧") * UiFont.sc(1.0f)) / 2,
-                    itemY, 0xFF8A6A6A, UiFont.sc(1.0f));
+            PhoneText.draw(g, font, "暂无照片，先用📷拍一张吧",
+                    baseX + (w - font.width("暂无照片，先用📷拍一张吧") * PhoneText.scale(1.0f)) / 2,
+                    itemY, 0xFF8A6A6A, PhoneText.scale(1.0f));
             g.disableScissor();
             return;
         }
@@ -2215,25 +2184,25 @@ public class ChatPage implements PhoneCameraHost {
             // 选中描边
             boolean selected = selectedImageKey != null && selectedImageKey.equals(key);
             int border = selected ? 0xFFDE7E7E : 0xFFFFFFFF;
-            PhoneShapes.fillRoundedRect(g, x, itemY, itemSize, itemSize, UiFont.sh(4), border);
+            PhoneShapes.fillRoundedRect(g, x, itemY, itemSize, itemSize, PhoneText.px(4), border);
             ResourceLocation tex = PhotoLibrary.getOrLoadTexture(key);
             if (tex != null) {
                 int[] d = PhotoLibrary.getTextureSize(key);
-                int inset = UiFont.sh(2);
+                int inset = PhoneText.px(2);
                 g.blit(tex, x + inset, itemY + inset, itemSize - inset * 2, itemSize - inset * 2,
                         0.0f, 0.0f, d[0], d[1], d[0], d[1]);
             } else {
-                g.fill(x + UiFont.sh(2), itemY + UiFont.sh(2), x + itemSize - UiFont.sh(2),
-                        itemY + itemSize - UiFont.sh(2), 0xFFB0BEC5);
+                g.fill(x + PhoneText.px(2), itemY + PhoneText.px(2), x + itemSize - PhoneText.px(2),
+                        itemY + itemSize - PhoneText.px(2), 0xFFB0BEC5);
             }
             // 右上角选中小方块：边长 = 图片高度的 1/4，未选灰(25%) / 选中粉 #de7e7e
-            int indX = x + itemSize - indSize - UiFont.sh(2);
-            int indY = itemY + UiFont.sh(2);
+            int indX = x + itemSize - indSize - PhoneText.px(2);
+            int indY = itemY + PhoneText.px(2);
             g.fill(indX, indY, indX + indSize, indY + indSize, selected ? 0xFFDE7E7E : 0x40000000);
             // 左下角删除小红叉（仅已持久化的图库照片；临时 __camshot__ 不显示）：红底 + 白 X
             if (!key.startsWith(CAM_SHOT_KEY)) {
-                int delX = x + UiFont.sh(2);
-                int delY = itemY + itemSize - indSize - UiFont.sh(2);
+                int delX = x + PhoneText.px(2);
+                int delY = itemY + itemSize - indSize - PhoneText.px(2);
                 g.fill(delX, delY, delX + indSize, delY + indSize, 0xFFE53935);
                 drawX(g, delX + Math.max(1, indSize / 5), delY + Math.max(1, indSize / 5),
                         indSize - Math.max(2, indSize / 5) * 2, 0xFFFFFFFF);
@@ -2262,14 +2231,14 @@ public class ChatPage implements PhoneCameraHost {
             return false;
         }
         int itemSize = galleryItemSize();
-        int gap = UiFont.sh(8);
-        int startX = UiFont.sh(12) - galleryScrollOffset;
+        int gap = PhoneText.px(8);
+        int startX = PhoneText.px(12) - galleryScrollOffset;
         int indSize = Math.max(1, itemSize / 4);
         for (int i = 0; i < items.size(); i++) {
             String key = items.get(i);
             int x = startX + i * (itemSize + gap);
-            int indX = x + itemSize - indSize - UiFont.sh(2);
-            int indY = pTop + UiFont.sh(6) + UiFont.sh(2);
+            int indX = x + itemSize - indSize - PhoneText.px(2);
+            int indY = pTop + PhoneText.px(6) + PhoneText.px(2);
             if (relX >= indX && relX <= indX + indSize && relY >= indY && relY <= indY + indSize) {
                 toggleGallerySelect(key);
                 return true;
@@ -2289,8 +2258,8 @@ public class ChatPage implements PhoneCameraHost {
             return false;
         }
         int itemSize = galleryItemSize();
-        int gap = UiFont.sh(8);
-        int startX = UiFont.sh(12) - galleryScrollOffset;
+        int gap = PhoneText.px(8);
+        int startX = PhoneText.px(12) - galleryScrollOffset;
         int delSize = Math.max(1, itemSize / 4);
         for (int i = 0; i < items.size(); i++) {
             String key = items.get(i);
@@ -2298,8 +2267,8 @@ public class ChatPage implements PhoneCameraHost {
                 continue; // 临时照无删除
             }
             int x = startX + i * (itemSize + gap);
-            int delX = x + UiFont.sh(2);
-            int delY = pTop + UiFont.sh(6) + itemSize - delSize - UiFont.sh(2);
+            int delX = x + PhoneText.px(2);
+            int delY = pTop + PhoneText.px(6) + itemSize - delSize - PhoneText.px(2);
             if (relX >= delX && relX <= delX + delSize && relY >= delY && relY <= delY + delSize) {
                 deleteGalleryImage(key);
                 return true;
@@ -2325,9 +2294,9 @@ public class ChatPage implements PhoneCameraHost {
         }
         int pTop = panelTop(0);
         int itemSize = galleryItemSize();
-        int gap = UiFont.sh(8);
-        int startX = UiFont.sh(12) - galleryScrollOffset;
-        int itemY = pTop + UiFont.sh(6);
+        int gap = PhoneText.px(8);
+        int startX = PhoneText.px(12) - galleryScrollOffset;
+        int itemY = pTop + PhoneText.px(6);
         for (int i = 0; i < items.size(); i++) {
             int x = startX + i * (itemSize + gap);
             if (relX >= x && relX <= x + itemSize && relY >= itemY && relY <= itemY + itemSize) {
@@ -2490,9 +2459,9 @@ public class ChatPage implements PhoneCameraHost {
     private void renderEmotePanel(GuiGraphics g, Font font, int baseX, int pTop, int pBottom, int w) {
         List<EmoteEntry> emotes = getAllEmotes();
         if (emotes.isEmpty()) {
-            drawScaledText(g, font, "暂无表情包",
-                    baseX + (w - font.width("暂无表情包") * UiFont.sc(1.0f)) / 2,
-                    pTop + UiFont.sh(8), 0xFF8A6A6A, UiFont.sc(1.0f));
+            PhoneText.draw(g, font, "暂无表情包",
+                    baseX + (w - font.width("暂无表情包") * PhoneText.scale(1.0f)) / 2,
+                    pTop + PhoneText.px(8), 0xFF8A6A6A, PhoneText.scale(1.0f));
             return;
         }
         int[] p = emoteGridParams();
@@ -2510,7 +2479,7 @@ public class ChatPage implements PhoneCameraHost {
                 continue;
             }
             PhoneShapes.fillRoundedRect(g, x, y, p[1], p[1], p[1] / 4, 0xFFFFFFFF);
-            int inset = UiFont.sh(2);
+            int inset = PhoneText.px(2);
             g.blit(e.loc(), x + inset, y + inset, p[1] - inset * 2, p[1] - inset * 2,
                     0.0f, 0.0f, e.w(), e.h(), e.w(), e.h());
         }
@@ -2586,14 +2555,14 @@ public class ChatPage implements PhoneCameraHost {
 
     /** 表情消息气泡绘制尺寸（宽/高），含上下内边距 */
     private int emoteBubbleSize() {
-        return EMOTE_DRAW_SIZE + UiFont.sh(8);
+        return EMOTE_DRAW_SIZE + PhoneText.px(8);
     }
 
     /** 绘制一条表情消息气泡：纯图片气泡，始终带头像。 */
     private int drawEmoteBubble(GuiGraphics g, Font font, int baseX, int yBottom, int phoneW, ChatMessage m,
                                 boolean showAvatar, boolean groupTop) {
         boolean isPlayer = m.isPlayer();
-        int pad = UiFont.sh(4);
+        int pad = PhoneText.px(4);
         int bubbleW = emoteBubbleSize();
         int bubbleH = emoteBubbleSize();
         int yTop = yBottom - bubbleH;
@@ -2631,9 +2600,9 @@ public class ChatPage implements PhoneCameraHost {
         if (groupTop) {
             String timeText = formatGameTime(m.gameTime());
             if (!timeText.isEmpty()) {
-                float ts = UiFont.sc(0.5f);
+                float ts = PhoneText.scale(0.5f);
                 int centerX = baseX + phoneW / 2;
-                drawScaledText(g, font, timeText,
+                PhoneText.draw(g, font, timeText,
                         centerX - font.width(timeText) * ts / 2f, yTop - timeH(), 0xFF9A8A90, ts);
             }
         }
@@ -2642,13 +2611,13 @@ public class ChatPage implements PhoneCameraHost {
 
     /** 玩家图片气泡尺寸（宽/高），含内边距 */
     private int imageBubbleSize() {
-        return IMAGE_DRAW_SIZE + UiFont.sh(8);
+        return IMAGE_DRAW_SIZE + PhoneText.px(8);
     }
 
     /** 绘制一条玩家发送的本地图片气泡（始终带头像）。 */
     private int drawImageBubble(GuiGraphics g, Font font, int baseX, int yBottom, int phoneW, ChatMessage m,
                                 boolean showAvatar, boolean groupTop) {
-        int pad = UiFont.sh(4);
+        int pad = PhoneText.px(4);
         int bubbleW = imageBubbleSize();
         int bubbleH = imageBubbleSize();
         int yTop = yBottom - bubbleH;
@@ -2665,8 +2634,8 @@ public class ChatPage implements PhoneCameraHost {
             if (m.pending()) {
                 g.fill(bubbleLeft + pad, yTop + pad, bubbleLeft + pad + IMAGE_DRAW_SIZE,
                         yTop + pad + IMAGE_DRAW_SIZE, 0x4D808080);
-                float ts = UiFont.sc(0.5f);
-                drawScaledText(g, font, "图片压缩中…",
+                float ts = PhoneText.scale(0.5f);
+                PhoneText.draw(g, font, "图片压缩中…",
                         bubbleLeft + pad + (IMAGE_DRAW_SIZE - font.width("图片压缩中…") * ts) / 2f,
                         yTop + pad + (IMAGE_DRAW_SIZE - font.lineHeight * ts) / 2f,
                         0xFFFFFFFF, ts);
@@ -2677,16 +2646,16 @@ public class ChatPage implements PhoneCameraHost {
         }
         // 识图出错：图片左侧标小红感叹号
         if (m.isError()) {
-            drawScaledText(g, font, "!", bubbleLeft - UiFont.sh(8), yTop + UiFont.sh(2),
-                    0xFFFF3333, UiFont.sc(1.0f));
+            PhoneText.draw(g, font, "!", bubbleLeft - PhoneText.px(8), yTop + PhoneText.px(2),
+                    0xFFFF3333, PhoneText.scale(1.0f));
         }
         drawAvatarPlaceholder(g, baseX + phoneW - AVATAR - 2, yTop, true);
         if (groupTop) {
             String timeText = formatGameTime(m.gameTime());
             if (!timeText.isEmpty()) {
-                float ts = UiFont.sc(0.5f);
+                float ts = PhoneText.scale(0.5f);
                 int centerX = baseX + phoneW / 2;
-                drawScaledText(g, font, timeText,
+                PhoneText.draw(g, font, timeText,
                         centerX - font.width(timeText) * ts / 2f, yTop - timeH(), 0xFF9A8A90, ts);
             }
         }
@@ -2738,7 +2707,19 @@ public class ChatPage implements PhoneCameraHost {
         PacketDistributor.sendToServer(new C2SClaimTransferPacket(stableId, transferId));
     }
 
-    /** 矩形命中判定（relX/relY 相对手机左上角） */
+    /**
+     * 矩形命中判定（relX/relY 相对手机左上角）。
+     *
+     * <h2>⚠ 为什么本类<b>没有</b>改用公开的 {@code PhoneLayout.hit}</h2>
+     * 两者的<b>边界语义不同</b>：本方法历史实现是<b>闭区间</b>
+     * （{@code x <= rx + rw}、{@code y <= ry + rh}），而 {@code PhoneLayout.hit} 是<b>半开区间</b>
+     * （{@code x < rx + rw}）。本页的命中区密集相邻（消息气泡 / 图库格子 / 表情格 / 工具瓦片 /
+     * 相机构图按钮），边界像素归谁所有会实际影响点击行为，而聊天页没有自动化测试兜底 ——
+     * 换语义属于"改行为"，不是"去重复"。
+     * <p>
+     * 所以这里保持原样。等作者实机确认"边界 1 像素的归属"可接受时，
+     * 把方法体换成 {@code return PhoneLayout.hit(x, y, rx, ry, rw, rh);} 即可（参数顺序一致）。
+     */
     private static boolean hit(double x, double y, int rx, int ry, int rw, int rh) {
         return x >= rx && x <= rx + rw && y >= ry && y <= ry + rh;
     }
@@ -2819,12 +2800,12 @@ public class ChatPage implements PhoneCameraHost {
             int pTop = panelTop(0);
             int pBottom = extBarTop(0);
             if (relY >= pTop && relY < pBottom) {
-                int padX = UiFont.sh(8);
-                int padY = UiFont.sh(6);
+                int padX = PhoneText.px(8);
+                int padY = PhoneText.px(6);
                 int labelH = lh();
                 int availH = pBottom - pTop;
                 int tileS = toolTile();
-                int gap = UiFont.sh(6);
+                int gap = PhoneText.px(6);
                 int cols = Math.max(1, (w - padX * 2 + gap) / (tileS + gap));
                 int startX = padX;
                 int startY = pTop + padY;
@@ -2832,7 +2813,7 @@ public class ChatPage implements PhoneCameraHost {
                     int col = i % cols;
                     int row = i / cols;
                     int x = startX + col * (tileS + gap);
-                    int y = startY + row * (tileS + labelH + UiFont.sh(2));
+                    int y = startY + row * (tileS + labelH + PhoneText.px(2));
                     if (relX >= x && relX <= x + tileS && relY >= y && relY <= y + tileS) {
                         openExtraTool(i);
                         return true;

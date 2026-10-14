@@ -2,6 +2,7 @@ package com.huhutalk.phone;
 
 import com.huhutalk.HuhuTalk;
 import com.huhutalk.api.phone.camera.PhoneCameraHost;
+import com.huhutalk.api.phone.ui.PhoneText;
 import com.huhutalk.client.render.PhoneScreenTarget;
 import com.huhutalk.client.render.ProPhoneHandRenderer;
 import com.huhutalk.client.settings.HuhuTalkClientSettings;
@@ -303,7 +304,7 @@ public class PhoneOverlay {
         if (phoneTotalHeight <= 0) {
             return 0f;
         }
-        return clamp01(UiFont.sh(STATUSBAR_H) * 0.5f / phoneTotalHeight);
+        return clamp01(PhoneText.px(STATUSBAR_H) * 0.5f / phoneTotalHeight);
     }
 
     /**
@@ -397,7 +398,7 @@ public class PhoneOverlay {
      * 把光标推到顶栏就是那条"快速松手"的出路（实机反馈补上）。
      */
     public static boolean isCursorInTopBar() {
-        return cursorLocalY() < UiFont.sh(STATUSBAR_H);
+        return cursorLocalY() < PhoneText.px(STATUSBAR_H);
     }
 
     /**
@@ -448,7 +449,7 @@ public class PhoneOverlay {
             boolean both = false;
             IPhonePage curPage = getCurrentPage();
             double pageRelX = cursorLocalX();
-            double pageRelY = cursorLocalY() - UiFont.sh(STATUSBAR_H);
+            double pageRelY = cursorLocalY() - PhoneText.px(STATUSBAR_H);
             if (curPage != null) {
                 both = curPage.dragAxisBoth();
                 horizontal = both
@@ -484,8 +485,8 @@ public class PhoneOverlay {
         } else {
             // 悬停高亮：把移动转发给页面（坐标与点击完全一致）
             IPhonePage page = getCurrentPage();
-            if (page != null && cursorLocalY() >= UiFont.sh(STATUSBAR_H)) {
-                page.mouseMoved(cursorLocalX(), cursorLocalY() - UiFont.sh(STATUSBAR_H));
+            if (page != null && cursorLocalY() >= PhoneText.px(STATUSBAR_H)) {
+                page.mouseMoved(cursorLocalX(), cursorLocalY() - PhoneText.px(STATUSBAR_H));
             }
         }
         PhoneScreenTarget.markDirty();
@@ -547,7 +548,7 @@ public class PhoneOverlay {
                 IPhonePage cur = getCurrentPage();
                 boolean longPressed = cur != null
                         && System.currentTimeMillis() - pressStartAt >= LONG_PRESS_MS
-                        && cur.onLongPress(relX, relY - UiFont.sh(STATUSBAR_H));
+                        && cur.onLongPress(relX, relY - PhoneText.px(STATUSBAR_H));
                 if (!longPressed) {
                     handlePhoneLocalMouse(relX, relY, GLFW.GLFW_MOUSE_BUTTON_LEFT, GLFW.GLFW_PRESS);
                     handlePhoneLocalMouse(relX, relY, GLFW.GLFW_MOUSE_BUTTON_LEFT, GLFW.GLFW_RELEASE);
@@ -679,10 +680,10 @@ public class PhoneOverlay {
         if (page == null) {
             return false;
         }
-        if (relY < UiFont.sh(STATUSBAR_H)) {
+        if (relY < PhoneText.px(STATUSBAR_H)) {
             return true;
         }
-        return page.mouseScrolled(relX, relY - UiFont.sh(STATUSBAR_H), scrollDelta);
+        return page.mouseScrolled(relX, relY - PhoneText.px(STATUSBAR_H), scrollDelta);
     }
 
     /**
@@ -703,10 +704,26 @@ public class PhoneOverlay {
         // 永远不需要猜"为什么光标不动了 / 为什么视角变慢了"。
         boolean active = isScreenControl();
         int outer = active && cursorPressing && !dragIsScroll ? 15 : 11;
+
+        // ⚠ 必须显式抬到物品图标**之上**（否则光标会"沉"到格子里的物品下面）。
+        //
+        // 机制：深度测试是开着的，而且 GUI 的 RenderType.gui() 用的是 LEQUAL_DEPTH_TEST
+        // （1.21.1 源 RenderType.java L698-707）。物品图标由
+        // GuiGraphics.renderItem 画在 **z=150**（源 GuiGraphics.java L1284 的硬编码平移），
+        // 而 fill / drawString / blit 默认 **z=0**。z 越大离摄像机越近，
+        // 于是物品先把 150 的深度写进深度缓冲，之后 z=0 的 fill 比较 LEQUAL **一律失败**
+        // —— 表现为"物品压在光标上"。
+        //
+        // 这不是洁癖：原版给物品的数量角标用的就是 z=200（GuiGraphics.renderItemDecorations
+        // 里那句 translate(0,0,200f)），正是因为同一个原因。光标是整台手机最上层的东西，
+        // 所以要抬得比 150（物品本体）和 200（原版角标）都高，取 300。
+        graphics.pose().pushPose();
+        graphics.pose().translate(0f, 0f, 300f);
         PhoneShapes.fillRoundedRect(graphics, cx - outer / 2, cy - outer / 2, outer, outer, outer / 2,
                 active ? 0x55FFFFFF : 0x22FFFFFF);
         PhoneShapes.fillRoundedRect(graphics, cx - 3, cy - 3, 6, 6, 3, active ? 0xFFFFFFFF : 0x88FFFFFF);
         PhoneShapes.fillRoundedRect(graphics, cx - 1, cy - 1, 2, 2, 1, active ? 0xFFDE7E7E : 0x66DE7E7E);
+        graphics.pose().popPose();
     }
 
     // ==================== 访问器 ====================
@@ -716,14 +733,14 @@ public class PhoneOverlay {
     /** 手机内容区高度（不含状态栏），页面布局基于此 */
     public static int getPhoneHeight() { return phoneHeight; }
     /** 统一状态栏高度（像素），页面命中判定据此与渲染基准对齐 */
-    public static int getStatusBarHeight() { return UiFont.sh(STATUSBAR_H); }
+    public static int getStatusBarHeight() { return PhoneText.px(STATUSBAR_H); }
     /** 底部导航（胶囊）高度 */
     private static int bottomNavH() {
-        return Math.round(Minecraft.getInstance().font.lineHeight * UiFont.sc(1.5f));
+        return Math.round(Minecraft.getInstance().font.lineHeight * PhoneText.scale(1.5f));
     }
     /** 底部导航上抬量：0.25 倍默认字体高，使其浮在水印栏上方留出空隙 */
     private static int navRaise() {
-        return Math.round(Minecraft.getInstance().font.lineHeight * UiFont.sc(0.25f));
+        return Math.round(Minecraft.getInstance().font.lineHeight * PhoneText.scale(0.25f));
     }
     /**
      * 页面底部预留的导航高度。
@@ -761,7 +778,7 @@ public class PhoneOverlay {
 
     /** 垂直约束：顶部状态栏高度必须完整在屏内（向下可把状态栏以下内容全部滑出） */
     private static int clampPhoneY(int y, int screenH) {
-        return Math.max(0, Math.min(screenH - UiFont.sh(STATUSBAR_H), y));
+        return Math.max(0, Math.min(screenH - PhoneText.px(STATUSBAR_H), y));
     }
 
     /** 当前鼠标在 GUI 缩放坐标下的 X */
@@ -1293,20 +1310,20 @@ public class PhoneOverlay {
         a = Math.max(0f, Math.min(1f, a));
 
         Font font = Minecraft.getInstance().font;
-        float ts = UiFont.sc(1.0f);
+        float ts = PhoneText.scale(1.0f);
         FormattedCharSequence seq = Component.literal(bubbleText).getVisualOrderText();
         int textW = (int) (font.width(seq) * ts);
         int textH = (int) Math.ceil(font.lineHeight * ts);
-        int padX = UiFont.sh(9);
-        int padY = UiFont.sh(5);
-        int bubbleW = Math.min(w - UiFont.sh(8), textW + padX * 2);
+        int padX = PhoneText.px(9);
+        int padY = PhoneText.px(5);
+        int bubbleW = Math.min(w - PhoneText.px(8), textW + padX * 2);
         int bubbleH = textH + padY * 2;
         int bx = baseX + (w - bubbleW) / 2;
         int by = baseY + Math.round(h * 0.58f) - bubbleH / 2;
         int bgAlpha = Math.round(a * 0.70f * 255f);
         PhoneShapes.fillRoundedRect(graphics, bx, by, bubbleW, bubbleH, bubbleH / 2, bgAlpha << 24);
         int fgAlpha = (Math.round(a * 255f) << 24) | 0x00FFFFFF;
-        drawScaledText(graphics, font, seq,
+        PhoneText.draw(graphics, font, seq,
                 bx + (bubbleW - font.width(seq) * ts) / 2f,
                 by + (bubbleH - font.lineHeight * ts) / 2f + 1,
                 fgAlpha, ts);
@@ -1370,7 +1387,7 @@ public class PhoneOverlay {
             width = (int)Math.round(totalHeight * aspect);
         }
         phoneWidth = external ? externalW : Math.max(MIN_PHONE_W, Math.min(width, screenW - 20));
-        phoneHeight = Math.max(20, totalHeight - UiFont.sh(STATUSBAR_H) - UiFont.sh(WATERMARK_H));
+        phoneHeight = Math.max(20, totalHeight - PhoneText.px(STATUSBAR_H) - PhoneText.px(WATERMARK_H));
         phoneTotalHeight = totalHeight;
         // 独立光标为归一化存储，天然自钳制；两个模式各自映射到自己的矩形
         // 待重置标记：布局尺寸此时才确定（且两个模式的手机高度不同），在这里把出生点校正到位
@@ -1466,7 +1483,7 @@ public class PhoneOverlay {
         // 模型屏不画壳：3D 模型自带机身边框，再叠一层壳会糊住边缘，也违背「屏幕直接画在模型上」的初衷。
         if (!external) {
             PhoneCaseRenderer.renderCase(graphics, phoneX, ry, phoneWidth, totalHeight,
-                    UiFont.sh(STATUSBAR_H), UiFont.sh(WATERMARK_H));
+                    PhoneText.px(STATUSBAR_H), PhoneText.px(WATERMARK_H));
         }
 
         // 当前页面
@@ -1484,7 +1501,7 @@ public class PhoneOverlay {
         //   走 RenderType.text，带 alpha 混合）。离屏靶底色是透明黑，于是这一层的 alpha
         //   会一路带到最后：屏幕的四角/边缘按 6.7% 和世界混色，昼夜一变色就看得见。
         //   屏幕内容必须**完全不透明**，alpha 只能是 255。相机模式的 0x00... 是刻意的，保留。
-        fillRoundedRect(graphics, phoneX, ry, phoneWidth, totalHeight, UiFont.sh(STATUSBAR_H), UiFont.sh(WATERMARK_H),
+        fillRoundedRect(graphics, phoneX, ry, phoneWidth, totalHeight, PhoneText.px(STATUSBAR_H), PhoneText.px(WATERMARK_H),
                 cameraTransparent ? 0x00111111 : 0xFF111111);
 
         // 统一状态栏（圆角顶）
@@ -1493,7 +1510,7 @@ public class PhoneOverlay {
         // 当前页面内容区：从状态栏下方开始，到水印栏上方结束。
         // 转场中同时绘制退场页(向右滑出+淡出)与进场页(自右滑入+淡入)，否则只绘制当前顶页。
         int contentBaseX = phoneX;
-        int contentBaseY = ry + UiFont.sh(STATUSBAR_H);
+        int contentBaseY = ry + PhoneText.px(STATUSBAR_H);
         if (uiAnimEnabled() && launchActive && launchTween != null) {
             // APP 桌面启动：底层首页原地淡入 0→1，顶层 APP 色块由小放大、1→0 淡出
             float raw = launchTween.raw();
@@ -1544,11 +1561,11 @@ public class PhoneOverlay {
 
         // 底部导航（仅 HuhuTalk App 内且处于顶层页时显示），悬浮于水印栏上方并上抬留出空隙
         if (inChatApp && !isInSubPage()) {
-            renderBottomNav(graphics, phoneX, ry + totalHeight - UiFont.sh(WATERMARK_H) - bottomNavH() - navRaise(), phoneWidth);
+            renderBottomNav(graphics, phoneX, ry + totalHeight - PhoneText.px(WATERMARK_H) - bottomNavH() - navRaise(), phoneWidth);
         }
 
         // 底部水印栏（圆角底）
-        renderWatermark(graphics, phoneX, ry + totalHeight - UiFont.sh(WATERMARK_H), phoneWidth, UiFont.sh(WATERMARK_H));
+        renderWatermark(graphics, phoneX, ry + totalHeight - PhoneText.px(WATERMARK_H), phoneWidth, PhoneText.px(WATERMARK_H));
 
         // 屏幕亮度滤镜：按设置叠一层黑色圆角蒙版，把「手机屏 + 手机壳」一起变暗（0~70% 不透明度）。
         // 亮度 1 = 满亮度不调；往低调，蒙版越不透明（最低叠 70%）。不拦截点击。
@@ -1559,7 +1576,7 @@ public class PhoneOverlay {
             if (external) {
                 // 模型屏：不画壳，蒙版就只盖手机本体，不能按壳的厚度外扩（否则黑块比屏幕大一圈）
                 fillRoundedRect(graphics, phoneX, ry, phoneWidth, totalHeight,
-                        UiFont.sh(STATUSBAR_H), UiFont.sh(WATERMARK_H), dimColor);
+                        PhoneText.px(STATUSBAR_H), PhoneText.px(WATERMARK_H), dimColor);
             } else {
                 int caseX = phoneX - PhoneCaseRenderer.CASE_THICKNESS;
                 int caseY = ry - PhoneCaseRenderer.CASE_THICKNESS;
@@ -1571,7 +1588,7 @@ public class PhoneOverlay {
         }
 
         // 屏内气泡（"保存成功"这类结果提示）画在光标之下、一切页面内容之上
-        renderBubble(graphics, phoneX, ry + UiFont.sh(STATUSBAR_H), phoneWidth, phoneHeight);
+        renderBubble(graphics, phoneX, ry + PhoneText.px(STATUSBAR_H), phoneWidth, phoneHeight);
 
         // 独立光标画在最上层。必须在 render 内部（而不是 GUI 层），才能随 Overlay 一起进离屏纹理。
         renderCursor(graphics, phoneX, ry);
@@ -1589,13 +1606,21 @@ public class PhoneOverlay {
         //
         // colorMask 关掉 RGB 写、只留 alpha 写，所以这一步对画面**零副作用**，
         // 只是把"屏幕必须是实心的"这件事从"靠每一层自觉"改成"结构上保证"。
-        if (external) {
+        //
+        // ⚠⚠ **相机取景时必须整段跳过**（这个 bug 查了很久，别再踩）。
+        //   取景框能透出世界，靠的正是"取景区域在离屏靶里保持 (0,0,0,0)"：
+        //   屏幕四边形走 SRC_ALPHA 混合，靶里 alpha=0 ⇒ 目标像素原样保留 ⇒ 看到世界。
+        //   而这一步把手机矩形内**整个** alpha 写成 255（连取景区一起），
+        //   于是取景区变成 (0,0,0,255) = **不透明纯黑**，屏幕四边形一贴就是一块黑底
+        //   —— 实机表现正是"相机页直接画了个黑底"。
+        //   非相机页面没有 (0,0,0,0) 的空白区域，所以那里的 alpha 钉底依然要做。
+        if (external && !cameraTransparent) {
             RenderSystem.colorMask(false, false, false, true);
             RenderSystem.enableBlend();
             RenderSystem.defaultBlendFunc();
             graphics.flush();   // 先把上面所有绘制的批处理落盘，免得被下面的 alpha 写影响
             fillRoundedRect(graphics, phoneX, ry, phoneWidth, totalHeight,
-                    UiFont.sh(STATUSBAR_H), UiFont.sh(WATERMARK_H), 0xFFFFFFFF);
+                    PhoneText.px(STATUSBAR_H), PhoneText.px(WATERMARK_H), 0xFFFFFFFF);
             graphics.flush();
             RenderSystem.colorMask(true, true, true, true);
         }
@@ -1660,16 +1685,16 @@ public class PhoneOverlay {
     /** 统一状态栏：时间 / 信号 / 电源 / 关闭（圆角顶；内容 0.75 倍×全局倍率、离开圆角范围） */
     private static void renderStatusBar(GuiGraphics graphics, int baseX, int baseY, int w) {
         Font font = Minecraft.getInstance().font;
-        fillRoundedRect(graphics, baseX, baseY, w, UiFont.sh(STATUSBAR_H), UiFont.sh(STATUSBAR_H), 0, 0xFF222222);
+        fillRoundedRect(graphics, baseX, baseY, w, PhoneText.px(STATUSBAR_H), PhoneText.px(STATUSBAR_H), 0, 0xFF222222);
         // 时间（跟随世界内部时间，向左留出圆角，往中间移一点）
-        drawScaledText(graphics, font, Component.literal(gameTimeString()).getVisualOrderText(),
-                baseX + 14, baseY + 3, 0xFFFFFFFF, UiFont.sc(0.75f));
+        PhoneText.draw(graphics, font, Component.literal(gameTimeString()).getVisualOrderText(),
+                baseX + 14, baseY + 3, 0xFFFFFFFF, PhoneText.scale(0.75f));
         int rightX = baseX + w;
         // 关闭 X（完全透明：不绘制文字，视觉不可见；点击区域逻辑保留于 handleMouseClicked 状态栏右侧）
         // 电池：垂直电池图标（🔋 旋转 90° 仿现实电池，尺寸为原 emoji 的 1.5 倍，位于原 X 左侧）
-        renderBattery(graphics, rightX - UiFont.sh(28), baseY + UiFont.sh(STATUSBAR_H) / 2);
+        renderBattery(graphics, rightX - PhoneText.px(28), baseY + PhoneText.px(STATUSBAR_H) / 2);
         // 信号（0.75 倍，离开右圆角，位于电池左侧）
-        renderSignalBars(graphics, rightX - UiFont.sh(50), baseY, UiFont.sh(STATUSBAR_H));
+        renderSignalBars(graphics, rightX - PhoneText.px(50), baseY, PhoneText.px(STATUSBAR_H));
     }
 
     /** 电池图标：将 🔋 emoji 旋转 90° 变为垂直（正极触点朝上），仿现实电池，尺寸为原 emoji 的 1.5 倍 */
@@ -1678,7 +1703,7 @@ public class PhoneOverlay {
         FormattedCharSequence glyph = Component.literal("🔋").getVisualOrderText();
         float gw = font.width(glyph);
         float gh = font.lineHeight;
-        float scale = UiFont.sc(0.75f) * 1.5f; // 1.5 倍
+        float scale = PhoneText.scale(0.75f) * 1.5f; // 1.5 倍
         g.pose().pushPose();
         g.pose().translate(centerX, centerY, 0);
         g.pose().mulPose(Axis.ZP.rotationDegrees(90)); // 顺时针 90°，使正极朝上
@@ -1705,7 +1730,7 @@ public class PhoneOverlay {
     /** 底部水印栏：深蓝底 + 白色加粗版本文字（圆角底；文字 0.75 倍、用空格分隔，过宽时缩放适配） */
     private static void renderWatermark(GuiGraphics graphics, int baseX, int baseY, int w, int h) {
         Font font = Minecraft.getInstance().font;
-        fillRoundedRect(graphics, baseX, baseY, w, h, 0, UiFont.sh(WATERMARK_H), WATERMARK_BG);
+        fillRoundedRect(graphics, baseX, baseY, w, h, 0, PhoneText.px(WATERMARK_H), WATERMARK_BG);
         String version = ModList.get().getModContainerById(HuhuTalk.MOD_ID)
                 .map(c -> c.getModInfo().getVersion().toString())
                 .orElse("1.0.1");
@@ -1713,7 +1738,7 @@ public class PhoneOverlay {
                 .withStyle(s -> s.withBold(true));
         FormattedCharSequence seq = comp.getVisualOrderText();
         float tw = font.width(seq);
-        float cap = 0.75f * UiFont.uiScale();
+        float cap = 0.75f * PhoneText.scale(1.0f);
         float scale = Math.max(0.5f, Math.min(cap, (w - 8f) / tw));
         float renderW = tw * scale;
         float drawX = (baseX + (w - renderW) / 2f) / scale;
@@ -1722,15 +1747,6 @@ public class PhoneOverlay {
         graphics.pose().scale(scale, scale, 1.0f);
         graphics.drawString(font, seq, drawX, drawY, 0xFFFFFFFF, false);
         graphics.pose().popPose();
-    }
-
-    /** 以指定倍率绘制文本（无阴影），坐标按 1/scale 换算保证落位 */
-    private static void drawScaledText(GuiGraphics g, Font font, FormattedCharSequence text, float x, float y, int color, float scale) {
-        float inv = 1f / scale;
-        g.pose().pushPose();
-        g.pose().scale(scale, scale, 1f);
-        g.drawString(font, text, x * inv, y * inv, color, false);
-        g.pose().popPose();
     }
 
     /** 绘制圆角矩形（topR/bottomR 为上下圆角半径），逐行 fill 实现 */
@@ -1807,7 +1823,7 @@ public class PhoneOverlay {
         String[] labels = {"消息", "联系人", "设置"};
         int slotW = cw / 3;
         int activeIdx = activeTab.ordinal();
-        float ts = UiFont.sc(0.75f); // 文字/图标缩放（随全局倍率）
+        float ts = PhoneText.scale(0.75f); // 文字/图标缩放（随全局倍率）
         int lineH = (int)(font.lineHeight * ts);
 
         for (int i = 0; i < 3; i++) {
@@ -1819,10 +1835,10 @@ public class PhoneOverlay {
             }
             // emoji（上）
             FormattedCharSequence emoji = Component.literal(emojis[i]).getVisualOrderText();
-            drawScaledText(graphics, font, emoji, centerX - font.width(emoji) * ts / 2f, baseY + 1, 0xFFFFFFFF, ts);
+            PhoneText.draw(graphics, font, emoji, centerX - font.width(emoji) * ts / 2f, baseY + 1, 0xFFFFFFFF, ts);
             // 文字（下，0.75 倍×全局倍率）
             FormattedCharSequence label = Component.literal(labels[i]).getVisualOrderText();
-            drawScaledText(graphics, font, label, centerX - font.width(label) * ts / 2f, baseY + 1 + lineH, 0xFFFFFFFF, ts);
+            PhoneText.draw(graphics, font, label, centerX - font.width(label) * ts / 2f, baseY + 1 + lineH, 0xFFFFFFFF, ts);
         }
 
         // 淡灰竖线分隔三个选项
@@ -1873,14 +1889,14 @@ public class PhoneOverlay {
         // 逆矩阵矫正：容器动画期间渲染位移了 phoneY，命中判定必须对准渲染位置 renderedPhoneY
         double relX = screenX - phoneX;
         double relY = screenY - renderedPhoneY;
-        if (relX < 0 || relY < 0 || relX >= phoneWidth || relY >= phoneHeight + UiFont.sh(STATUSBAR_H) + UiFont.sh(WATERMARK_H)) {
+        if (relX < 0 || relY < 0 || relX >= phoneWidth || relY >= phoneHeight + PhoneText.px(STATUSBAR_H) + PhoneText.px(WATERMARK_H)) {
             return false;
         }
 
         // 状态栏 / 底部导航 / 水印栏 / 右键返回：仅在按下时处理
         if (action == GLFW.GLFW_PRESS) {
             // 状态栏区域：关闭按钮 / 其余按住左键拖动手机
-            if (relY < UiFont.sh(STATUSBAR_H)) {
+            if (relY < PhoneText.px(STATUSBAR_H)) {
                 if (relX >= phoneWidth - 14 && relX <= phoneWidth) {
                     hide();
                 } else if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
@@ -1892,14 +1908,14 @@ public class PhoneOverlay {
             }
 
             // 底部水印栏区域（最底部）：装饰，不响应点击
-            if (relY >= phoneHeight + UiFont.sh(STATUSBAR_H)) {
+            if (relY >= phoneHeight + PhoneText.px(STATUSBAR_H)) {
                 return true;
             }
 
             // 底部导航区域（仅 HuhuTalk App 内顶层页显示时；胶囊范围内可点，已随胶囊上抬）
             if (inChatApp && !isInSubPage()) {
-                int navTop = phoneHeight + UiFont.sh(STATUSBAR_H) - bottomNavH() - navRaise();
-                int navBottom = phoneHeight + UiFont.sh(STATUSBAR_H) - navRaise();
+                int navTop = phoneHeight + PhoneText.px(STATUSBAR_H) - bottomNavH() - navRaise();
+                int navBottom = phoneHeight + PhoneText.px(STATUSBAR_H) - navRaise();
                 if (relY >= navTop && relY < navBottom) {
                     int capsuleLeft = 8;
                     int capsuleRight = phoneWidth - 8;
@@ -1940,7 +1956,7 @@ public class PhoneOverlay {
         // 按下与松开都转发给页面（页面自行按 action 区分；松开用于结束拖拽）
         IPhonePage page = getCurrentPage();
         if (page == null) return true;
-        return page.mouseClicked(relX, relY - UiFont.sh(STATUSBAR_H), button, action);
+        return page.mouseClicked(relX, relY - PhoneText.px(STATUSBAR_H), button, action);
     }
 
     public static boolean handleMouseScroll(double screenX, double screenY, double scrollDelta) {
@@ -1958,11 +1974,11 @@ public class PhoneOverlay {
         if (page == null) return false;
         double relX = screenX - phoneX;
         double relY = screenY - renderedPhoneY;
-        if (relX >= 0 && relY >= 0 && relX < phoneWidth && relY < phoneHeight + UiFont.sh(STATUSBAR_H)) {
-            if (relY < UiFont.sh(STATUSBAR_H)) {
+        if (relX >= 0 && relY >= 0 && relX < phoneWidth && relY < phoneHeight + PhoneText.px(STATUSBAR_H)) {
+            if (relY < PhoneText.px(STATUSBAR_H)) {
                 return true;
             }
-            return page.mouseScrolled(relX, relY - UiFont.sh(STATUSBAR_H), scrollDelta);
+            return page.mouseScrolled(relX, relY - PhoneText.px(STATUSBAR_H), scrollDelta);
         }
         return true;
     }

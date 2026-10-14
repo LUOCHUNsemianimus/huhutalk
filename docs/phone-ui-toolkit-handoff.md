@@ -1,20 +1,138 @@
-# HuhuTalk 手机 UI 公共工具 · 工作日志与交接
+# HuhuTalk 手机 UI（公共工具 + 页面迁移）· 工作日志与交接
 
-> **面向**：接下来要**独立开发新 App**（设置 App 重做 / 相机 App / 图库 App）的对话。
-> **读法**：先读本文了解现状与纪律，再按需翻阅两份 API 参考：
+> **面向**：接手继续做 HuhuTalk 手机 UI 的对话（加新 App / 继续迁移页面 / 排查模型屏问题）。
+> **读法**：先读 **§0 / §0.1**（当前状态与下一步），再按需翻阅两份 API 参考：
 > [phone-app-api.md](phone-app-api.md)（App 注册）、[phone-page-skeleton.md](phone-page-skeleton.md)（页面骨架 / 控件 / 图片 / 文字 / 主题）。
-> **状态**：**已实现、已编译通过、未实机验收**（验收清单见 §10）。
+> **状态**：公共工具层**已完成**；**12 个内置页面的硬编码改造已完成（6 批，IDE 全项目编译通过）**；
+> **尚未实机验收** —— 清单见 §0.1。§1 是详细工作日志，可跳过。
 
 ---
 
 ## 0. 一句话状态
 
-**公共工具层已就绪**：App 注册 → 页面骨架 → 图片/文字工具 → 四个控件 → 主题色板，全部是公开 API。
-现有 12 个内置页面**一行未改**（唯一例外是 `MainPage` 的桌面底色接到了主题上），可以放心在此基础上开新 App。
+**两层都就绪**：
+
+1. **公共工具层**（上一轮）：App 注册 → 页面骨架 → 图片/文字工具 → 四个控件 → 主题色板，全部是公开 API；
+2. **页面迁移**（本轮，6 批）：原本「抄了一百遍」的硬编码页面已改用这套公开 API 绘制。
+
+收尾指标：
+
+| 项 | 结果 |
+|---|---|
+| `UiFont` 直接调用 | 从 **421 处** → **0**（全部页面、全部 `api/phone/**` 类都已改用 `PhoneText.px/scale`；只剩 `PhoneText` 自己的转发实现） |
+| `UiShapes`（已弃用壳） | 主模组内**已无调用点**，约 30 条弃用告警清零（壳本身保留给第三方附属模组） |
+| 样板副本 | `drawScaledText` 9→1、`navH()` 8→1（原来是 4 种公式）、`textH` 5→0、`truncate` 4→1、`hit` 3→1、手绘顶栏 ~10→0、无 `try/finally` 的 scissor 配对 7+→0 |
+| 「画在一处、点在另一处」 | 三对互逆映射（`scrollY`/`logicalY`、`itemY`/`indexAt`、`cellX+cellY`/`indexAt`）使其在**结构上不可能** |
+| 死代码 | 删除 `MaidListPage` / `MaidSettingsPage`（−428 行） |
+| 顺带修的真 bug | `PhoneList.render` 曾把 `viewY` 加了两遍（`viewY != 0` 时整列行下移；既有用法都是 `setViewport(0,0,..)`，所以一直没暴露） |
+
+> ⚠ **行数并没有"极大减重"**：删了 428 行死代码，但 10 个被迁移的页面净 **+87 行** ——
+> 因为省下的样板换成了每个文件 30~120 行的说明性注释，且"调用公开 API"比内联一行算术略长。
+> **可执行代码是减少的，注释让总数持平。** 想缩小 diff 就把新增注释削一半。
 
 ---
 
-## 1. 这一轮做了什么
+## 0.1 现在该做什么
+
+### ① 待实机验收（本机跑不了游戏，只能做 IDE 级编译校验）
+
+开 `-Dhuhutalk.debugApps=true` 后逐条确认：
+
+| # | 看什么 | 期望 |
+|---|---|---|
+| 1 | 顶栏高度 | 所有页面统一「一行字 + 8px」≈ **17px**（本轮从骨架原先的 ≈25px 统一过来 —— 那个 0.08 比例抄的是两个已删的死页面） |
+| 2 | 设置页 | 行高统一 **28px**（`PhoneRow.rowHeight`）；开关/▲▼/滑块三种控件等高对齐；**滑块要能按住拖动**；右侧「切换 / 选壳」胶囊可点 |
+| 3 | 联系人页 | 点分组标题折叠/展开后**点哪一行是哪一行**（可变行高是本轮新能力，`PhoneList.itemHeight(int)`） |
+| 4 | 手册页 | 三级返回（正文→条目→栏目→退出）与**各级滚动位置记忆**；⚠ `ManualPage` 新增了 `onBack()` 覆写，删掉它会导致点「返回」直接退出手册 |
+| 5 | 传文件页 | 上下两个网格（背包 5×36 可滚 / 队列 5×2）、点格入队与移回；滚轮只在背包区生效 |
+| 6 | 消息列表页 | 条目命中、未读红点、头像；滚轮与点击在**同帧内列表变化**时不应错行（已用「帧内缓存 + 点击前刷新」处理） |
+| 7 | 聊天页 | **行为应与改动前完全一致**（本轮只换 helper，不继承 `PhonePage`）——含相机取景 / 拍照 |
+| 8 | 桌面 + 图库 | 图标排布、启动动画、红点；图库三列网格与长按多选 |
+
+### ② 未提交的改动
+
+批次 4~6 尚未提交（`git status` 里 10 个文件 + 本文档）。批次 0~3 已被作者提交为
+`a348762 重构主模组p1` / `b4cc604 重构主模组p2`。
+
+### ③ 相机黑屏 bug —— **已修复，且与本次重构无关**
+
+实机验收时发现的「相机页直接画了个黑底」，根因在**上一轮「修图标描边」加的那步 alpha 钉底**：
+
+- `PhoneOverlay.render` 的离屏分支末尾用 `colorMask(false,false,false,true)` 把手机矩形内的 alpha 钉成 255
+  （目的是让图标描边不再被"没画满的 alpha"污染）；
+- 但它写成 `if (external)`，**没有排除相机取景态**。取景框能透出世界，靠的正是
+  「取景区在离屏靶里保持 `(0,0,0,0)`」—— 被钉成 `(0,0,0,255)` 后，屏幕四边形一贴就是**不透明纯黑**；
+- 症状"只有模型屏坏、悬浮窗正常"完全吻合：`if (external)` 只在模型屏出图那条路上为真；
+- **修法**：`if (external && !cameraTransparent)`。
+
+完整复盘见 [phone-model-screen-handoff.md](phone-model-screen-handoff.md) §5.8-38b 与
+[camera-black-screen-handoff.md](camera-black-screen-handoff.md)。
+
+> **为什么能确定与本轮重构无关**（这条方法论值得留着）：相机链路上的**全部**改动都用
+> `git diff` 逐行核对过，只有 `UiShapes.`→`PhoneShapes.` 与 `UiFont.`→`PhoneText.` 两种**改名**；
+> 而 `PhoneText.px/scale` 的方法体就是 `UiFont.sh/sc` 的转发（逐字节相同），`UiShapes` 是纯转发壳。
+> `ChatPage` 还用 `git diff -G"cameraActive|cameraShot|…"` 验证过**相机代码一行未动**。
+> 教训：**"改动之后出问题"不等于"改动导致的"** —— 先按"唯一变量"把两边都排除掉，再动手查。
+
+### ④ 传文件页「点不动 + 物品压在光标上」—— **已修复**（本轮继承收尾时实机反馈）
+
+#### bug 1：整页格子点不动 —— **判据与被委托方的契约不一致**（批次 4 的回归）
+
+`FileTransferPage.onContentClick` 判的是 `action == GLFW_RELEASE`（旧实现自己手写命中时的判据，
+迁移时为了"不改既有手感"照抄了下来），**但命中已经交给 `PhoneGrid`**，
+而 `PhoneGrid.mouseClicked` 的契约是**按下即触发**：
+
+```java
+// PhoneGrid.java
+public final boolean mouseClicked(double localX, double localY, int button, int action) {
+    if (action != GLFW.GLFW_PRESS || !acceptsButton(button)) return false;   // ← RELEASE 在这里被吞掉
+```
+
+于是 `onCellClick` 永远不触发，两个网格全部点不动（**顶栏返回键照常可用**，因为它走
+`PhonePage` 的 PRESS 分支 —— 这个"一半好一半坏"的现象正是定位的抓手）。
+
+**修法**：判据改成 `GLFW_PRESS`。**手感零变化**，因为
+`PhoneOverlay.onPhoneSideButton` 在轻点结束时是**连着补发 PRESS + RELEASE** 的
+（同一个 tick、中间没有渲染），而真实鼠标左右键根本不会走到页面（只有玩家绑定的手机侧键进这条通路）。
+
+**旁证**：全项目扫一遍 `onContentClick`，**只有 `FileTransferPage` 一个页面判 RELEASE**，
+其余 12 处（`PhoneCasePickerPage` / `GalleryPage` / `ContactListPage` / `MessageListPage` /
+`ManualPage` / `MaidInfoPage` / `SettingsAppPage` / `ComingSoonPage` / `MainPage` / `VisionModelSettingsPage` /
+`SettingsPage` / `GalleryDeleteButton`）全部判 PRESS。
+
+> **通用教训**：「哪一刻算点击」和「点到哪一格」是**同一件事的两半**，不能一半留在页面里、一半交给控件。
+> 谁做命中，谁定义 action 语义。
+
+#### bug 2：物品图标压在独立光标上 —— **z 深度**，不是绘制顺序
+
+GUI 的深度测试是开着的，`RenderType.gui()` 用的是 **`LEQUAL_DEPTH_TEST`**
+（1.21.1 源 `RenderType.java` L698-707），而：
+
+| 画什么 | z | 依据 |
+|---|---|---|
+| `fill` / `drawString` / `blit`（页面、光标、文字……） | **0** | `GuiGraphics.fill(...)` 默认 z=0 |
+| **物品图标** | **150** | `GuiGraphics.renderItem` 里硬编码 `pose.translate(x+8, y+8, 150 + …)`（源 L1284） |
+| 原版物品角标（数量/耐久） | 200 | `GuiGraphics.renderItemDecorations` 的 `translate(0,0,200f)` |
+
+z 越大离摄像机越近 ⇒ 物品先把 150 写进深度缓冲，之后 z=0 的 `fill` **比较 LEQUAL 一律失败**
+⇒ 物品压在光标上。原版给角标用 200 正是同一个理由。
+
+**修法**（两处，都在最上层元素上显式抬 z）：
+- `PhoneOverlay.renderCursor`：整个光标 `pushPose / translate(0,0,300) / popPose` ——
+  取 300 是为了同时高过物品本体（150）与原版角标（200）。**因为是改在光标自己身上，
+  `ChatPage` 底部扩展栏里那个"传文件队列"预览（`ChatPage:1419`）也一并修好了。**
+- `FileTransferPage.drawSlot` 的数量角标：`translate(0,0,200)`（照抄原版做法）。
+
+> **通用教训**：手机 UI 里凡是"必须在最上层"的东西（光标、气泡、角标），
+> **都要自己声明 z**，不能指望"后画 = 在上层" —— 深度测试会让后画的 z=0 元素沉到先画的 z=150 之下。
+> 以及：`ChatPage` / `GalleryPage` 之类**同时画物品与 z=0 覆盖层**的地方，以后新增覆盖层时记得这条。
+
+---
+
+## 1. 都做了什么（详细工作日志）
+
+> **§1.1–1.5 是上一轮**（搭公共工具层）；**§1.6–1.18 是这一轮**（把 12 个内置页面迁到公开 API）。
+> 只想看结论与下一步的话，读完 §0 / §0.1 就够了，本节是归档用的细节。
 
 ### 1.1 新增：App 注册（公开）
 
@@ -66,10 +184,12 @@
 | `api/phone/ui/PhoneShapes.java` | **新增**，成为实现的正式归属（公开包自洽） |
 | `phone/UiShapes.java` | 变成**兼容转发壳**，标 `@Deprecated`；签名一字未改，所以既有页面**一行都不用改** |
 | 公开包内 6 个文件 | 改用 `PhoneShapes`（`PhoneRow` / `PhoneDropdown` / `PhoneSlider` / `PhoneSwitch` / `PhoneTextInput` 同包免 import；`PhoneCameraPage` 改 import） |
-| 10 个老页面 | **未改动**，仍走 `UiShapes` 壳。代价：每个调用点会多一条 `已弃用` 告警 —— 这正是"该迁了"的信号 |
+| 10 个老页面 | **当时未改动**，仍走 `UiShapes` 壳（代价：每个调用点多一条 `已弃用` 告警 —— 这正是"该迁了"的信号）。**本轮已全部迁完**，主模组内 `UiShapes` 已无调用点 |
 
-**尚未处理**：`PhoneCameraPage` 还直接用了非公开的 `UiFont`（`sh` / `sc`）。
-`PhoneText.px(int)` 与 `PhoneText.scale(float)` 是它的公开等价物，可以之后一并迁掉。
+**✅ 已处理（批次 5 收尾）**：`PhoneCameraPage`、`GalleryPage`、`GalleryDeleteButton` 原先都直接用了
+非公开的 `UiFont`（`sh` / `sc`）—— `PhoneText.px(int)` 与 `PhoneText.scale(float)` 是它们的公开等价物
+（逐字节相同的换算），已全部换掉。**现在 `api/phone/**` 与 `pages/**` 都不再依赖 `com.huhutalk.phone.UiFont`**，
+只剩 `PhoneOverlay`（框架自身，非页面）与 `PhoneText` 自己的转发实现还引用它。
 
 ### 1.6 本轮（迁移现有硬编码页面）· 批次 0：补齐公开 API
 
@@ -220,6 +340,86 @@
 
 **编译状态**：批次 3 已通过 IDE 全项目编译与告警检查（`problems: []`）。
 
+### 1.13 批次 4：`ManualPage` / `FileTransferPage` / `MainPage`
+
+| 页面 | 改动 |
+|---|---|
+| `ManualPage` | 迁到 `PhonePage` 模型 A。⚠ **对外 API 一字未动**：`registerSection` / `externalSections` / `ManualEntry` / `ManualSection` 四个符号的签名、嵌套位置、`synchronized (ManualPage.class)` 纪律、注册表快照语义全部保持，附属模组 `huhutalk-douyin` 无需重编 |
+| `FileTransferPage` | 255 行裸 `IPhonePage` → `PhonePage` + **两个 `PhoneGrid`**（背包 5×36 可滚 / 队列 5×2 固定）。删掉 `cols/margin/gap/cell/gridTotal/gridX0` 七个几何方法 + `backpackIndexAt`/`queueIndexAt` 两个命中方法 —— 旧实现里渲染用 `x = x0 + col * rowH` 算一遍、命中用 `col = (relX - gridX0) / rowH` 再算一遍<br>⚠ **本批引入过一个回归**：把点击判据从旧实现的 `GLFW_RELEASE` 照抄下来，而 `PhoneGrid` 只认 `GLFW_PRESS` ⇒ 整页格子点不动。**已修**，见 §0.1-④ |
+| `MainPage` | **只换 helper**（桌面启动器：无顶栏、无滚动、有自己的槽位命中与启动动画，不适合继承骨架）。`drawScaledText`/`drawScaledTextShaded` 两个私有副本 → `PhoneText.draw`/`drawShaded`；5 处 `UiFont.sc` → `PhoneText.scale` |
+
+### 1.14 批次 5：`ChatPage` 只换 helper（2956 → 2937 行）
+
+**为什么不继承 `PhonePage`**（见 [phone-page-skeleton.md](phone-page-skeleton.md) §11.2）：
+`PhonePage.render` 是 `final` 且必定用不透明底色铺满内容区 —— 与相机取景需要的**透明**直接冲突；
+它只认**一个** `scrollOffset`，而聊天页有三套独立滚动（消息 / 表情 / 图片画廊）；
+底栏是输入框 + 5 图标扩展栏 + 多个浮层，`contentTop()` 那一刀切不进来。
+
+**这一批做了什么**：
+- `drawScaledText` 的 **String 与 `FormattedCharSequence` 两个重载**（31 处调用点）→ `PhoneText.draw`
+  （批次 0 专门为它加的 `FormattedCharSequence` 重载正好派上用场）；
+- `drawTopShadow` → `PhoneLayout.topShadow`；
+- 顶栏标题的内联截断（5 行手写算术）→ `PhoneText.truncate`
+  （唯一差异：极端情况下旧实现会截成空串，现在会显示「…」）；
+- **约 150 处 `UiFont.sh/sc/uiScale` → `PhoneText.px/scale`**，`UiFont` 依赖清零。
+
+**刻意没做**：ChatPage 的私有 `hit(...)` **保留原样，没有换成 `PhoneLayout.hit`**。
+两者**边界语义不同**：私有副本是**闭区间**（`x <= rx + rw`），公开件是**半开区间**（`x < rx + rw`）。
+本页命中区密集相邻（消息气泡 / 图库格子 / 表情格 / 工具瓦片 / 相机构图按钮），
+边界像素归谁所有会实际影响点击行为，而聊天页没有自动化测试兜底 —— 换语义属于"改行为"，不是"去重复"。
+方法体里已写好结论与替换方法（参数顺序一致，换一行即可），留给实机验收后决定。
+
+**编译状态**：批次 4 / 5 已通过 IDE 全项目编译（`problems: []`）。
+
+### 1.15 `ManualPage` 的两个必要细节（复核结论）
+
+子代理在迁移时做了两个**必须保留**的决定：
+
+1. **新增 `onBack()` 覆写**：`if (!onBackPressed()) PhoneOverlay.popPage();`
+   旧实现在顶栏返回键的命中分支里写的就是这一句；而 `PhonePage.onBack()` 的默认实现是**无条件
+   `popPage()`**。不覆写的话，在「二级列表 / 正文」级别点「返回」会直接退出手册，而不是回退一级 ——
+   这是**行为保持**，不是加功能。右键返回仍由 `PhoneOverlay` 直接调 `onBackPressed()`。
+2. 构造函数上加了 `@SuppressWarnings("TextBlockMigration")`：那 5 条告警来自**逐字复制的用户可见文案**
+   （IDE 的文本块建议只看字面量），而改文案被禁止，所以只能抑制。字符串一字未改，删掉抑制也安全。
+
+四个公开符号已逐字复核未变；`synchronized (ManualPage.class)`、构造期快照、OWNER 语义与顺序全部原样。
+
+### 1.16 批次 6（可选，只做了低风险子集）：`PhoneOverlay`
+
+**做了**：
+- 私有的 `drawScaledText(g, Font, FormattedCharSequence, ...)`（与批次 0 新增的
+  `PhoneText.draw` 重载**逐字节相同**）→ 删除，4 处调用点改用 `PhoneText.draw`；
+- 约 50 处 `UiFont.sh/sc/uiScale` → `PhoneText.px/scale`。
+
+**刻意没做**：`PhoneOverlay` 的私有 `fillRoundedRect(g, x, y, w, h, topR, bottomR, color)`。
+它的签名是**上下圆角半径分别指定**，而 `PhoneShapes.fillRoundedRect` 是**统一半径** ——
+两者不是同一个图元，替换会改变手机壳/状态栏/水印栏的圆角形状。
+（真要对齐，得给 `PhoneShapes` 加一个 `fillRoundedRectV(g, x, y, w, h, topR, bottomR, color)`
+公开重载 —— 属于新增 API，留待需要时再做。）
+
+### 1.17 `UiFont` 的最终收敛状态
+
+```
+grep "UiFont\." src/  →  只剩 PhoneText 自己（public 壳的实现）与几处注释
+```
+**所有页面、所有 `api/phone/**` 类都不再直接调用 `UiFont`** —— 一律走 `PhoneText.px/scale`。
+`com.huhutalk.phone.UiFont` 现在是纯粹的内部实现细节。
+
+### 1.18 全量迁移的收尾验收
+
+| 项 | 结果 |
+|---|---|
+| 全项目编译 | `build_project` → `{"isSuccess":true,"problems":[]}` |
+| 12 个页面 | 8 个迁到 `PhonePage`；`ChatPage`/`MainPage` 按设计只换 helper；`PhoneCasePickerPage`/`ComingSoonPage` 已迁 |
+| 死代码 | 删除 `MaidListPage`/`MaidSettingsPage`（−428 行） |
+| `PhoneList` 的 `viewY` 重复计数 bug | 已修（`viewY != 0` 时整列行会下移，既有用法都是 `setViewport(0,0,..)` 所以从未暴露） |
+| 新增公开件 | `PhoneGrid`、`PhoneLayout`、`PhoneText` 的 4 个 `FormattedCharSequence` 重载、`PhoneList.itemHeight(int)/invalidateLayout/separatorColor(int)`、`PhonePage.bottomInset`、`PhoneRow.rowHeight` |
+
+**⚠ 仍需作者实机验收**（本机 shell 沙箱不可用，无法启动游戏）：
+开 `-Dhuhutalk.debugApps=true`，逐页确认 —— 顶栏统一到 17px 后的观感、设置页 28px 统一行高与滑块拖动、
+联系人页分组折叠后点得准、手册三级返回与滚动记忆、传文件页两个网格、
+以及聊天页（helper 替换后行为应完全不变）。
+
 ---
 
 ## 2. 开工前必读：四条纪律
@@ -248,6 +448,8 @@
 | 画圆角矩形 / 胶囊 | `PhoneShapes.fillRoundedRect(...)`（**不要**再用 `com.huhutalk.phone.UiShapes`，它已 `@Deprecated`） |
 | 画文字 | `PhoneText.draw / drawCenteredIn / drawLeftIn`（都跟随全局字体倍率） |
 | 开关 / 增减 / 滑块 / 下拉 | `PhoneSwitch` / `PhoneStepper` / `PhoneSlider` / `PhoneDropdown`，用 `PhoneRow` 摆成行 |
+| 想让一页里所有行等高 | `PhoneRow.rowHeight(int basePx)`。默认按内容自动算，一页里会出现 4 种行高；固定后：`INLINE_RIGHT` 控件行内居中、`STACKED`（滑块/下拉）标签贴顶控件贴底。⚠ 滑块行最低要 27px，否则轨道会切过标签 |
+| 文字是 emoji / `Component` 而不是 `String` | `PhoneText.draw / drawShaded / drawCenteredIn / width` 的 `FormattedCharSequence` 重载（`getVisualOrderText()` 拿到的就是它） |
 | 取主题色 | `colors()`（`PhonePage` 内）或 `ThemeManager.getActive()` |
 
 ---
@@ -451,7 +653,7 @@ public final class GalleryPage extends PhonePage {
 - `client/GalleryAppRegistration.java`：走公开注册通路（`.slot(3)` + `.order(-99)`）。
 - **新增公开页能力**：`IPhonePage.onLongPress(relX, relY)` —— 见
   [phone-page-skeleton.md](phone-page-skeleton.md) §4.1。默认返回 false，
-  **现有页面一行未改**；判定在松开时做，不需要每 tick 计时器。
+  **（上一轮当时）现有页面一行未改**；判定在松开时做，不需要每 tick 计时器。
 - 数据与纹理：`PhotoLibrary.listGallery()` / `getOrLoadTexture(key)` / `getTextureSize(key)` / `deleteGallery(fileName)`。
   注意 `listGallery()` **每次都读一遍目录**，所以 `GalleryPage` 只在 `onOpen()` 与删除后刷新，不每帧调。
 - 作者说图库**可以不做公开方法**，所以两个页面放在 `phone/pages/` 而不是 `api/`。
@@ -489,13 +691,15 @@ public final class GalleryPage extends PhonePage {
 
 ## 9. 改动过的既有文件与影响（回归检查用）
 
+> 下面这张表 + §9.1 是**上一轮**（搭工具层）的记录；**§9.2 起是本轮**（批次 0~6）的记录。
+
 | 文件 | 改动 | 回归注意 |
 |---|---|---|
 | `MainPage.java` | App 列表 = 内置 + 注册表（按版本号懒合并，外部 App **一律追加在后面**） | 内置图标排布不变 |
 | `MainPage.java` | 新增"贴图图标"渲染分支 | 只对 `iconTexture != null` 的 App 生效；内置 App 全部为 null |
 | `MainPage.java` | 桌面底色改为 `ThemeManager.getActive().pageBg()` | 底色从 `#F0E4EA` 变为 `#F2E8EF`；切主题时会一起变 |
 | `ColorScheme.java` | +7 字段；`pageBg` 值改为 `#F2E8EF` | **`PhoneCasePickerPage` 底色跟着变**（唯一读 `pageBg` 的既有页面） |
-| 其余 11 个页面 | **未改动** | — |
+| 其余 11 个页面 | **（上一轮当时）未改动** | 本轮已全部迁移，见 §1.6–1.18 与 §9.2 |
 
 ### 9.2 批次 0：公开件本身的变化（回归检查用）
 
@@ -541,5 +745,7 @@ public final class GalleryPage extends PhonePage {
 |---|---|
 | [phone-app-api.md](phone-app-api.md) | App 注册 API 完整参考（含附属模组依赖配置、`neoforge.mods.toml` 写法） |
 | [phone-page-skeleton.md](phone-page-skeleton.md) | 页面骨架 / 两种滚动模型 / 控件 / 图片 / 文字 / 主题 |
+| **[camera-black-screen-handoff.md](camera-black-screen-handoff.md)** | **✅ 已修复**的相机黑屏 bug 复盘：根因（alpha 钉底漏排除取景态）、排除重构嫌疑的完整证据链、二分实验步骤。**保留作记录**，也示范了一次"先排除再动手"的排查过程 |
+| [phone-camera-api.md](phone-camera-api.md) | 相机契约（`PhoneCameraHost` 四个判据 / 取景透明 / 侧键路由） |
 | [douyin-webview-verification-report.md](douyin-webview-verification-report.md) | 抖音网页版验证结论（含三个必踩的坑）——做 MCEF 类 App 前必读 |
 | [douyin-webview-feasibility-handoff.md](douyin-webview-feasibility-handoff.md) | 内嵌浏览器完整调研与 MCEF API 清单 |

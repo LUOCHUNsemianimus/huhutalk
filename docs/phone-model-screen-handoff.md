@@ -29,6 +29,10 @@
 屏幕四边形用这个 alpha 和世界混合，柔边就把天空/雾透了出来（**只有模型屏有、悬浮窗没有**）。
 修法见 **§5.8**（`PhoneOverlay.render` 离屏分支末尾用 `colorMask` 只写 alpha）。
 **⚠ 这个坑查了一整天、绕过四条错路，动模型屏前请务必读 §5.8。**
+**⚠⚠ 而且它的第一版修法本身又埋了一个 bug**：那段 alpha 钉底当时没排除相机取景态，
+把取景区一并涂成不透明黑 ⇒ 相机页"直接画了个黑底"。**已修**（条件是
+`external && !cameraTransparent`），完整复盘见 **§5.8-38b** 与
+[camera-black-screen-handoff.md](camera-black-screen-handoff.md) §0.5。
 
 
 ---
@@ -442,13 +446,13 @@ HUD 更在整段 `renderLevel` 之后）。所以照片 = 玩家眼里那片干�
 38. **修法：`colorMask` 只放行 alpha，把手机矩形内的 alpha 钉成 255。**
     加在 `PhoneOverlay.render()` 的**离屏分支末尾**（`renderCursor` 之后）：
     ```java
-    if (external) {
+    if (external && !cameraTransparent) {   // ⚠ 相机取景时必须跳过，见下面的 38b
         RenderSystem.colorMask(false, false, false, true);   // 关 RGB 写，只留 alpha 写
         RenderSystem.enableBlend();
         RenderSystem.defaultBlendFunc();
         graphics.flush();
         fillRoundedRect(graphics, phoneX, ry, phoneWidth, totalHeight,
-                UiFont.sh(STATUSBAR_H), UiFont.sh(WATERMARK_H), 0xFFFFFFFF);
+                PhoneText.px(STATUSBAR_H), PhoneText.px(WATERMARK_H), 0xFFFFFFFF);
         graphics.flush();
         RenderSystem.colorMask(true, true, true, true);
     }
@@ -459,6 +463,28 @@ HUD 更在整段 `renderLevel` 之后）。所以照片 = 玩家眼里那片干�
     - `PhoneOverlay` 手机底 `0xEE111111` → `0xFF111111`（全屏唯一一处非不透明的底）；
     - `PhoneScreenTarget.renderScreen()` 画四边形前 `setShaderColor(1,1,1,1)` + `defaultBlendFunc()`。
     **通用教训：UI 只要会进离屏靶再贴出来，就必须显式声明"这块要实心"，不能指望每一层恰好 alpha=255。**
+
+    #### 38b. **⚠⚠ 这一步把相机取景框涂黑了（真机上踩到，务必读完）**
+    本步最初写成 `if (external)` —— **没有排除相机取景态**，于是踩了个和本条目的初衷完全对称的坑：
+
+    - **取景框能透出世界，靠的正是"取景区域在离屏靶里保持 `(0,0,0,0)`"**：
+      `renderScreen` 的屏幕四边形走 `RenderType.text` 的 SRC_ALPHA 混合，
+      靶里 `alpha=0` ⇒ `dst = src.rgb × 0 + 世界 × 1` ⇒ 看到世界。
+    - 而 alpha 钉底把手机矩形内**整个**（含取景区）alpha 写成 255 ⇒ 取景区变成
+      `(0,0,0,255)` ⇒ 四边形一贴就是 **不透明纯黑**。
+    - 实机症状：**相机页"直接画了个黑底"**，而**同一台手机的悬浮窗（O）完全正常** ——
+      因为 `if (external)` 只在 `renderExternal`（模型屏出图）那条路上为真。
+      这个"只有模型屏坏"的差异，正是 §5.8-36 说的那种"唯一变量"结构。
+    - **修法**：条件加上 `&& !cameraTransparent`（`cameraTransparent` 就是上面几十行处
+      `isCameraScreenTransparent()` 的结果，直接复用）。
+      - 非相机页面没有任何"本该留空"的区域 ⇒ 钉底照旧生效，图标描边的修复不受影响；
+      - 「已拍成页」（`ChatPage.cameraShot != null` / 相机 App 的已拍成态）
+        `cameraScreenTransparent()` 本来就是 `false` ⇒ 钉底照常应用，全屏照片依然不透明。
+    - **教训（和 §5.8-37 同源）**：`alpha` 在离屏靶上是**有语义的**——
+      它既可能是"这一层没画满"（要补成 255），也可能是"这里本来就该透"（绝不能补）。
+      **凡是要"一次性把整块矩形弄实"的收尾，都必须先问一句：这块矩形里有没有刻意的透明区。**
+
+    完整调查记录见 [camera-black-screen-handoff.md](camera-black-screen-handoff.md) §0.5。
 
 39. **被排除的嫌疑（都已查实，别再走一遍）**
     - **不是雾**：读 `assets/minecraft/shaders/core/position_tex_color.fsh`

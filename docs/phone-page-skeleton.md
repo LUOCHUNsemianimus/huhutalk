@@ -304,6 +304,28 @@ public boolean onLongPress(double relX, double relY) {   // 返回 true = 已消
 > **落在间距里不算命中**：`indexAt` 在 `gapX/gapY` 区间返回 `-1`。
 > 否则"点空白也选中"会让多选网格（图库批量删）误触。
 
+> ⚠ **`mouseClicked` 的契约是「按下即触发」**（`action == GLFW_PRESS`，与既有页面一致）。
+> 页面**不要**自己再加一层 `action` 判据再转发 —— 只能在 PRESS 时转，也只能转 PRESS。
+> 曾经有页面（`FileTransferPage`）照抄旧实现判了 `GLFW_RELEASE` 再转发给 `PhoneGrid`，
+> 结果被 `PhoneGrid` 直接吞掉，**整页格子点不动**（返回键却正常，因为那是 `PhonePage` 自己的 PRESS 分支）。
+> 真要在"松开那一刻"生效，就该改这里是 PRESS 的这条契约，而不是在页面里两头各判一套。
+
+### ⚠ 格子里的**物品图标会压住 z=0 的覆盖层**（深度测试）
+
+`GuiGraphics.renderItem` 把物品画在 **z=150**（原版硬编码），`fill` / `drawString` / `blit`
+默认 **z=0**，而 GUI 的 `RenderType.gui()` 是 **`LEQUAL_DEPTH_TEST`**。
+z 越大越靠近摄像机 ⇒ **后画的 z=0 元素会被先画的 z=150 物品判掉**（"后画=在上层"在这里不成立）。
+
+所以凡是"必须在物品之上"的东西，都要显式抬 z：
+
+| 想画什么 | 建议 z | 例子 |
+|---|---|---|
+| 物品本体 / 格子底 | 0 / 150 | `renderCell` 里的 `g.renderItem(...)` |
+| 压在物品上的角标（数量、耐久） | **200** | `FileTransferPage.drawSlot`；原版 `renderItemDecorations` 同值 |
+| 页面级最上层（独立光标、气泡） | **≥ 300** | `PhoneOverlay.renderCursor` |
+
+写法就是 `g.pose().pushPose(); g.pose().translate(0f, 0f, 300f); …; g.pose().popPose();`。
+
 ---
 
 ## 5.3 `PhoneLayout`：给**不继承 `PhonePage`** 的页面用
@@ -559,8 +581,8 @@ private void layoutRows() {
 | 1 | 删死代码 `MaidListPage` / `MaidSettingsPage`（−428 行）；`ComingSoonPage` / `PhoneCasePickerPage` 迁骨架；全工程 `UiShapes` → `PhoneShapes`（11 文件 ≈60 处） | ✅ 完成 |
 | 2 | `SettingsPage` → `PhonePage` + `PhoneRow` + 四种控件（单点收益最大） | ✅ 完成 |
 | 3 | `MessageListPage` / `ContactListPage` / `MaidInfoPage` 迁骨架 | ✅ 完成 |
-| 4 | `ManualPage`（保持对外 API 签名）/ `FileTransferPage` 迁骨架；`MainPage` 只换 helper | 待办 |
-| 5 | `ChatPage` **只换 helper**（它是相机宿主，不继承 `PhonePage`） | 待办 |
+| 4 | `ManualPage`（保持对外 API 签名）/ `FileTransferPage` 迁骨架；`MainPage` 只换 helper | ✅ 完成 |
+| 5 | `ChatPage` **只换 helper**（它是相机宿主，不继承 `PhonePage`） | ✅ 完成 |
 
 ### 11.2 哪些页面**不**继承 `PhonePage`（不是漏了，是刻意的）
 

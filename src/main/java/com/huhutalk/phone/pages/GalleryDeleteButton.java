@@ -2,7 +2,6 @@ package com.huhutalk.phone.pages;
 
 import com.huhutalk.api.phone.ui.PhoneText;
 import com.huhutalk.client.theme.ThemeManager;
-import com.huhutalk.phone.UiFont;
 import com.huhutalk.api.phone.ui.PhoneShapes;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
@@ -33,7 +32,7 @@ final class GalleryDeleteButton {
 
     /** 文字相对倍率：小一号，不抢标题 */
     private static float scale() {
-        return UiFont.sc(0.75f);
+        return PhoneText.scale(0.75f);
     }
 
     /** 胶囊底色：主题的危险色（暗红） */
@@ -49,11 +48,11 @@ final class GalleryDeleteButton {
     private static int[] rect(Font font, int barW, int barH) {
         int tw = PhoneText.width(font, LABEL, scale());
         int th = PhoneText.height(font, scale());
-        int padX = UiFont.sh(5);
-        int padY = UiFont.sh(3);
+        int padX = PhoneText.px(5);
+        int padY = PhoneText.px(3);
         int w = tw + padX * 2;
         int h = th + padY * 2;
-        int x = barW - UiFont.sh(6) - w;
+        int x = barW - PhoneText.px(6) - w;
         int y = (barH - h) / 2;
         return new int[]{x, y, w, h, padX, padY};
     }

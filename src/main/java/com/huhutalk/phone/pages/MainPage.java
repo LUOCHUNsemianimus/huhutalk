@@ -7,8 +7,8 @@ import com.huhutalk.client.NotificationManager;
 import com.huhutalk.client.settings.HuhuTalkClientSettings;
 import com.huhutalk.phone.IPhonePage;
 import com.huhutalk.phone.PhoneOverlay;
-import com.huhutalk.phone.UiFont;
 import com.huhutalk.api.phone.ui.PhoneShapes;
+import com.huhutalk.api.phone.ui.PhoneText;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
@@ -300,7 +300,7 @@ public class MainPage implements IPhonePage {
         int margin = Math.max(4, (int) (w * 0.06));
         int iconW = Math.max(10, (w - margin * (APP_COLS + 1)) / APP_COLS);
         int iconH = iconW; // 圆角正方形
-        int labelH = Math.max(3, Math.round(font.lineHeight * UiFont.sc(0.8f)));
+        int labelH = Math.max(3, Math.round(font.lineHeight * PhoneText.scale(0.8f)));
         int rowGap = Math.max(3, (int) (h * 0.015));
         int cellStep = iconH + labelH + rowGap;
         int startY = gridStartY(h);
@@ -384,11 +384,12 @@ public class MainPage implements IPhonePage {
                 if ("fox".equals(style)) {
                     // 狐狸 emoji（与其它 app 一样用大字）
                     String fox = "🦊";
-                    float cs = UiFont.sc(2.25f);
-                    int cw = (int) (font.width(fox) * cs);
-                    int ch = (int) (font.lineHeight * cs);
-                    drawScaledText(graphics, font, fox,
-                            x + (iconW - cw) / 2, y + (iconH - ch) / 2, 0xFFFFFFFF, cs);
+                    float cs = PhoneText.scale(2.25f);
+                    int cw = PhoneText.width(font, fox, cs);
+                    int ch = PhoneText.height(font, cs);
+                    int foxX = x + (iconW - cw) / 2;
+                    int foxY = y + (iconH - ch) / 2;
+                    PhoneText.draw(graphics, font, fox, foxX, foxY, 0xFFFFFFFF, cs);
                 } else {
                     // 贴图：高清 symbol2 / 低清 symbol，占图标方块 ICON_FILL_RATIO（1.0=铺满，边对上方框）
                     boolean legacy = "symbol".equals(style);
@@ -416,20 +417,20 @@ public class MainPage implements IPhonePage {
                         0.0f, 0.0f, app.iconTexWidth, app.iconTexHeight,
                         app.iconTexWidth, app.iconTexHeight);
             } else {
-                float cs = UiFont.sc(app.centerScale);
-                int cw = (int) (font.width(app.center) * cs);
-                int ch = (int) (font.lineHeight * cs);
+                float cs = PhoneText.scale(app.centerScale);
+                int cw = PhoneText.width(font, app.center, cs);
+                int ch = PhoneText.height(font, cs);
                 int cx = x + (iconW - cw) / 2;
                 int cy = y + (iconH - ch) / 2;
-                drawScaledText(graphics, font, app.center, cx, cy, app.centerColor, cs);
+                PhoneText.draw(graphics, font, app.center, cx, cy, app.centerColor, cs);
             }
 
             // 图标下方名称（灰字，0.8 倍，带阴影描边）
-            float ls = UiFont.sc(0.8f);
-            int lw = (int) (font.width(app.name) * ls);
+            float ls = PhoneText.scale(0.8f);
+            int lw = PhoneText.width(font, app.name, ls);
             int lx = x + (iconW - lw) / 2;
             int ly = y + iconH + 1;
-            drawScaledTextShaded(graphics, font, app.name, lx, ly, LABEL_COLOR, ls);
+            PhoneText.drawShaded(graphics, font, app.name, lx, ly, LABEL_COLOR, ls);
 
             // HuhuTalk 未读红点
             if (app.unreadBadge) {
@@ -439,7 +440,8 @@ public class MainPage implements IPhonePage {
                     int dotY = y - 6;
                     graphics.fill(dotX, dotY, dotX + 12, dotY + 12, 0xFFFF0000);
                     String num = unread > 99 ? "99+" : String.valueOf(unread);
-                    drawScaledText(graphics, font, num, dotX + 2, dotY + 1, 0xFFFFFFFF, UiFont.sc(0.75f));
+                    PhoneText.draw(graphics, font, num, dotX + 2, dotY + 1, 0xFFFFFFFF,
+                            PhoneText.scale(0.75f));
                 }
             }
             // 手册首次未看：右上角小红点提示
@@ -539,26 +541,6 @@ public class MainPage implements IPhonePage {
             }
         }
         return null;
-    }
-
-    /** 以任意倍率绘制文本（无阴影） */
-    private static void drawScaledText(GuiGraphics g, Font font, String text, float x, float y,
-                                       int color, float scale) {
-        float inv = 1.0f / scale;
-        g.pose().pushPose();
-        g.pose().scale(scale, scale, 1.0f);
-        g.drawString(font, text, x * inv, y * inv, color, false);
-        g.pose().popPose();
-    }
-
-    /** 以任意倍率绘制文本（带阴影描边），用于桌面图标的灰字名称 */
-    private static void drawScaledTextShaded(GuiGraphics g, Font font, String text, float x, float y,
-                                             int color, float scale) {
-        float inv = 1.0f / scale;
-        g.pose().pushPose();
-        g.pose().scale(scale, scale, 1.0f);
-        g.drawString(font, text, x * inv, y * inv, color, true);
-        g.pose().popPose();
     }
 
     /**

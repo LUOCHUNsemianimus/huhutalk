@@ -1,11 +1,12 @@
 package com.huhutalk.phone.pages;
 
-import com.huhutalk.client.PhotoLibrary;
-import com.huhutalk.phone.IPhonePage;
-import com.huhutalk.phone.PhoneOverlay;
-import com.huhutalk.phone.UiFont;
+import com.huhutalk.api.phone.ui.PhoneLayout;
+import com.huhutalk.api.phone.ui.PhonePage;
 import com.huhutalk.api.phone.ui.PhoneShapes;
-import net.minecraft.client.Minecraft;
+import com.huhutalk.api.phone.ui.PhoneText;
+import com.huhutalk.client.PhotoLibrary;
+import com.huhutalk.client.theme.ColorScheme;
+import com.huhutalk.phone.PhoneOverlay;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.Component;
@@ -17,18 +18,47 @@ import java.util.ArrayList;
 import java.util.List;
 
 /**
- * 手机内置手册 / 设置页：两级目录导航。
+ * 手机内置手册 / 设置页：三级目录导航。
  * <p>
  * 一级 = 大栏目（{@link ManualSection}），点开进入其二级小栏目列表（{@link ManualEntry}），
  * 再点开小栏目进入正文（可滚动文本 + 可选图片）。
- * 右键（或顶栏「‹ 返回」）逐级返回：正文 → 小栏目列表 → 一级列表 → 桌面。
- * <p>
- * 顶栏返回的命中区（{@link #hitHeaderBack}）与绘制（{@link #renderHeader}）共用
- * {@code UiFont.sh(22)} 这一份几何；"一级列表再往回"走公共通路
- * {@link PhoneOverlay#popPage()}，与 {@code api} 层 {@code PhonePage#onBack()} 的默认行为一致。
- * <p>
- * 背景色 {@link #PAGE_BG}（#f5ebf2）、黑色字体。二级列表与正文滚动区用 scissor 限定在内容区，
- * 不越出顶栏/手机边界。图片 PNG 放 {@code gameDir/huhutalk/manual/}，条目通过 {@code imageKey} 引用。
+ * 右键（或顶栏「&lt; 返回」）逐级返回：正文 → 小栏目列表 → 一级列表 → 桌面。
+ * 图片 PNG 放 {@code gameDir/huhutalk/manual/}，条目通过 {@code imageKey} 引用。
+ *
+ * <h2>改用公开骨架（批次 4）</h2>
+ * 旧实现 {@code implements IPhonePage}，把每个页面都要抄一遍的样板都写在文件里：
+ * 手绘顶栏与「‹ 返回」、手算顶栏高度（{@code sh(22)}）、手配对 {@code enableScissor}，
+ * 并且在 {@code render} 与 {@code mouseClicked} 里<b>各算一遍</b>同一批行坐标
+ * （「第 i 行画在哪」与「点在哪算第 i 行」靠人肉保持同步）。现在：
+ * <ul>
+ *   <li>顶栏 / 底色 / 裁剪 / 主题取色 → {@link PhonePage}；标题<b>左对齐</b>画在返回键右侧
+ *       （见 {@link #renderTopBarExtras}），所以 {@link #title()} 返回空串；</li>
+ *   <li>本页是混合排版，走<b>模型 A（页面自管滚动）</b>：只实现 {@link #contentHeight()}；</li>
+ *   <li>三级的全部 y 由<b>唯一的</b> {@link #layout()} 产出（逻辑坐标），
+ *       渲染走 {@link PhonePage#scrollY(int)}、命中走 {@link PhonePage#logicalY(double)}，
+ *       两者严格互逆，所以「画在哪」与「点在哪」在结构上不可能不同步；</li>
+ *   <li>画字 → {@link PhoneText}，命中 → {@link PhoneLayout}，圆角 → {@link PhoneShapes}。</li>
+ * </ul>
+ *
+ * <h2>三级共用一个 {@code scrollOffset}</h2>
+ * {@link PhonePage} 只有一个滚动偏移，而本页三级各有各的位置，所以每一级各留一个记忆字段
+ * （{@link #rootScroll} / {@link #sectionScroll} / {@link #bodyScroll}）：
+ * 正在显示的那一级在 {@link #renderContent} 末尾与骨架的偏移同步；
+ * 切级别时<b>先</b>改级别字段（{@link #currentSection} / {@link #currentEntry}）、
+ * <b>再</b> {@link #setScrollOffset(int)} —— 它按 {@link #maxScroll()} 钳制，而后者来自
+ * {@link #contentHeight()}（当前级别），顺序反了就会拿旧级别的上限钳新级别的值。
+ *
+ * <h2>与旧实现的差异（刻意接受）</h2>
+ * <ul>
+ *   <li>页面底 / 卡片底 / 正文色改走主题色板（旧实现硬编码 {@code #f5ebf2} / 白 / 纯黑，略有色差）；
+ *       顶栏仍显式返回 {@link PhonePage#BRAND_TOPBAR_BG}，与聊天 / 消息 / 设置页一致；</li>
+ *   <li>返回键文案由「‹ 返回」变成骨架统一的「&lt; 返回」；</li>
+ *   <li>顶栏高度改用骨架公式（一行字 + 8px ≈ 17px，旧实现硬编码 {@code sh(22)}），内容整体上移约 5px；</li>
+ *   <li>列表不再单独裁剪到上下各留白 6px 的窄带内（骨架已把内容整体裁到内容区），
+ *       贴着上下边界的那一行最多多露出 6px；</li>
+ *   <li>顶栏区域上的滚轮不再滚动内容（骨架的 {@code mouseScrolled} 只在内容区生效）；</li>
+ *   <li>命中区间由闭区间改为 {@link PhoneLayout#hit} 的半开区间（边界像素归属不同）。</li>
+ * </ul>
  *
  * <h2>附属模组怎么往这里追加说明</h2>
  * 调 {@link #registerSection(String, String, java.util.List)}（纯新增的公开通路），
@@ -36,23 +66,46 @@ import java.util.List;
  * 本页每次打开都会新建一个 {@code ManualPage}，所以"注册之后下一次打开手册"一定能看到；
  * 而注册本身在任何早于"玩家打开手册"的时机做都可以（模组构造期最省心）。
  */
-public class ManualPage implements IPhonePage {
+public class ManualPage extends PhonePage {
 
-    /** 页面底色 #f5ebf2 */
-    private static final int PAGE_BG = 0xFFF5EBF2;
-    /** 顶栏底色：改成 HuhuTalk 品牌粉，与聊天/消息/设置/图库等页面统一（原来跟主题是 #f06292） */
-    private static final int HEADER_BG = com.huhutalk.api.phone.ui.PhonePage.BRAND_TOPBAR_BG;
-    /** 黑色文字 */
-    private static final int TEXT_COLOR = 0xFF000000;
-    /** 次要文字（浅黑灰） */
-    private static final int TEXT_SUB = 0xFF555555;
-    /** 条目卡片底色 */
-    private static final int CARD_BG = 0xFFFFFFFF;
+    // ==================== 布局常量（基准像素，运行时经 PhoneText.px/scale 缩放） ====================
+
+    /** 一级 / 二级列表的行高 */
+    private static final int ROW_H = 34;
+    /** 一级 / 二级列表的行间距 */
+    private static final int ROW_GAP = 4;
+    /** 列表卡片距手机左右边 */
+    private static final int CARD_PAD = 8;
+    /** 列表卡片圆角 */
+    private static final int CARD_RADIUS = 8;
+    /** 卡片文字距卡片左边 */
+    private static final int CARD_TEXT_PAD = 10;
+    /** 列表可视区的上下留白（在内容坐标里） */
+    private static final int LIST_PAD = 6;
+    /** 正文可滚动视口距内容区顶 */
+    private static final int BODY_TOP = 4;
+    /** 正文可滚动视口距内容区底 */
+    private static final int BODY_BOTTOM = 6;
+    /** 正文与底部固定配图之间的间距 */
+    private static final int IMG_GAP = 4;
+    /** 一级 / 二级列表行文字的缩放 */
+    private static final float ROW_TEXT_SCALE = 0.9f;
+    /** 顶栏标题的缩放（左对齐，不居中） */
+    private static final float TOP_TITLE_SCALE = 0.85f;
+    /** 顶栏标题与返回键文案之间的间距 */
+    private static final int TOP_TITLE_GAP = 10;
+    /** 滚动速度：1 单位滚轮 = 多少逻辑像素（保持旧实现的 {@code UiFont.sh(10)}） */
+    private static final int SCROLL_SPEED = 10;
+    /** 骨架画返回键文案的左边距（{@code PhonePage} 内部固定为 4），本页只用来把标题摆在它右边 */
+    private static final int BACK_LABEL_X = 4;
+    /** 与 {@code PhonePage} 内部的返回键文案一致，仅用于量它的宽度 */
+    private static final String BACK_LABEL = "< 返回";
+
     /**
      * 正文配图最多占内容区可视高度的比例（其余留给正文）。
      * <p>
      * 手册里像「图9/图10」那种竖屏截图（798x1340）按宽度铺满后会高得把正文挤成一条缝，
-     * 所以高度封顶、按比例回缩宽度（见 {@link #renderBody}）。
+     * 所以高度封顶、按比例回缩宽度（见 {@link #layout()}）。
      */
     private static final float IMG_MAX_HEIGHT_RATIO = 0.62f;
 
@@ -150,6 +203,7 @@ public class ManualPage implements IPhonePage {
     private ManualSection currentSection = null;
     /** 当前打开的二级条目；null = 二级列表 */
     private ManualEntry currentEntry = null;
+
     /**
      * 一级栏目的滚动偏移。
      * <p>
@@ -160,12 +214,20 @@ public class ManualPage implements IPhonePage {
      * 而手机内容区默认只放得下 4 行左右（`(h - 页眉 - 留白) / (行高 + 行距)`）——
      * 没有滚动的话第 5 节往后<b>既不显示也点不到</b>，附属模组的栏目更是永远看不见。
      */
-    private float rootScroll = 0f;
+    private int rootScroll = 0;
     /** 二级列表滚动偏移 */
-    private float sectionScroll = 0f;
+    private int sectionScroll = 0;
     /** 正文滚动偏移 */
-    private float scroll = 0f;
+    private int bodyScroll = 0;
 
+    /**
+     * 构造时把内置栏目 + {@link #EXTERNAL_SECTIONS} 的快照收进本实例自己的 {@link #sections}。
+     * <p>
+     * ⚠ 下面几段正文刻意保留字符串串联（{@code "…\n" + …}）：它们是玩家可见的原文，
+     * 改成文本块会改变缩进与尾部换行。所以在这里抑制 IDE 的「可换成文本块」提示，
+     * 免得它把「不改文案」这条约束变成一片无法消除的告警。
+     */
+    @SuppressWarnings("TextBlockMigration")
     public ManualPage() {
         sections = new ArrayList<>();
         sections.add(sec("huhutalk",
@@ -288,8 +350,8 @@ public class ManualPage implements IPhonePage {
     /**
      * 带配图的条目。
      *
-     * @param imageKey 配图资源键，见 {@link #fig(int)}。渲染时固定在正文下方（
-     *                 {@link #renderBody}），高度超过内容区 {@link #IMG_MAX_HEIGHT_RATIO} 会按比例缩小。
+     * @param imageKey 配图资源键，见 {@link #fig(int)}。渲染时固定在正文下方
+     *                 （见 {@link #layout()}），高度超过内容区 {@link #IMG_MAX_HEIGHT_RATIO} 会按比例缩小。
      */
     private static ManualEntry entry(String title, String body, String imageKey) {
         return new ManualEntry(title, body, imageKey);
@@ -307,167 +369,255 @@ public class ManualPage implements IPhonePage {
         return "manual_fig_" + n;
     }
 
-    // ==================== 渲染 ====================
+    // ==================== 骨架钩子 ====================
 
+    /**
+     * 顶栏不写居中标题。
+     * <p>
+     * 本页的标题按内置页面惯例<b>左对齐</b>画在返回键右边（见 {@link #renderTopBarExtras}），
+     * 而骨架的 {@link PhonePage#title()} 是居中的，所以这里返回空串。
+     */
     @Override
-    public void render(GuiGraphics g, int baseX, int baseY, float partialTick) {
-        int w = PhoneOverlay.getPhoneWidth();
-        int h = PhoneOverlay.getPhoneHeight();
-        g.fill(baseX, baseY, baseX + w, baseY + h, PAGE_BG);
-
-        if (currentEntry != null) {
-            renderBody(g, baseX, baseY);
-        } else if (currentSection != null) {
-            renderSectionList(g, baseX, baseY);
-        } else {
-            renderSectionRoot(g, baseX, baseY);
-        }
+    protected String title() {
+        return "";
     }
 
-    /** 通用顶栏：返回 + 标题 */
-    private void renderHeader(GuiGraphics g, Font font, int baseX, int baseY, int w, String title) {
-        int headerH = UiFont.sh(22);
-        g.fill(baseX, baseY, baseX + w, baseY + headerH, HEADER_BG);
-        drawScaledText(g, font, "‹ 返回", baseX + UiFont.sh(8), baseY + (headerH - lineH(font)) / 2,
-                0xFFFFFFFF, UiFont.sc(1.0f));
-        int backW = (int) (font.width("‹ 返回") * UiFont.sc(1.0f));
-        drawScaledText(g, font, title, baseX + UiFont.sh(8) + backW + UiFont.sh(10),
-                baseY + (headerH - lineH(font)) / 2, 0xFFFFFFFF, UiFont.sc(0.85f));
+    /** 列表 / 条目类页面底色：主题里比主要背景深一档（旧实现硬编码 {@code 0xFFF5EBF2}） */
+    @Override
+    protected int pageBackground() {
+        return colors().pageBgList();
+    }
+
+    /** 顶栏锁成品牌色：以后新增配色方案时本页仍与聊天 / 消息 / 设置是同一台手机（旧实现硬编码 {@code 0xFFDE7E7E}） */
+    @Override
+    protected int topBarBackground() {
+        return BRAND_TOPBAR_BG;
+    }
+
+    /** 保持旧实现的滚动速度（{@code UiFont.sh(10)} = {@code PhoneText.px(10)}） */
+    @Override
+    protected double scrollSpeed() {
+        return PhoneText.px(SCROLL_SPEED);
     }
 
     /**
-     * 一级大栏目列表。
-     *
-     * <h2>为什么要滚动（第 7 轮改的）</h2>
-     * 原实现是"装不下就 break"：既没有 scissor、也没有滚动。
-     * 内置栏目已经有 11 节，而手机内容区默认只放得下 4 行左右，
-     * 于是第 5 节起<b>既不显示也点不到</b> —— 附属模组追加的栏目永远看不到，
-     * 「模组兼容」「物品与方块」这些内置栏目也一样。
-     * 现在照抄二级列表那套已经验证过的写法（clamp + scissor + 滚动偏移）。
-     *
-     * <p>注意它与 {@link #renderSectionList}、{@link #mouseClicked}、
-     * {@link #mouseScrolled} 必须共用同一份几何（top/bottom/rowH/gap/maxScroll），
-     * 否则就会出现"看到的位置和点到的位置不一样"。
+     * 模型 A（页面自管滚动）：返回<b>当前级别</b>的内容总高。
+     * <p>
+     * 三级各有各的滚动位置，但骨架只有一个 {@code scrollOffset}，所以这里必须按当前级别
+     * （{@link #currentEntry} / {@link #currentSection}）给出对应的高度，
+     * {@link PhonePage#maxScroll()} 才会按这一级钳制。
      */
-    private void renderSectionRoot(GuiGraphics g, int baseX, int baseY) {
-        int w = PhoneOverlay.getPhoneWidth();
-        int h = PhoneOverlay.getPhoneHeight();
-        Font font = Minecraft.getInstance().font;
-        renderHeader(g, font, baseX, baseY, w, "设置");
-
-        int headerH = UiFont.sh(22);
-        int pad = UiFont.sh(8);
-        int top = baseY + headerH + UiFont.sh(6);
-        int bottom = baseY + h - UiFont.sh(6);
-        int rowH = UiFont.sh(34);
-        int gap = UiFont.sh(4);
-        int viewH = bottom - top;
-        int contentH = sections.size() * (rowH + gap);
-        int maxScroll = Math.max(0, contentH - viewH);
-        rootScroll = clamp(rootScroll, maxScroll);
-
-        g.enableScissor(baseX, top, baseX + w, bottom);
-        int cy = top - (int) rootScroll;
-        for (ManualSection s : sections) {
-            // 被滚出上边界的那几行直接跳过（继续累加 cy，不能 break —— 下面的行还有可能露出来）
-            if (cy + rowH < top) { cy += rowH + gap; continue; }
-            if (cy > bottom) break;
-            PhoneShapes.fillRoundedRect(g, baseX + pad, cy, w - pad * 2, rowH, UiFont.sh(8), CARD_BG);
-            drawScaledText(g, font, "›  " + s.title(), baseX + pad + UiFont.sh(10),
-                    cy + (rowH - lineH(font)) / 2, TEXT_COLOR, UiFont.sc(0.9f));
-            cy += rowH + gap;
-        }
-        g.disableScissor();
+    @Override
+    protected int contentHeight() {
+        return layout().contentH;
     }
 
-    /** 二级小栏目列表（可滚动，scissor 限定内容区） */
-    private void renderSectionList(GuiGraphics g, int baseX, int baseY) {
-        int w = PhoneOverlay.getPhoneWidth();
-        int h = PhoneOverlay.getPhoneHeight();
-        Font font = Minecraft.getInstance().font;
-        renderHeader(g, font, baseX, baseY, w, currentSection.title());
-
-        int headerH = UiFont.sh(22);
-        int pad = UiFont.sh(8);
-        int top = baseY + headerH + UiFont.sh(6);
-        int bottom = baseY + h - UiFont.sh(6);
-        int rowH = UiFont.sh(34);
-        int gap = UiFont.sh(4);
-        int contentH = currentSection.entries().size() * (rowH + gap);
-        int viewH = bottom - top;
-        int maxScroll = Math.max(0, contentH - viewH);
-        sectionScroll = clamp(sectionScroll, maxScroll);
-
-        g.enableScissor(baseX, top, baseX + w, bottom);
-        int cy = top - (int) sectionScroll;
-        for (ManualEntry e : currentSection.entries()) {
-            if (cy + rowH < top) { cy += rowH + gap; continue; }
-            if (cy > bottom) break;
-            PhoneShapes.fillRoundedRect(g, baseX + pad, cy, w - pad * 2, rowH, UiFont.sh(8), CARD_BG);
-            drawScaledText(g, font, "›  " + e.title(), baseX + pad + UiFont.sh(10),
-                    cy + (rowH - lineH(font)) / 2, TEXT_COLOR, UiFont.sc(0.9f));
-            cy += rowH + gap;
-        }
-        g.disableScissor();
+    /** 顶栏标题文本：一级列表显示「设置」，二 / 三级显示当前一级栏目名（旧实现的正文页也显示栏目名） */
+    private String topBarTitle() {
+        return currentSection != null ? currentSection.title() : "设置";
     }
 
-    /** 正文详情（可滚动 + 可选图片，scissor 限定内容区） */
-    private void renderBody(GuiGraphics g, int baseX, int baseY) {
-        int w = PhoneOverlay.getPhoneWidth();
-        int h = PhoneOverlay.getPhoneHeight();
-        Font font = Minecraft.getInstance().font;
-        renderHeader(g, font, baseX, baseY, w, currentSection.title());
+    /**
+     * 顶栏标题：<b>左对齐</b>画在骨架的返回键右边。
+     * <p>
+     * 起点 = 骨架画返回键的位置（{@code baseX + 4}）+ 返回键文案宽度 + {@link #TOP_TITLE_GAP}。
+     * {@link #BACK_LABEL} 与 {@code PhonePage} 内部的返回键文案是同一个字符串，这里只用来量宽度。
+     */
+    @Override
+    protected void renderTopBarExtras(GuiGraphics g, int baseX, int baseY, int w, int barH, int textY) {
+        Font font = font();
+        int titleX = baseX + BACK_LABEL_X
+                + PhoneText.width(font, BACK_LABEL, PhoneText.scale(1.0f))
+                + PhoneText.px(TOP_TITLE_GAP);
+        PhoneText.draw(g, font, topBarTitle(), titleX, textY,
+                colors().topBarText(), PhoneText.scale(TOP_TITLE_SCALE));
+    }
 
-        int headerH = UiFont.sh(22);
-        int pad = UiFont.sh(8);
-        int contentTop = baseY + headerH + UiFont.sh(4);
-        int contentBottom = baseY + h - UiFont.sh(6);
+    // ==================== 布局 ====================
 
-        // 图片：存在则固定底部
-        int imgH = 0;
-        if (currentEntry.imageKey() != null) {
-            ResourceLocation imgTex = PhotoLibrary.getOrLoadTexture(currentEntry.imageKey());
-            int[] dims = PhotoLibrary.getTextureSize(currentEntry.imageKey());
-            if (imgTex != null) {
-                int availW = w - pad * 2;
-                int imgW = Math.min(availW, dims[0]);
-                imgH = Math.max(1, (int) (dims[1] * (imgW / (float) Math.max(1, dims[0]))));
-                // 高度封顶：手册里的竖屏截图（如 798x1340）按宽度铺开后会高得把正文挤成一条缝。
-                // 封顶后按同一比例把宽度也缩回去（绝不拉伸），并水平居中。
-                int maxH = Math.max(1, (int) ((contentBottom - contentTop) * IMG_MAX_HEIGHT_RATIO));
-                if (imgH > maxH) {
-                    imgW = Math.max(1, (int) (imgW * (maxH / (float) imgH)));
-                    imgH = maxH;
+    /**
+     * 每帧的布局结果，所有 y 都是<b>逻辑坐标</b>（内容坐标、<b>未含滚动</b>）：
+     * 渲染时 {@code scrollY(y)}、命中时 {@code logicalY(localY)}。
+     */
+    private static final class Layout {
+        /** 当前级别的内容总高（{@link #contentHeight()} 的返回值） */
+        int contentH;
+        /** 卡片左右留白（逻辑像素） */
+        int pad;
+        /** 一倍字号的行高（顶栏对齐与行内垂直居中用） */
+        int lineH;
+        // ---- 列表级别（一级栏目 / 二级条目共用同一套几何）----
+        int listCount;
+        int listTop;
+        int listBottom;
+        int rowH;
+        int gap;
+        // ---- 正文级别 ----
+        /** 正文可滚动视口的上下界（逻辑坐标） */
+        int bodyTop;
+        int bodyBottom;
+        /** 底部固定配图（不参与滚动） */
+        int imgX, imgY, imgW, imgH;
+        ResourceLocation imgTex;
+        int srcW, srcH;
+        /** 折行后的正文 */
+        List<FormattedCharSequence> bodyLines = List.of();
+    }
+
+    /** 列表行标题的来源：一级列表取栏目名、二级列表取条目名，其余渲染完全一致。 */
+    private interface RowTitles {
+        String at(int index);
+    }
+
+    /**
+     * <b>唯一</b>的布局计算：{@link #renderContent} / {@link #onContentClick} /
+     * {@link #contentHeight()} 都调它，不再有任何一处在别处重算行 y；
+     * 渲染走 {@link PhonePage#scrollY(int)}、命中走 {@link PhonePage#logicalY(double)}，
+     * 二者严格互逆，所以「画在哪」与「点在哪」结构上不可能不同步。
+     * <p>
+     * 每一级的 {@code contentH} 都写成「内容高 + (视口高 - 该级别的可视高)」，
+     * 于是 {@link PhonePage#maxScroll()}（= {@code contentH - contentViewHeight()}）
+     * 恰好等于旧实现那份 {@code max(0, 内容高 - 视口高)} —— 钳制范围逐像素一致。
+     */
+    private Layout layout() {
+        Font font = font();
+        int h = contentViewHeight();
+        Layout L = new Layout();
+        L.pad = PhoneText.px(CARD_PAD);
+        L.lineH = Math.max(1, PhoneText.height(font, PhoneText.scale(1.0f)));
+
+        if (currentEntry != null) {
+            // ---- 正文级别 ----
+            L.bodyTop = PhoneText.px(BODY_TOP);
+            int viewBottom = h - PhoneText.px(BODY_BOTTOM);
+            if (currentEntry.imageKey() != null) {
+                ResourceLocation tex = PhotoLibrary.getOrLoadTexture(currentEntry.imageKey());
+                int[] dims = PhotoLibrary.getTextureSize(currentEntry.imageKey());
+                if (tex != null) {
+                    int availW = width() - L.pad * 2;
+                    int imgW = Math.min(availW, dims[0]);
+                    int imgH = Math.max(1, (int) (dims[1] * (imgW / (float) Math.max(1, dims[0]))));
+                    // 高度封顶：手册里的竖屏截图（如 798x1340）按宽度铺开后会高得把正文挤成一条缝。
+                    // 封顶后按同一比例把宽度也缩回去（绝不拉伸），并水平居中。
+                    int maxH = Math.max(1, (int) ((viewBottom - L.bodyTop) * IMG_MAX_HEIGHT_RATIO));
+                    if (imgH > maxH) {
+                        imgW = Math.max(1, (int) (imgW * (maxH / (float) imgH)));
+                        imgH = maxH;
+                    }
+                    L.imgTex = tex;
+                    L.srcW = dims[0];
+                    L.srcH = dims[1];
+                    L.imgW = imgW;
+                    L.imgH = imgH;
+                    L.imgX = L.pad + Math.max(0, (availW - imgW) / 2);
+                    L.imgY = viewBottom - imgH;
                 }
-                g.blit(imgTex, baseX + pad + Math.max(0, (availW - imgW) / 2), contentBottom - imgH, imgW, imgH,
-                        0.0f, 0.0f, dims[0], dims[1], dims[0], dims[1]);
             }
+            // 正文视口下界要让开底部固定的配图
+            L.bodyBottom = viewBottom - (L.imgH > 0 ? L.imgH + PhoneText.px(IMG_GAP) : 0);
+            L.bodyLines = wrapBody(font, width() - L.pad * 2);
+            int textH = L.bodyLines.size() * font.lineHeight;
+            L.contentH = textH + (h - (L.bodyBottom - L.bodyTop));
+            return L;
         }
-        int bodyBottom = contentBottom - (imgH > 0 ? imgH + UiFont.sh(4) : 0);
-        int bodyAreaH = bodyBottom - contentTop;
 
-        List<FormattedCharSequence> lines = wrapBody(font, w - pad * 2);
-        int lh = font.lineHeight;
-        int totalH = lines.size() * lh;
-        float maxScroll = Math.max(0, totalH - bodyAreaH);
-        scroll = clamp(scroll, maxScroll);
-
-        g.enableScissor(baseX, contentTop, baseX + w, bodyBottom);
-        int textX = baseX + pad;
-        int textY = contentTop - (int) scroll;
-        for (FormattedCharSequence line : lines) {
-            if (textY + lh >= contentTop && textY < bodyBottom) {
-                g.drawString(font, line, textX, textY, TEXT_COLOR, false);
-            }
-            textY += lh;
-        }
-        g.disableScissor();
+        // ---- 列表级别（一级栏目 / 二级条目共用同一套几何）----
+        L.listCount = currentSection != null ? currentSection.entries().size() : sections.size();
+        L.rowH = PhoneText.px(ROW_H);
+        L.gap = PhoneText.px(ROW_GAP);
+        L.listTop = PhoneText.px(LIST_PAD);
+        L.listBottom = h - PhoneText.px(LIST_PAD);
+        int listH = L.listCount * (L.rowH + L.gap);
+        L.contentH = listH + (h - (L.listBottom - L.listTop));
+        return L;
     }
 
-    private static float clamp(float v, float max) {
-        return Math.max(0, Math.min(v, max));
+    // ==================== 渲染 ====================
+
+    @Override
+    protected void renderContent(GuiGraphics g, int originX, int originY, int w, int h, float partialTick) {
+        Layout L = layout();
+        if (currentEntry != null) {
+            renderBody(g, originX, originY, w, L);
+        } else if (currentSection != null) {
+            renderList(g, originX, originY, w, L, i -> currentSection.entries().get(i).title());
+        } else {
+            renderList(g, originX, originY, w, L, i -> sections.get(i).title());
+        }
+        // 正在显示的级别：把骨架的滚动偏移同步回本级别的记忆字段（切级别时用它还原上一屏）
+        syncScrollField();
     }
 
+    /**
+     * 一级 / 二级列表：圆角卡片 + 「›  标题」，行 y 全部来自 {@link #layout()}。
+     * <p>
+     * 裁剪交给骨架（{@code PhonePage.render} 已把内容整体裁到内容区），这里只做视口外的行跳过。
+     */
+    private void renderList(GuiGraphics g, int originX, int originY, int w, Layout L, RowTitles titles) {
+        Font font = font();
+        ColorScheme c = colors();
+        int clipTop = originY + L.listTop;
+        int clipBottom = originY + L.listBottom;
+        int cardW = w - L.pad * 2;
+        int textPad = PhoneText.px(CARD_TEXT_PAD);
+        int radius = PhoneText.px(CARD_RADIUS);
+        float scale = PhoneText.scale(ROW_TEXT_SCALE);
+        int cy = originY + scrollY(L.listTop);
+        for (int i = 0; i < L.listCount; i++) {
+            // 被滚出上边界的那几行直接跳过（继续累加 cy，不能 break —— 下面的行还有可能露出来）
+            if (cy + L.rowH < clipTop) {
+                cy += L.rowH + L.gap;
+                continue;
+            }
+            if (cy > clipBottom) {
+                break;
+            }
+            PhoneShapes.fillRoundedRect(g, originX + L.pad, cy, cardW, L.rowH, radius, c.cardBg());
+            PhoneText.draw(g, font, "›  " + titles.at(i), originX + L.pad + textPad,
+                    cy + (L.rowH - L.lineH) / 2f, c.textPrimary(), scale);
+            cy += L.rowH + L.gap;
+        }
+    }
+
+    /**
+     * 正文：底部固定配图（不参与滚动）+ 可滚动折行文本。
+     * <p>
+     * ⚠ 正文视口<b>窄于</b>内容区（底部让开了配图），所以这一处裁剪比骨架那层更窄，
+     * 必须自己保留 —— 否则滚进来的文字会压到配图上。
+     */
+    private void renderBody(GuiGraphics g, int originX, int originY, int w, Layout L) {
+        Font font = font();
+        ColorScheme c = colors();
+
+        if (L.imgTex != null) {
+            g.blit(L.imgTex, originX + L.imgX, originY + L.imgY, L.imgW, L.imgH,
+                    0.0f, 0.0f, L.srcW, L.srcH, L.srcW, L.srcH);
+        }
+
+        int clipTop = originY + L.bodyTop;
+        int clipBottom = originY + L.bodyBottom;
+        if (clipBottom <= clipTop) {
+            return;
+        }
+        g.enableScissor(originX, clipTop, originX + w, clipBottom);
+        try {
+            int textY = originY + scrollY(L.bodyTop);
+            for (FormattedCharSequence line : L.bodyLines) {
+                if (textY + font.lineHeight >= clipTop && textY < clipBottom) {
+                    g.drawString(font, line, originX + L.pad, textY, c.textPrimary(), false);
+                }
+                textY += font.lineHeight;
+            }
+        } finally {
+            g.disableScissor();
+        }
+    }
+
+    /**
+     * 按当前条目正文折行（{@code \n} 分段，段内按宽度自动折行）。
+     * <p>
+     * 正文本身不随字体倍率缩放（与旧实现一致：行高就是 {@code font.lineHeight}）。
+     */
     private List<FormattedCharSequence> wrapBody(Font font, int maxWidth) {
         List<FormattedCharSequence> out = new ArrayList<>();
         for (String para : currentEntry.body().split("\n")) {
@@ -482,133 +632,97 @@ public class ManualPage implements IPhonePage {
 
     // ==================== 交互 ====================
 
-    /** 顶栏"返回"命中（返回上一级） */
-    private boolean hitHeaderBack(int w, double relX, double relY) {
-        int headerH = UiFont.sh(22);
-        int backW = UiFont.sh(8) + (int) (Minecraft.getInstance().font.width("‹ 返回") * UiFont.sc(1.0f)) + UiFont.sh(8);
-        return relY <= headerH && relX <= backW;
-    }
-
+    /**
+     * 内容区点击（<b>内容坐标</b>）：一级列表点开栏目、二级列表点开条目、正文页没有可点的东西。
+     * <p>
+     * ⚠ 切级别时<b>先</b>改 {@link #currentSection} / {@link #currentEntry}、<b>再</b>
+     * {@link #setScrollOffset(int)}：后者按 {@link #maxScroll()} 钳制，而 {@code maxScroll()}
+     * 来自 {@link #contentHeight()}（当前级别）。先钳制就会拿旧级别的上限钳新级别的值。
+     */
     @Override
-    public boolean mouseClicked(double relX, double relY, int button, int action) {
-        if (button != GLFW.GLFW_MOUSE_BUTTON_LEFT) return false;
-        if (action != GLFW.GLFW_PRESS) return false;
-
-        int w = PhoneOverlay.getPhoneWidth();
-        int h = PhoneOverlay.getPhoneHeight();
-        int headerH = UiFont.sh(22);
-
-        // 顶栏返回：逐级回退。
-        // ⚠ 这里必须看 onBackPressed() 的返回值：它在一级列表（最外层）会返回 false =
-        //   "我已经没有上一级了，交给上层"。旧代码无条件 return true，于是点在最外层时
-        //   **点击被吞掉、却什么都不发生** —— 玩家看到的就是"手册返回键是坏的"。
-        //   false 时补上公共通路 PhoneOverlay.popPage()，与 api 层 PhonePage#onBack() 的默认行为一致。
-        if (hitHeaderBack(w, relX, relY)) {
-            if (!onBackPressed()) {
-                PhoneOverlay.popPage();
-            }
-            return true;
+    protected boolean onContentClick(double localX, double localY, int button, int action) {
+        if (button != GLFW.GLFW_MOUSE_BUTTON_LEFT || action != GLFW.GLFW_PRESS) {
+            return false;
         }
-
-        int pad = UiFont.sh(8);
-        int rowH = UiFont.sh(34);
-        int gap = UiFont.sh(4);
-        int top = headerH + UiFont.sh(6);
-        int bottom = h - UiFont.sh(6);
-
+        // 正文页没有可点的东西（旧实现同样直接返回 false）
         if (currentEntry != null) {
             return false;
         }
-        if (currentSection != null) {
-            int viewH = bottom - top;
-            int contentH = currentSection.entries().size() * (rowH + gap);
-            int maxScroll = Math.max(0, contentH - viewH);
-            sectionScroll = clamp(sectionScroll, maxScroll);
-            int cy = top - (int) sectionScroll;
-            for (ManualEntry e : currentSection.entries()) {
-                if (relX >= pad && relX <= w - pad && relY >= cy && relY <= cy + rowH) {
-                    currentEntry = e;
-                    scroll = 0;
-                    return true;
-                }
-                cy += rowH + gap;
+        // 先把骨架里的当前位置刷回本级别的记忆字段，再按这一级做命中
+        syncScrollField();
+
+        Layout L = layout();
+        double logical = logicalY(localY);
+        int cardW = width() - L.pad * 2;
+        for (int i = 0; i < L.listCount; i++) {
+            int rowY = L.listTop + i * (L.rowH + L.gap);
+            if (!PhoneLayout.hit(localX, logical, L.pad, rowY, cardW, L.rowH)) {
+                continue;
             }
-            return false;
-        }
-        // 一级列表（可滚动：几何必须与 renderSectionRoot 完全一致）
-        int viewH = bottom - top;
-        int contentH = sections.size() * (rowH + gap);
-        int maxScroll = Math.max(0, contentH - viewH);
-        rootScroll = clamp(rootScroll, maxScroll);
-        int cy = top - (int) rootScroll;
-        for (ManualSection s : sections) {
-            if (cy + rowH < top) { cy += rowH + gap; continue; }
-            if (cy > bottom) break;
-            if (relX >= pad && relX <= w - pad && relY >= cy && relY <= cy + rowH) {
-                currentSection = s;
+            if (currentSection != null) {
+                currentEntry = currentSection.entries().get(i);
+                bodyScroll = 0;
+                setScrollOffset(bodyScroll);
+            } else {
+                currentSection = sections.get(i);
                 currentEntry = null;
                 sectionScroll = 0;
-                scroll = 0;
-                return true;
+                bodyScroll = 0;
+                setScrollOffset(sectionScroll);
             }
-            cy += rowH + gap;
+            return true;
         }
         return false;
     }
 
+    /**
+     * 逐级回退：正文 → 二级列表 → 一级列表 → false（交给上层 {@link PhoneOverlay#popPage()} 回桌面）。
+     * <p>
+     * ⚠ <b>先</b>改级别字段、<b>再</b> {@link #setScrollOffset(int)}（原因见 {@link #onContentClick}）。
+     * <p>
+     * 与旧实现逐字一致：退回二级列表时把正文滚动清零、退回一级列表时把二级滚动清零
+     * （即"重进同一条目 / 同一个栏目都从顶部开始"），而一级列表保留玩家离开时的那一屏。
+     */
     @Override
     public boolean onBackPressed() {
-        // 逐级回退：正文 → 二级列表 → 一级列表 → false(交给上层 popPage 回桌面)
         if (currentEntry != null) {
+            bodyScroll = 0;
             currentEntry = null;
-            scroll = 0;
+            setScrollOffset(sectionScroll);
             return true;
         }
         if (currentSection != null) {
-            currentSection = null;
             sectionScroll = 0;
+            currentSection = null;
+            setScrollOffset(rootScroll);
             return true;
         }
         return false;
     }
 
+    /**
+     * 顶栏「&lt; 返回」按钮（骨架的钩子）。
+     * <p>
+     * 旧实现把这段逻辑写在 {@code mouseClicked} 的顶栏命中分支里：
+     * {@code if (!onBackPressed()) PhoneOverlay.popPage();}。骨架把顶栏返回单独收成
+     * {@code onBack()}，所以这里照抄同一逻辑 —— 「点返回键」与「右键返回」逐级回退的行为完全一致，
+     * 在最外层（一级列表）仍然是出栈回桌面。
+     */
     @Override
-    public boolean mouseScrolled(double relX, double relY, double scrollDelta) {
-        // 向上滚（scrollDelta<0）= 向上翻（内容下移露出更上面），故用 -scrollDelta
+    protected void onBack() {
+        if (!onBackPressed()) {
+            PhoneOverlay.popPage();
+        }
+    }
+
+    /** 把骨架的滚动偏移同步回"正在显示的那一级"的记忆字段。 */
+    private void syncScrollField() {
         if (currentEntry != null) {
-            scroll += (float) (-scrollDelta * UiFont.sh(10));
-            return true;
+            bodyScroll = scrollOffset();
+        } else if (currentSection != null) {
+            sectionScroll = scrollOffset();
+        } else {
+            rootScroll = scrollOffset();
         }
-        if (currentSection != null) {
-            sectionScroll += (float) (-scrollDelta * UiFont.sh(10));
-            return true;
-        }
-        // 一级列表（第 7 轮补的）：装得下就什么都不做，保持改动前的行为；
-        // 装不下才滚，否则第 5 节往后的栏目永远够不着。
-        int h = PhoneOverlay.getPhoneHeight();
-        int top = UiFont.sh(22) + UiFont.sh(6);
-        int bottom = h - UiFont.sh(6);
-        int rowH = UiFont.sh(34);
-        int gap = UiFont.sh(4);
-        int maxScroll = Math.max(0, sections.size() * (rowH + gap) - (bottom - top));
-        if (maxScroll <= 0) {
-            return false;
-        }
-        rootScroll = clamp(rootScroll + (float) (-scrollDelta * UiFont.sh(10)), maxScroll);
-        return true;
-    }
-
-    // ==================== 工具 ====================
-
-    private static int lineH(Font font) {
-        return font.lineHeight;
-    }
-
-    private static void drawScaledText(GuiGraphics g, Font font, String text, float x, float y, int color, float scale) {
-        float inv = 1.0f / scale;
-        g.pose().pushPose();
-        g.pose().scale(scale, scale, 1.0f);
-        g.drawString(font, text, x * inv, y * inv, color, false);
-        g.pose().popPose();
     }
 }

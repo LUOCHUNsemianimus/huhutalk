@@ -6,7 +6,6 @@ import com.huhutalk.api.phone.ui.PhoneText;
 import com.huhutalk.client.PhotoLibrary;
 import com.huhutalk.event.ClientModEvents;
 import com.huhutalk.phone.PhoneOverlay;
-import com.huhutalk.phone.UiFont;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
@@ -164,28 +163,28 @@ public class PhoneCameraPage implements PhoneCameraHost {
         graphics.fill(baseX, baseY, baseX + w, baseY + navH, TOPBAR_BG);
         String backHint = "< 返回 " + keyHint(false);
         String title = "拍照";
-        float barTs = UiFont.sc(0.85f);
-        int barAvail = w - UiFont.sh(10) - UiFont.sh(6);
+        float barTs = PhoneText.scale(0.85f);
+        int barAvail = w - PhoneText.px(10) - PhoneText.px(6);
         int barRaw = font.width(backHint) + font.width(title);
         if (barRaw > 0) {
             barTs = Math.min(barTs, barAvail / (float) barRaw);
         }
         barTs = Math.max(barTs, 0.40f);
         float barTextY = baseY + navH / 2f - font.lineHeight * barTs / 2f;
-        PhoneText.draw(graphics, font, backHint, baseX + UiFont.sh(4), barTextY, 0xFFFFFFFF, barTs);
-        PhoneText.draw(graphics, font, title, baseX + w - UiFont.sh(6) - font.width(title) * barTs,
+        PhoneText.draw(graphics, font, backHint, baseX + PhoneText.px(4), barTextY, 0xFFFFFFFF, barTs);
+        PhoneText.draw(graphics, font, title, baseX + w - PhoneText.px(6) - font.width(title) * barTs,
                 barTextY, 0xFFFFFFFF, barTs);
 
         // ---- 取景框：不铺任何底色（游戏画面从这里透出来）+ 四角边框 + 十字准星 ----
-        int viewTop = baseY + navH + UiFont.sh(8);
+        int viewTop = baseY + navH + PhoneText.px(8);
         int viewBottom = baseY + viewBottom();
         int cx = baseX + w / 2;
         int cy = (viewTop + viewBottom) / 2;
 
-        int fr = UiFont.sh(2);       // 框线宽
-        int corner = UiFont.sh(16);  // 四角边长
-        int l = baseX + UiFont.sh(8);
-        int r = baseX + w - UiFont.sh(8);
+        int fr = PhoneText.px(2);       // 框线宽
+        int corner = PhoneText.px(16);  // 四角边长
+        int l = baseX + PhoneText.px(8);
+        int r = baseX + w - PhoneText.px(8);
         graphics.fill(l, viewTop, l + corner, viewTop + fr, 0xCCFFFFFF);
         graphics.fill(r - corner, viewTop, r, viewTop + fr, 0xCCFFFFFF);
         graphics.fill(l, viewBottom - fr, l + corner, viewBottom, 0xCCFFFFFF);
@@ -217,7 +216,7 @@ public class PhoneCameraPage implements PhoneCameraHost {
             if (thumbTex != null) {
                 int tx = baseX + thumbX;
                 int ty = baseY + thumbY;
-                PhoneShapes.fillRoundedRect(graphics, tx, ty, thumbSize, thumbSize, UiFont.sh(3), 0xCCFFFFFF);
+                PhoneShapes.fillRoundedRect(graphics, tx, ty, thumbSize, thumbSize, PhoneText.px(3), 0xCCFFFFFF);
                 // 用 cover 而不是拉伸：任意屏幕比例的截图贴进方形框里都不变形
                 PhoneImages.drawCover(graphics, thumbTex, tx, ty, thumbSize, thumbSize, thumbDim[0], thumbDim[1]);
             }
@@ -257,12 +256,12 @@ public class PhoneCameraPage implements PhoneCameraHost {
     // ==================== 布局 ====================
 
     private int navH() {
-        return Math.max(1, (int) (Minecraft.getInstance().font.lineHeight * UiFont.sc(1.0f))) + UiFont.sh(8);
+        return Math.max(1, (int) (Minecraft.getInstance().font.lineHeight * PhoneText.scale(1.0f))) + PhoneText.px(8);
     }
 
     /** 取景框底 = 内容区相对坐标（下方留给控件区） */
     private int viewBottom() {
-        return PhoneOverlay.getPhoneHeight() - UiFont.sh(BAR_H);
+        return PhoneOverlay.getPhoneHeight() - PhoneText.px(BAR_H);
     }
 
     /**
@@ -273,14 +272,14 @@ public class PhoneCameraPage implements PhoneCameraHost {
     private int[] barLayout(int w) {
         int h = PhoneOverlay.getPhoneHeight();
         int barTop = viewBottom();
-        int barH = Math.max(UiFont.sh(24), h - barTop);
-        int edge = UiFont.sh(5);
+        int barH = Math.max(PhoneText.px(24), h - barTop);
+        int edge = PhoneText.px(5);
 
-        int thumbSize = Math.max(UiFont.sh(14), barH - 8);
+        int thumbSize = Math.max(PhoneText.px(14), barH - 8);
         int thumbX = edge;
         int thumbY = barTop + (barH - thumbSize) / 2;
 
-        int shutterD = Math.max(UiFont.sh(SHUTTER_MIN), Math.round(w * SHUTTER_W_RATIO));
+        int shutterD = Math.max(PhoneText.px(SHUTTER_MIN), Math.round(w * SHUTTER_W_RATIO));
         int shutterX = w / 2 - shutterD / 2;
         int shutterY = barTop + (barH - shutterD) / 2;
 
