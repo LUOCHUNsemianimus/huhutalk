@@ -405,6 +405,34 @@ PhoneImages.drawRegion(g, skin, x, y, 30, 30, 8, 8, 8, 8, 64, 64);
 > `PhoneRow` 已经把它算进行高（后续行会自动下移），所以**用 `PhoneRow` 摆就没问题**；
 > 直接裸用的话要自己预留高度，并且注意它的渲染顺序。
 
+#### 8.2.1 统一行高：`rowHeight(int)`
+
+默认行高是**按内容自动算**的，于是同一种「标签 + 控件」形态会因为控件不同而得到不同高度：
+开关 8px、胶囊按钮 8px、stepper 18px、滑块 13px 且要另起一行 —— 一页里能出现 **4 种行高**。
+内置「设置」页原来所有行等高（`sh(24)`），四种控件混在一起看着是齐的；
+迁到 `PhoneRow` 之后如果放任自动算，页面就会"每行都不一样高"。
+
+```java
+private static final int ROW_H = 28;
+
+private static PhoneRow row(String label, PhoneWidget widget) {
+    return PhoneRow.of(label, widget).pad(12).rowHeight(ROW_H);
+}
+```
+
+固定行高之后三种控件的摆法（这是本方法真正的价值）：
+
+| 控件 | `layoutHint` | 固定行高下的摆法 |
+|---|---|---|
+| 开关 / stepper / 按钮 | `INLINE_RIGHT` | **标签与控件一起在行内垂直居中** |
+| 滑块 / 下拉 | `STACKED` | **标签贴顶、控件贴底** —— 与旧设置页「标签在上、滑块在下」观感一致，也保证滑块轨道不会横穿标签文字 |
+
+⚠ **别设得太矮**：`STACKED` 行要求
+`固定行高 ≥ 上留白 + 标签高 + 控件高`，否则轨道会切过标签文字。
+默认字体倍率下滑块（控件高 13px + 上下留白 5px）最低需要 **27px**——
+所以内置设置页用 28 而不是它原本的 24。`layout()` 里有一个按
+「标签 + 控件 + 留白」算出的**下界**兜底，字体倍率调小时也不会被挤坏。
+
 ### 8.2 `PhoneRow`：一行「标签 + 右侧控件」
 
 两种排布由控件的 `layoutHint()` 决定：
@@ -530,7 +558,7 @@ private void layoutRows() {
 | 0 | 扩公开 API：`PhoneText` 的 `FormattedCharSequence` 重载、`PhoneList` 可变行高、`PhoneGrid`、`PhoneLayout`、`PhonePage.bottomInset()`；**并把顶栏高度统一到内置页真实公式（17px）** | ✅ 完成 |
 | 1 | 删死代码 `MaidListPage` / `MaidSettingsPage`（−428 行）；`ComingSoonPage` / `PhoneCasePickerPage` 迁骨架；全工程 `UiShapes` → `PhoneShapes`（11 文件 ≈60 处） | ✅ 完成 |
 | 2 | `SettingsPage` → `PhonePage` + `PhoneRow` + 四种控件（单点收益最大） | ✅ 完成 |
-| 3 | `MessageListPage` / `ContactListPage` / `MaidInfoPage` 迁骨架 | 待办 |
+| 3 | `MessageListPage` / `ContactListPage` / `MaidInfoPage` 迁骨架 | ✅ 完成 |
 | 4 | `ManualPage`（保持对外 API 签名）/ `FileTransferPage` 迁骨架；`MainPage` 只换 helper | 待办 |
 | 5 | `ChatPage` **只换 helper**（它是相机宿主，不继承 `PhonePage`） | 待办 |
 

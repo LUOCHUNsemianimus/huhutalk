@@ -171,6 +171,55 @@
 
 **编译状态**：批次 2 已通过 IDE 全项目编译与告警检查（`problems: []`）。
 
+### 1.11 批次 2 追加：`PhoneRow.rowHeight(int)` —— 统一行高
+
+作者实机看过之后反馈：**设置页"有点窄"，每一行高矮不一**，希望恢复成旧版那种"所有行等高"的观感。
+
+**根因**：`PhoneRow` 默认按内容自动算行高，于是同一种「标签 + 控件」形态因为控件不同而得到 4 种行高：
+
+| 行类型 | 自动行高（默认字体倍率） |
+|---|---|
+| 开关行 | 19px（`max(标签9, 开关8) + 上下留白10`） |
+| 胶囊按钮行 | 19px |
+| stepper 行 | 28px（`max(9, 18) + 10`） |
+| 滑块行（`STACKED`） | 35px（`5 + 9 + 3 + 13 + 5`） |
+
+旧设置页是**所有行等高 `sh(24)`**。
+
+**新增公开件**：`PhoneRow.rowHeight(int basePx)` —— 强制行高（随字体倍率缩放），并定义了固定行高下三种控件的摆法：
+
+- `INLINE_RIGHT`（开关 / stepper / 按钮）：**标签与控件一起在行内垂直居中**；
+- `STACKED`（滑块 / 下拉）：**标签贴顶、控件贴底**（与旧设置页「标签在上、滑块在下」一致，
+  也保证 3px 的轨道不会横穿标签文字）。
+
+`layout()` 里还加了一个**下界兜底**：`max(请求值, 标签高 + 控件高 + 留白)`。
+没有它的话，字体倍率调到 0.5 时固定像素的行高会先撑不住（滑块高度是固定像素、不随倍率缩放），
+轨道就会切进标签里。
+
+**设置页用 28 而不是旧的 24**：`STACKED` 行的无碰撞下界是
+`上留白 5 + 标签 9 + 滑块控件 13 = 27`（控件贴底），24 会让轨道正好穿过标签文字。
+
+**编译状态**：通过 IDE 全项目编译与告警检查（`problems: []`）。
+
+### 1.12 批次 3：三个列表/卡片页迁到骨架
+
+| 页面 | 行数 | 关键改动 |
+|---|---|---|
+| `MessageListPage` | 368 → 约 300 | `PhonePage` + `PhoneList<String>`（固定行高）。**「第 i 行画在哪」原先在 `render` 与 `mouseClicked` 里各算一遍**，现在只有 `itemY`/`indexAt` 一对互逆映射 |
+| `ContactListPage` | 381 → 约 340 | `PhonePage` + `PhoneList<Row>` 的**可变行高**（`itemHeight(int)`）—— 分组标题 18px / 女仆条目 N px，折叠时调 `invalidateLayout()` |
+| `MaidInfoPage` | 681 → 706 | `PhonePage` 模型 A（自管滚动）。删掉整个 `render` override（手绘顶栏 + `enableScissor` 配对）、`navH`/`textH`/`hit`/`drawScaledText`、8 个硬编码色常量、16 处 `UiFont`、以及**算了两次**的确认框几何（改成一个 `ConfirmLayout` record） |
+
+**新增包私有件** `pages/PlayerHeader.java`：消息页与联系人页顶栏左侧的
+「玩家头颅正面 + 玩家 ID」原本各写了一遍（19 行逐字相同，IDE 的重复代码检查当场报出）。
+
+**踩到并处理掉的坑：`PhoneList` 的 `items()` 必须在帧内稳定。**
+`ChatHistoryStorage.getConversationIds()` **每次调用都新建一份 List**，
+而 `PhoneList.mouseClicked` 会先 `indexAt(...)`（读一次 items）再 `items().get(index)`（再读一次）——
+两次之间列表若变了就会越界或点错行。两个列表页都改成「缓存一份、每帧刷新、点击前再刷新」。
+`ContactListPage` 的 `buildRows()` 更重（遍历全部女仆 + 排序），缓存同时省掉了每帧多次重建。
+
+**编译状态**：批次 3 已通过 IDE 全项目编译与告警检查（`problems: []`）。
+
 ---
 
 ## 2. 开工前必读：四条纪律

@@ -57,6 +57,8 @@ public final class PhoneRow {
     private int labelColor = 0;
     private float labelScale = 1.0f;
     private int padPx = DEFAULT_PAD_PX;
+    /** 强制行高（基准像素）；0 = 按内容自动算。见 {@link #rowHeight(int)} */
+    private int fixedHeightPx = 0;
     /** 被按下并正在拖动的控件（由本行代管） */
     private PhoneWidget captured;
 
@@ -115,10 +117,50 @@ public final class PhoneRow {
         this.x = x;
         this.y = y;
         this.w = Math.max(0, w);
-        this.h = baseHeight(font) + extraHeight();
+        int base = baseHeight(font);
+        if (fixedHeightPx > 0) {
+            // 固定行高不能矮到把内容挤在一起：按「标签 + 控件 + 留白」算一个下界再取较大者。
+            // 否则字体倍率调小时固定像素的行高会先撑不住（滑块的高度是固定像素、不随倍率缩放）。
+            int vpad = PhoneText.px(V_PAD_PX);
+            int labelH = PhoneText.height(font, labelScale);
+            int min = labelH + vpad * 2;
+            if (widget != null) {
+                int wh = widgetHeight(font);
+                min = Math.max(min, widget.layoutHint() == PhoneWidget.LayoutHint.STACKED
+                        ? labelH + vpad + wh              // 标签贴顶 + 控件贴底
+                        : wh + vpad * 2);
+            }
+            base = Math.max(PhoneText.px(fixedHeightPx), min);
+        }
+        this.h = base + extraHeight();
         if (widget != null) {
             layoutWidget(font, PhoneText.height(font, labelScale));
         }
+        return this;
+    }
+
+    /**
+     * <b>固定行高</b>（基准像素，随全局字体倍率缩放）。
+     * <p>
+     * 默认是按内容自动算，于是同一种「标签 + 控件」形态会因为控件不同而得到不同的行高：
+     * 开关 8px、胶囊按钮 8px、stepper 18px、滑块 13px 且要另起一行 —— 一页里能出现 4 种行高，
+     * 看起来"每行都不一样高"。给一个固定值就统一了。
+     * <p>
+     * 固定之后三种控件的摆法（这是本方法真正的价值）：
+     * <ul>
+     *   <li>开关 / stepper / 按钮（{@code INLINE_RIGHT}）：<b>标签与控件一起在行内垂直居中</b>；</li>
+     *   <li>滑块 / 下拉（{@code STACKED}）：<b>标签贴顶、控件贴底</b> ——
+     *       与旧设置页「标签在上、滑块在下」的观感一致，也保证滑块的轨道不会横穿标签文字。</li>
+     * </ul>
+     * <p>
+     * ⚠ 太矮会把它们挤在一起：滑块行要求
+     * {@code 固定行高 ≥ 上留白 + 滑块控件高 + 下留白}，否则轨道会切过标签。
+     * 默认字体倍率下，滑块（控件高 13px + 上下留白 5px）需要 <b>≥ 27px</b>。
+     *
+     * @param pixels 固定行高（基准像素）；{@code <= 0} 表示恢复自动计算
+     */
+    public PhoneRow rowHeight(int pixels) {
+        this.fixedHeightPx = Math.max(0, pixels);
         return this;
     }
 
@@ -151,7 +193,6 @@ public final class PhoneRow {
         this.padPx = Math.max(0, pixels);
         return this;
     }
-
     public int x() {
         return x;
     }
@@ -187,7 +228,13 @@ public final class PhoneRow {
         int color = labelColor != 0 ? labelColor : ThemeManager.getActive().textPrimary();
         int vpad = PhoneText.px(V_PAD_PX);
         int labelH = PhoneText.height(font, labelScale);
-        PhoneText.drawLeftIn(g, font, label.get(), sx, sy + vpad, w, labelH,
+        // 固定行高 + 右侧控件：标签与控件一起在行内居中；
+        // 固定行高 + 贴底控件（滑块/下拉）：标签留在顶部，控件在下方
+        int labelY = (fixedHeightPx > 0 && widget != null
+                && widget.layoutHint() != PhoneWidget.LayoutHint.STACKED)
+                ? sy + (baseH - labelH) / 2
+                : sy + vpad;
+        PhoneText.drawLeftIn(g, font, label.get(), sx, labelY, w, labelH,
                 PhoneText.px(padPx), color, PhoneText.scale(labelScale));
 
         if (widget != null) {
@@ -198,20 +245,29 @@ public final class PhoneRow {
     /** 控件布局（内容坐标）。只由 {@link #layout} 调用，渲染与命中共用同一份结果。 */
     private void layoutWidget(Font font, int labelH) {
         int pad = PhoneText.px(padPx);
+        int vpad = PhoneText.px(V_PAD_PX);
         int wh = widgetHeight(font);
-        int labelTop = y + PhoneText.px(V_PAD_PX);
+        int baseH = h - extraHeight();
+
         if (widget.layoutHint() == PhoneWidget.LayoutHint.STACKED) {
-            int wy = labelTop + labelH + PhoneText.px(GAP_PX);
+            // 固定行高：控件贴底（标签贴顶）—— 与旧设置页「标签在上、滑块在下」一致，
+            // 也保证轨道落在标签文字下方而不是穿过它
+            int wy = fixedHeightPx > 0
+                    ? y + Math.max(0, baseH - vpad - wh)
+                    : y + vpad + labelH + PhoneText.px(GAP_PX);
             widget.bounds(x + pad, wy, Math.max(1, w - pad * 2), wh);
-        } else {
-            int pw = widget.preferredWidth(font);
-            if (pw <= 0) {
-                pw = Math.max(1, w - pad * 2);
-            }
-            int wx = x + w - pw - pad;
-            int wy = labelTop + (labelH - wh) / 2;
-            widget.bounds(wx, wy, pw, wh);
+            return;
         }
+        int pw = widget.preferredWidth(font);
+        if (pw <= 0) {
+            pw = Math.max(1, w - pad * 2);
+        }
+        int wx = x + w - pw - pad;
+        // 固定行高：控件在整行内居中；否则与标签那一行对齐
+        int wy = fixedHeightPx > 0
+                ? y + (baseH - wh) / 2
+                : y + vpad + (labelH - wh) / 2;
+        widget.bounds(wx, wy, pw, wh);
     }
 
     /** 控件高度：优先取控件自报的，否则跟随字体。 */

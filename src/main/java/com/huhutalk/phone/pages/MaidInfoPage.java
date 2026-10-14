@@ -1,5 +1,9 @@
 package com.huhutalk.phone.pages;
 
+import com.huhutalk.api.phone.ui.PhoneLayout;
+import com.huhutalk.api.phone.ui.PhonePage;
+import com.huhutalk.api.phone.ui.PhoneShapes;
+import com.huhutalk.api.phone.ui.PhoneText;
 import com.huhutalk.client.ChatHistoryStorage;
 import com.huhutalk.client.MaidAvatarManager;
 import com.huhutalk.client.MaidGroupHelper;
@@ -9,7 +13,6 @@ import com.huhutalk.client.SosBindCache;
 import com.huhutalk.client.SosTaskCache;
 import com.huhutalk.client.settings.HuhuTalkClientSettings;
 import com.huhutalk.client.theme.ColorScheme;
-import com.huhutalk.client.theme.ThemeManager;
 import com.huhutalk.common.MaidStatus;
 import com.huhutalk.network.C2SDeleteContactPacket;
 import com.huhutalk.network.C2SRequestMaidStatusPacket;
@@ -17,11 +20,8 @@ import com.huhutalk.network.C2SRequestSosTaskListPacket;
 import com.huhutalk.network.C2SSetSosModePacket;
 import com.huhutalk.network.C2SToggleSosBindPacket;
 import com.huhutalk.network.S2CMaidListPacket;
-import com.huhutalk.phone.IPhonePage;
 import com.huhutalk.phone.PhoneGroupNameInputScreen;
 import com.huhutalk.phone.PhoneOverlay;
-import com.huhutalk.phone.UiFont;
-import com.huhutalk.api.phone.ui.PhoneShapes;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
@@ -36,8 +36,8 @@ import java.util.List;
 /**
  * 联系人设置页（消息列表页 / 联系人列表页点击女仆统一进入）。
  * <p>
- * UI：顶栏 #de7e7e；头部大头像（女仆照片）+ 名称/状态（1.75/1.25 倍字号）；页面底 #f0e4ea；
- * 全部设置项为圆角卡片 #fff5f8（圆角 8）。分三组：
+ * UI：顶栏 #de7e7e；头部大头像（女仆照片）+ 名称/状态（1.75/1.25 倍字号）；页面底取自主题；
+ * 全部设置项为圆角卡片（圆角 8）。分三组：
  * <ul>
  *   <li><b>管理</b>：发消息 / 删除记录 / 删除联系人 / 更新头像。</li>
  *   <li><b>SOS呼叫</b>：SOS呼叫（绑定开关）/ SOS工作模式（点击展开原下拉）。</li>
@@ -45,30 +45,47 @@ import java.util.List;
  * </ul>
  * 新建分组把新组名写入持久化列表并分当前女仆到该组，联系人页据此同步展示（含空组）。
  * 逻辑（删除/绑定/模式/分组/头像）均沿用原有实现。
+ *
+ * <h2>改用公开骨架（批次 3）</h2>
+ * 旧实现 {@code implements IPhonePage}，把每个页面都要抄一遍的样板都写在文件里：
+ * 手绘顶栏（含「←」返回箭头）、手写 {@code navH()}、手写裁剪配对、
+ * 以及在 {@code render} 与 {@code mouseClicked} 里<b>各算一遍</b>的行坐标。
+ * 现在：
+ * <ul>
+ *   <li>顶栏 / 底色 / 滚动 / 裁剪 / 主题取色 → {@link PhonePage}；
+ *       标题是 {@link #title()}（居中），返回键交给骨架（文案统一为「&lt; 返回」）；</li>
+ *   <li>本页是混合卡片排版，走<b>模型 A（页面自管滚动）</b>：只实现 {@link #contentHeight()}；</li>
+ *   <li>全部 y 由<b>唯一的</b> {@link #layout()} 产出（逻辑坐标），
+ *       渲染走 {@link PhonePage#scrollY(int)}、命中走 {@link PhonePage#logicalY(double)}，
+ *       两者严格互逆，所以「画在哪」与「点在哪」在结构上不可能不同步；</li>
+ *   <li>画字 → {@link PhoneText}，命中 → {@link PhoneLayout}，圆角 → {@link PhoneShapes}。</li>
+ * </ul>
+ *
+ * <h2>与旧实现的差异（刻意接受）</h2>
+ * <ul>
+ *   <li>页面底色 / 卡片底 / 三档文字色 / 分隔线 / 危险色改走主题色板（略有色差）；
+ *       顶栏仍显式返回 {@link PhonePage#BRAND_TOPBAR_BG}，与聊天页 / 消息页一致；</li>
+ *   <li>返回键文案由「←」变成骨架统一的「&lt; 返回」（命中宽度 60 也不随字体倍率缩放）；</li>
+ *   <li>顶栏标题的 y 少了一个 {@code +1}（骨架统一按顶栏行高居中）；</li>
+ *   <li>命中区间由闭区间改为骨架 {@link PhoneLayout#hit} 的半开区间（边界像素归属不同）；</li>
+ *   <li>顶栏区域不再参与内容命中（骨架只把非返回键区域的点击透传给内容钩子，
+ *       本页在 {@code onContentClick} 里显式拦掉 {@code localY < 0}，与旧实现一致）。</li>
+ * </ul>
  */
-public class MaidInfoPage implements IPhonePage {
-    /** 以下为「基准（1.0 倍）」像素值，运行时经 {@link UiFont#sh(int)} 缩放 */
+public class MaidInfoPage extends PhonePage {
+
+    /** 以下为「基准（1.0 倍）」像素值，运行时经 {@link PhoneText#px(int)} 缩放 */
     private static final int CARD_H = 30;             // 组内单行高度（紧凑）
     private static final int CARD_R = 8;
     private static final int RECT_PAD = 3;            // 大矩形内部上下留白
-    private static final int DIVIDER = 0xFFE5DBE1;    // 组内灰色分隔线
     private static final int GROUP_TITLE_TOP = 14;    // 分组标题距上一组底
     private static final int GROUP_TITLE_TO_CARD = 8; // 分组标题到本组第一项
     private static final int DROPDOWN_ROW_H = 16;
     private static final int DROPDOWN_VISIBLE_ROWS = 5;
-    private static final int TEXT_COLOR = 0xFF333333;
-    private static final int TEXT_SUB = 0xFF888888;
-    private static final int PAGE_BG = 0xFFF0E4EA;
-    private static final int TOPBAR_BG = 0xFFDE7E7E;
-    private static final int CARD_BG = 0xFFFFF5F8;
-    private static final int GROUP_TITLE_COLOR = 0xFF9A8A90;
-    private static final int DANGER = 0xFFC62828;
 
     private final String stableId;
     private final String maidName;
 
-    /** 页面滚动偏移（像素） */
-    private int scrollOffset = 0;
     /** SOS 工作模式下拉是否展开 + 高亮光标下标 */
     private boolean modeDropdownOpen = false;
     private int modeCursor = 0;
@@ -80,21 +97,13 @@ public class MaidInfoPage implements IPhonePage {
     private String flashText = "";
     private long flashUntil = 0;
 
-    // ==================== 缩放辅助 ====================
+    // ==================== 缩放辅助（固定像素量） ====================
 
-    /** 顶部导航栏高度：随字体倍率缩放 */
-    private static int navH() {
-        return (int) (Minecraft.getInstance().font.lineHeight * UiFont.uiScale()) + UiFont.sh(8);
-    }
-
-    private static int cardH() { return UiFont.sh(CARD_H); }
-    private static int rectPad() { return UiFont.sh(RECT_PAD); }
-    private static int groupTitleTop() { return UiFont.sh(GROUP_TITLE_TOP); }
-    private static int groupTitleToCard() { return UiFont.sh(GROUP_TITLE_TO_CARD); }
-    private static int dropdownRowH() { return UiFont.sh(DROPDOWN_ROW_H); }
-
-    /** 缩放后默认字体的行高（用于文字垂直居中） */
-    private static int textH(Font font) { return Math.max(1, (int) (font.lineHeight * UiFont.sc(1.0f))); }
+    private static int cardH() { return PhoneText.px(CARD_H); }
+    private static int rectPad() { return PhoneText.px(RECT_PAD); }
+    private static int groupTitleTop() { return PhoneText.px(GROUP_TITLE_TOP); }
+    private static int groupTitleToCard() { return PhoneText.px(GROUP_TITLE_TO_CARD); }
+    private static int dropdownRowH() { return PhoneText.px(DROPDOWN_ROW_H); }
 
     public MaidInfoPage(String stableId, String maidName) {
         this.stableId = stableId;
@@ -163,7 +172,7 @@ public class MaidInfoPage implements IPhonePage {
             String key = "task." + uid.replace(':', '.');
             Component c = Component.translatable(key);
             String localized = c.getString();
-            if (localized == null || localized.isEmpty() || localized.equals(key)) {
+            if (localized.isEmpty() || localized.equals(key)) {
                 return uid.substring(uid.indexOf(':') + 1);
             }
             return localized;
@@ -172,32 +181,48 @@ public class MaidInfoPage implements IPhonePage {
         }
     }
 
-    private static int clamp(int v, int min, int max) {
-        return Math.max(min, Math.min(max, v));
+    /** 把 {@code v} 钳制到 {@code [0, max]}（下拉光标与滚动窗口起点用） */
+    private static int clamp(int v, int max) {
+        return Math.clamp(v, 0, max);
     }
 
-    private static boolean hit(double x, double y, int rx, int ry, int rw, int rh) {
-        return x >= rx && x <= rx + rw && y >= ry && y <= ry + rh;
+    // ==================== 骨架钩子 ====================
+
+    /** 顶栏标题（居中）= 女仆名 */
+    @Override
+    protected String title() {
+        return maidName;
+    }
+
+    /** 列表 / 条目类页面底色：主题里比主要背景深一档（旧实现硬编码 0xFFF0E4EA） */
+    @Override
+    protected int pageBackground() {
+        return colors().pageBgList();
+    }
+
+    /** 顶栏锁成品牌色：新增配色方案时本页仍与聊天 / 消息 / 设置是同一台手机（旧实现硬编码 0xFFDE7E7E） */
+    @Override
+    protected int topBarBackground() {
+        return BRAND_TOPBAR_BG;
+    }
+
+    /** 模型 A：页面自管滚动，只要报出内容总高 */
+    @Override
+    protected int contentHeight() {
+        return layout().contentH;
     }
 
     // ==================== 布局 ====================
 
-    /** 分组设置里的一个槽位：分组选项 或 "+ 新建分组"按钮 */
-    private static final class GroupSlot {
-        final String label;
-        final int y;
-        final int h;
-        final boolean isNewGroup;
-        GroupSlot(String label, int y, int h, boolean isNewGroup) {
-            this.label = label;
-            this.y = y;
-            this.h = h;
-            this.isNewGroup = isNewGroup;
-        }
+    /** 分组设置里的一个槽位：分组选项 或 "+ 新建分组"按钮（{@code y}/{@code h} 为逻辑坐标） */
+    private record GroupSlot(String label, int y, int h, boolean isNewGroup) {
     }
 
+    /**
+     * 每帧的布局结果，所有 y 都是<b>逻辑坐标</b>（内容坐标，<b>未含滚动</b>）；
+     * 渲染时 {@code scrollY(y)}、命中时 {@code logicalY(localY)}。
+     */
     private static final class Layout {
-        int navH;
         int headerY, headerH, avatarX, avatarY, avatarH, avatarSize;
         int nameX, nameTop, statusTop;
         int manageTitleY;
@@ -211,26 +236,30 @@ public class MaidInfoPage implements IPhonePage {
         int contentH;
     }
 
-    private Layout computeLayout() {
-        int h = PhoneOverlay.getPhoneHeight();
-        Font font = Minecraft.getInstance().font;
+    /**
+     * <b>唯一</b>的布局计算：{@link #renderContent} / {@link #onContentClick} /
+     * {@link #mouseScrolled} / {@link #contentHeight} 都调它（不再有任何一处在别处重算行 y）。
+     * <p>本页没有悬停高亮，所以不覆盖 {@link PhonePage#onContentMoved}（默认空实现）。
+     */
+    private Layout layout() {
+        Font font = font();
         Layout L = new Layout();
-        L.navH = navH();
 
-        int y = L.navH + UiFont.sh(6);
+        // 逻辑游标：内容区顶部留白（旧实现的 navH + sh(6)，减去顶栏即 sh(6)）
+        int y = PhoneText.px(6);
 
         // 头部：大头像高度 = 名称(1.75x) + 状态(1.25x) 文字高度之和（随字体倍率缩放）
-        int nameH = (int) (font.lineHeight * UiFont.sc(1.75f));
-        int statusH = (int) (font.lineHeight * UiFont.sc(1.25f));
+        int nameH = PhoneText.height(font, PhoneText.scale(1.75f));
+        int statusH = PhoneText.height(font, PhoneText.scale(1.25f));
         L.avatarH = nameH + statusH;
-        L.avatarSize = Math.max(UiFont.sh(24), L.avatarH);
-        L.headerH = L.avatarSize + UiFont.sh(16);
+        L.avatarSize = Math.max(PhoneText.px(24), L.avatarH);
+        L.headerH = L.avatarSize + PhoneText.px(16);
         L.headerY = y;
         L.avatarY = L.headerY + (L.headerH - L.avatarSize) / 2;
-        L.avatarX = UiFont.sh(12);
-        L.nameX = L.avatarX + L.avatarSize + UiFont.sh(12);
+        L.avatarX = PhoneText.px(12);
+        L.nameX = L.avatarX + L.avatarSize + PhoneText.px(12);
         L.nameTop = L.avatarY + (L.avatarSize - (nameH + statusH)) / 2;
-        L.statusTop = L.nameTop + nameH + UiFont.sh(2);
+        L.statusTop = L.nameTop + nameH + PhoneText.px(2);
         y += L.headerH + groupTitleTop();
 
         // 管理 分组（一个大矩形内 4 行，灰色横线分隔）
@@ -251,7 +280,6 @@ public class MaidInfoPage implements IPhonePage {
         L.bindCardY = y;
         y += cardH();
         L.modeCardY = y;
-        y += cardH();
         L.modeListY = -1;
         L.modeListH = 0;
         int sosBottom = L.modeCardY + cardH();
@@ -283,70 +311,47 @@ public class MaidInfoPage implements IPhonePage {
         L.groupRectY = L.groupBoxY - rectPad();
         L.groupRectH = groupBottom - L.groupRectY + rectPad();
         y = groupBottom + rectPad();
-        y += UiFont.sh(4);
+        y += PhoneText.px(4);
 
-        L.contentH = y - (L.navH + UiFont.sh(6)) + UiFont.sh(4);
+        // 与旧实现逐字同式：内容总高不含顶栏，底部再留 sh(4)
+        L.contentH = y - PhoneText.px(6) + PhoneText.px(4);
         return L;
-    }
-
-    private int ly(Layout L, int baseY, int logicalY) {
-        return baseY + logicalY - scrollOffset;
     }
 
     // ==================== 渲染 ====================
 
     @Override
-    public void render(GuiGraphics g, int baseX, int baseY, float partialTick) {
-        int w = PhoneOverlay.getPhoneWidth();
-        int h = PhoneOverlay.getPhoneHeight();
-        Font font = Minecraft.getInstance().font;
-        Layout L = computeLayout();
+    protected void renderContent(GuiGraphics g, int originX, int originY, int w, int h, float partialTick) {
+        Font font = font();
+        ColorScheme c = colors();
+        Layout L = layout();
 
-        // 页面底色
-        g.fill(baseX, baseY, baseX + w, baseY + h, PAGE_BG);
+        renderHeader(g, font, L, originX, originY);
+        renderManageGroup(g, font, c, L, originX, originY);
+        renderSosGroup(g, font, c, L, originX, originY);
+        renderGroupSection(g, font, c, L, originX, originY);
 
-        // 顶部标题栏 #de7e7e：返回箭头 + 居中名字
-        g.fill(baseX, baseY, baseX + w, baseY + L.navH, TOPBAR_BG);
-        drawScaledText(g, font, "←", baseX + UiFont.sh(6), baseY + (L.navH - textH(font)) / 2 + 1,
-                0xFFFFFFFF, UiFont.sc(1.0f));
-        int titleW = (int) (font.width(maidName) * UiFont.sc(1.0f));
-        drawScaledText(g, font, maidName, baseX + (w - titleW) / 2f, baseY + (L.navH - textH(font)) / 2 + 1,
-                0xFFFFFFFF, UiFont.sc(1.0f));
-
-        // 钳制滚动
-        int viewH = Math.max(0, h - L.navH);
-        int maxScroll = Math.max(0, L.contentH - viewH);
-        scrollOffset = Math.max(0, Math.min(scrollOffset, maxScroll));
-
-        g.enableScissor(baseX, baseY + L.navH, baseX + w, baseY + h);
-
-        renderHeader(g, font, L, baseX, baseY);
-        renderManageGroup(g, font, L, baseX, baseY);
-        renderSosGroup(g, font, L, baseX, baseY);
-        renderGroupSection(g, font, L, baseX, baseY);
-
-        g.disableScissor();
-
-        // 短暂提示
+        // 短暂提示（旧实现在自己的裁剪之外绘制；骨架的裁剪区就是内容区，绘制范围一致）
         if (System.currentTimeMillis() < flashUntil && !flashText.isEmpty()) {
-            int msgW = (int) (font.width(flashText) * UiFont.sc(1.0f));
-            int msgY = baseY + h - UiFont.sh(30);
-            int boxTop = msgY - UiFont.sh(3);
-            int boxH = textH(font) + UiFont.sh(6);
-            PhoneShapes.fillRoundedRect(g, baseX + UiFont.sh(4), boxTop, w - UiFont.sh(8), boxH, 8, 0xCC000000);
-            drawScaledText(g, font, flashText, baseX + (w - msgW) / 2f, boxTop + (boxH - textH(font)) / 2f + 1,
-                    0xFFFFFFFF, UiFont.sc(1.0f));
+            int lineH = Math.max(1, PhoneText.height(font, PhoneText.scale(1.0f)));
+            int msgW = PhoneText.width(font, flashText, PhoneText.scale(1.0f));
+            int msgY = originY + h - PhoneText.px(30);
+            int boxTop = msgY - PhoneText.px(3);
+            int boxH = lineH + PhoneText.px(6);
+            PhoneShapes.fillRoundedRect(g, originX + PhoneText.px(4), boxTop, w - PhoneText.px(8), boxH, 8, 0xCC000000);
+            PhoneText.draw(g, font, flashText, originX + (w - msgW) / 2f, boxTop + (boxH - lineH) / 2f + 1,
+                    0xFFFFFFFF, PhoneText.scale(1.0f));
         }
 
         if (confirmDeletePending) {
-            renderConfirmDialog(g, font, L, baseX, w, baseY);
+            renderConfirmDialog(g, font, c, originX, originY, w, h);
         }
     }
 
     /** 头部信息区：左侧大头像（女仆照片），右侧名称 + 状态，整体垂直居中 */
-    private void renderHeader(GuiGraphics g, Font font, Layout L, int baseX, int baseY) {
-        int avX = baseX + L.avatarX;
-        int avY = ly(L, baseY, L.avatarY);
+    private void renderHeader(GuiGraphics g, Font font, Layout L, int originX, int originY) {
+        int avX = originX + L.avatarX;
+        int avY = originY + scrollY(L.avatarY);
         int size = L.avatarSize;
         ResourceLocation tex = MaidAvatarManager.getOrLoadTexture(stableId);
         if (tex != null) {
@@ -360,182 +365,224 @@ public class MaidInfoPage implements IPhonePage {
 
         String status = MaidStatusCache.get(stableId);
         if (status.isEmpty()) status = "…";
-        drawScaledText(g, font, maidName, baseX + L.nameX, ly(L, baseY, L.nameTop), TEXT_COLOR, UiFont.sc(1.75f));
-        drawScaledText(g, font, status, baseX + L.nameX, ly(L, baseY, L.statusTop), TEXT_SUB, UiFont.sc(1.25f));
+        PhoneText.draw(g, font, maidName, originX + L.nameX, originY + scrollY(L.nameTop),
+                colors().textPrimary(), PhoneText.scale(1.75f));
+        PhoneText.draw(g, font, status, originX + L.nameX, originY + scrollY(L.statusTop),
+                colors().textSecondary(), PhoneText.scale(1.25f));
     }
 
-    private void renderManageGroup(GuiGraphics g, Font font, Layout L, int baseX, int baseY) {
-        int rectX = baseX + UiFont.sh(10);
-        int rectW = PhoneOverlay.getPhoneWidth() - UiFont.sh(20);
-        drawScaledText(g, font, "管理", baseX + UiFont.sh(12), ly(L, baseY, L.manageTitleY) - UiFont.sh(4), GROUP_TITLE_COLOR, UiFont.sc(1.0f));
+    private void renderManageGroup(GuiGraphics g, Font font, ColorScheme c, Layout L, int originX, int originY) {
+        float s = PhoneText.scale(1.0f);
+        int lineH = Math.max(1, PhoneText.height(font, s));
+        int rectX = originX + PhoneText.px(10);
+        int rectW = width() - PhoneText.px(20);
+        PhoneText.draw(g, font, "管理", originX + PhoneText.px(12),
+                originY + scrollY(L.manageTitleY) - PhoneText.px(4), c.textMuted(), s);
         // 大矩形（含 4 行，灰色横线分隔）
-        int rectY = ly(L, baseY, L.manageRectY);
-        PhoneShapes.fillRoundedRect(g, rectX, rectY, rectW, L.manageRectH, CARD_R, CARD_BG);
+        PhoneShapes.fillRoundedRect(g, rectX, originY + scrollY(L.manageRectY), rectW, L.manageRectH, CARD_R, c.cardBg());
         String[] labels = {"💬 发消息", "🗑 删除记录", "☠ 删除联系人", "📷 更新头像"};
-        int[] colors = {TEXT_COLOR, TEXT_COLOR, DANGER, 0xFF2E7D32};
+        int[] labelColors = {c.textPrimary(), c.textPrimary(), c.dangerBg(), 0xFF2E7D32};
         for (int i = 0; i < 4; i++) {
-            int y = ly(L, baseY, L.cardY[i]);
-            drawScaledText(g, font, labels[i], rectX + UiFont.sh(12), y + (cardH() - textH(font)) / 2 + 1,
-                    colors[i], UiFont.sc(1.0f));
-            drawScaledText(g, font, "›", rectX + rectW - UiFont.sh(16), y + (cardH() - textH(font)) / 2 + 1,
-                    0xFFB9AAB0, UiFont.sc(1.0f));
-            if (i < 3) drawDivider(g, rectX, rectW, y + cardH());
+            int y = originY + scrollY(L.cardY[i]);
+            int textY = y + (cardH() - lineH) / 2 + 1;
+            PhoneText.draw(g, font, labels[i], rectX + PhoneText.px(12), textY, labelColors[i], s);
+            PhoneText.draw(g, font, "›", rectX + rectW - PhoneText.px(16), textY, 0xFFB9AAB0, s);
+            if (i < 3) drawDivider(g, c, rectX, rectW, y + cardH());
         }
     }
 
-    private void renderSosGroup(GuiGraphics g, Font font, Layout L, int baseX, int baseY) {
-        int rectX = baseX + UiFont.sh(10);
-        int rectW = PhoneOverlay.getPhoneWidth() - UiFont.sh(20);
-        drawScaledText(g, font, "SOS 呼叫", baseX + UiFont.sh(12), ly(L, baseY, L.sosTitleY) - UiFont.sh(4), GROUP_TITLE_COLOR, UiFont.sc(1.0f));
+    private void renderSosGroup(GuiGraphics g, Font font, ColorScheme c, Layout L, int originX, int originY) {
+        float s = PhoneText.scale(1.0f);
+        int lineH = Math.max(1, PhoneText.height(font, s));
+        int rectX = originX + PhoneText.px(10);
+        int rectW = width() - PhoneText.px(20);
+        PhoneText.draw(g, font, "SOS 呼叫", originX + PhoneText.px(12),
+                originY + scrollY(L.sosTitleY) - PhoneText.px(4), c.textMuted(), s);
         // 大矩形（含 SOS呼叫 / 工作模式 2 行 + 展开时的工作模式列表）
-        int rectY = ly(L, baseY, L.sosRectY);
-        PhoneShapes.fillRoundedRect(g, rectX, rectY, rectW, L.sosRectH, CARD_R, CARD_BG);
+        PhoneShapes.fillRoundedRect(g, rectX, originY + scrollY(L.sosRectY), rectW, L.sosRectH, CARD_R, c.cardBg());
 
         boolean bound = SosBindCache.isBound(stableId);
+        int danger = c.dangerBg();
         // SOS 呼叫（绑定开关）
-        int bindY = ly(L, baseY, L.bindCardY);
-        drawScaledText(g, font, "SOS 呼叫", rectX + UiFont.sh(12), bindY + (cardH() - textH(font)) / 2 + 1,
-                bound ? DANGER : TEXT_COLOR, UiFont.sc(1.0f));
+        int bindY = originY + scrollY(L.bindCardY);
+        int bindTextY = bindY + (cardH() - lineH) / 2 + 1;
+        PhoneText.draw(g, font, "SOS 呼叫", rectX + PhoneText.px(12), bindTextY,
+                bound ? danger : c.textPrimary(), s);
         String bindState = bound ? "已绑定" : "未绑定";
-        drawScaledText(g, font, bindState, rectX + rectW - font.width(bindState) * UiFont.sc(1.0f) - UiFont.sh(12),
-                bindY + (cardH() - textH(font)) / 2 + 1, bound ? DANGER : TEXT_SUB, UiFont.sc(1.0f));
-        drawDivider(g, rectX, rectW, bindY + cardH());
+        PhoneText.draw(g, font, bindState, rectX + rectW - PhoneText.width(font, bindState, s) - PhoneText.px(12),
+                bindTextY, bound ? danger : c.textSecondary(), s);
+        drawDivider(g, c, rectX, rectW, bindY + cardH());
 
         // 工作模式（未绑定时置灰，点击展开原下拉）
-        int modeY = ly(L, baseY, L.modeCardY);
-        int modeColor = bound ? TEXT_COLOR : TEXT_SUB;
-        drawScaledText(g, font, "工作模式", rectX + UiFont.sh(12), modeY + (cardH() - textH(font)) / 2 + 1,
-                modeColor, UiFont.sc(1.0f));
+        int modeY = originY + scrollY(L.modeCardY);
+        int modeTextY = modeY + (cardH() - lineH) / 2 + 1;
+        int modeColor = bound ? c.textPrimary() : c.textSecondary();
+        PhoneText.draw(g, font, "工作模式", rectX + PhoneText.px(12), modeTextY, modeColor, s);
         String modeName = bound ? formatTaskName(SosBindCache.getTaskUid(stableId)) : "需先绑定";
-        drawScaledText(g, font, modeName, rectX + rectW - font.width(modeName) * UiFont.sc(1.0f) - UiFont.sh(26),
-                modeY + (cardH() - textH(font)) / 2 + 1, modeColor, UiFont.sc(1.0f));
-        drawScaledText(g, font, modeDropdownOpen ? "▲" : "▼",
-                rectX + rectW - UiFont.sh(16), modeY + (cardH() - textH(font)) / 2 + 1, 0xFFB9AAB0, UiFont.sc(1.0f));
+        PhoneText.draw(g, font, modeName, rectX + rectW - PhoneText.width(font, modeName, s) - PhoneText.px(26),
+                modeTextY, modeColor, s);
+        PhoneText.draw(g, font, modeDropdownOpen ? "▲" : "▼",
+                rectX + rectW - PhoneText.px(16), modeTextY, 0xFFB9AAB0, s);
 
         // 展开的工作模式列表（在 SOS 大矩形内部）
         if (bound && modeDropdownOpen && L.modeListY >= 0) {
-            drawDivider(g, rectX, rectW, modeY + cardH());
+            drawDivider(g, c, rectX, rectW, modeY + cardH());
             List<String> tasks = SosTaskCache.getAll();
-            int listY = ly(L, baseY, L.modeListY);
+            int listY = originY + scrollY(L.modeListY);
             int windowStart = clamp(modeCursor - DROPDOWN_VISIBLE_ROWS / 2,
-                    0, Math.max(0, tasks.size() - DROPDOWN_VISIBLE_ROWS));
+                    Math.max(0, tasks.size() - DROPDOWN_VISIBLE_ROWS));
             for (int i = 0; i < DROPDOWN_VISIBLE_ROWS && windowStart + i < tasks.size(); i++) {
                 int idx = windowStart + i;
                 int rowY = listY + i * dropdownRowH();
+                int textY = rowY + (dropdownRowH() - lineH) / 2 + 1;
                 if (idx == modeCursor) {
-                    PhoneShapes.fillRoundedRect(g, rectX + UiFont.sh(4), rowY, rectW - UiFont.sh(8), dropdownRowH(), 6, 0xFF4A6FB5);
-                    drawScaledText(g, font, formatTaskName(tasks.get(idx)), rectX + UiFont.sh(12),
-                            rowY + (dropdownRowH() - textH(font)) / 2 + 1, 0xFFFFFFFF, UiFont.sc(1.0f));
+                    PhoneShapes.fillRoundedRect(g, rectX + PhoneText.px(4), rowY, rectW - PhoneText.px(8),
+                            dropdownRowH(), 6, 0xFF4A6FB5);
+                    PhoneText.draw(g, font, formatTaskName(tasks.get(idx)), rectX + PhoneText.px(12),
+                            textY, 0xFFFFFFFF, s);
                 } else {
-                    drawScaledText(g, font, formatTaskName(tasks.get(idx)), rectX + UiFont.sh(12),
-                            rowY + (dropdownRowH() - textH(font)) / 2 + 1, TEXT_COLOR, UiFont.sc(1.0f));
+                    PhoneText.draw(g, font, formatTaskName(tasks.get(idx)), rectX + PhoneText.px(12),
+                            textY, c.textPrimary(), s);
                 }
-                drawDivider(g, rectX, rectW, rowY + dropdownRowH());
+                drawDivider(g, c, rectX, rectW, rowY + dropdownRowH());
             }
         }
     }
 
-    private void renderGroupSection(GuiGraphics g, Font font, Layout L, int baseX, int baseY) {
-        int rectX = baseX + UiFont.sh(10);
-        int rectW = PhoneOverlay.getPhoneWidth() - UiFont.sh(20);
-        drawScaledText(g, font, "分组设置", baseX + UiFont.sh(12), ly(L, baseY, L.groupTitleY) - UiFont.sh(4), GROUP_TITLE_COLOR, UiFont.sc(1.0f));
+    private void renderGroupSection(GuiGraphics g, Font font, ColorScheme c, Layout L, int originX, int originY) {
+        float s = PhoneText.scale(1.0f);
+        int lineH = Math.max(1, PhoneText.height(font, s));
+        int rectX = originX + PhoneText.px(10);
+        int rectW = width() - PhoneText.px(20);
+        PhoneText.draw(g, font, "分组设置", originX + PhoneText.px(12),
+                originY + scrollY(L.groupTitleY) - PhoneText.px(4), c.textMuted(), s);
         // 大矩形（含当前分组折叠栏 + 展开时的选项/新建分组）
-        int rectY = ly(L, baseY, L.groupRectY);
-        PhoneShapes.fillRoundedRect(g, rectX, rectY, rectW, L.groupRectH, CARD_R, CARD_BG);
+        PhoneShapes.fillRoundedRect(g, rectX, originY + scrollY(L.groupRectY), rectW, L.groupRectH, CARD_R, c.cardBg());
 
         String current = currentGroup();
-        int boxY = ly(L, baseY, L.groupBoxY);
-        drawScaledText(g, font, "当前分组：" + current, rectX + UiFont.sh(12), boxY + (cardH() - textH(font)) / 2 + 1,
-                TEXT_COLOR, UiFont.sc(1.0f));
-        drawScaledText(g, font, groupDropdownOpen ? "▲" : "▼", rectX + rectW - UiFont.sh(16),
-                boxY + (cardH() - textH(font)) / 2 + 1, 0xFFB9AAB0, UiFont.sc(1.0f));
+        int boxY = originY + scrollY(L.groupBoxY);
+        int boxTextY = boxY + (cardH() - lineH) / 2 + 1;
+        PhoneText.draw(g, font, "当前分组：" + current, rectX + PhoneText.px(12), boxTextY, c.textPrimary(), s);
+        PhoneText.draw(g, font, groupDropdownOpen ? "▲" : "▼", rectX + rectW - PhoneText.px(16),
+                boxTextY, 0xFFB9AAB0, s);
 
         // 展开时：分组选项 + 新建分组（都在分组大矩形内，灰色横线分隔）
         if (groupDropdownOpen) {
-            drawDivider(g, rectX, rectW, boxY + cardH());
+            drawDivider(g, c, rectX, rectW, boxY + cardH());
             for (GroupSlot slot : L.groupSlots) {
-                int y = ly(L, baseY, slot.y);
-                if (slot.isNewGroup) {
-                    drawScaledText(g, font, "＋ 新建分组", rectX + UiFont.sh(12), y + (slot.h - textH(font)) / 2 + 1,
-                            0xFFB06A6A, UiFont.sc(1.0f));
-                    g.fill(rectX + UiFont.sh(2), y + slot.h - UiFont.sh(2), rectX + rectW - UiFont.sh(2), y + slot.h - 1, 0x22B06A6A);
+                int y = originY + scrollY(slot.y());
+                int textY = y + (slot.h() - lineH) / 2 + 1;
+                if (slot.isNewGroup()) {
+                    PhoneText.draw(g, font, "＋ 新建分组", rectX + PhoneText.px(12), textY, 0xFFB06A6A, s);
+                    g.fill(rectX + PhoneText.px(2), y + slot.h() - PhoneText.px(2),
+                            rectX + rectW - PhoneText.px(2), y + slot.h() - 1, 0x22B06A6A);
                 } else {
-                    boolean isCurrent = slot.label.equals(current);
-                    int c = isCurrent ? 0xFFB06A6A : TEXT_COLOR;
-                    drawScaledText(g, font, slot.label, rectX + UiFont.sh(12), y + (slot.h - textH(font)) / 2 + 1,
-                            c, UiFont.sc(1.0f));
+                    boolean isCurrent = slot.label().equals(current);
+                    int col = isCurrent ? 0xFFB06A6A : c.textPrimary();
+                    PhoneText.draw(g, font, slot.label(), rectX + PhoneText.px(12), textY, col, s);
                     if (isCurrent) {
-                        drawScaledText(g, font, "✓", rectX + rectW - UiFont.sh(18), y + (slot.h - textH(font)) / 2 + 1,
-                                0xFFB06A6A, UiFont.sc(1.0f));
+                        PhoneText.draw(g, font, "✓", rectX + rectW - PhoneText.px(18), textY, 0xFFB06A6A, s);
                     }
                 }
-                drawDivider(g, rectX, rectW, y + slot.h);
+                drawDivider(g, c, rectX, rectW, y + slot.h());
             }
         }
     }
 
     /** 组内灰色分隔线（两端内缩） */
-    private static void drawDivider(GuiGraphics g, int rectX, int rectW, int y) {
-        g.fill(rectX + UiFont.sh(8), y, rectX + rectW - UiFont.sh(8), y + 1, DIVIDER);
+    private static void drawDivider(GuiGraphics g, ColorScheme c, int rectX, int rectW, int y) {
+        g.fill(rectX + PhoneText.px(8), y, rectX + rectW - PhoneText.px(8), y + 1, c.divider());
+    }
+
+    // ==================== 删除确认弹窗 ====================
+
+    /**
+     * 弹窗几何（<b>内容坐标</b>）：{@code x/y/w/h} 是外框，其余是按钮矩形。
+     * <p>渲染与命中<b>共用这一份</b>（旧实现在 {@code renderConfirmDialog} 与
+     * {@code handleConfirmClick} 里各算了一遍同样的 7 个值）。
+     */
+    private record ConfirmLayout(int x, int y, int w, int h,
+                                 int btnW, int btnH, int btnY, int cancelX, int delX) {
+    }
+
+    /** @param viewH 内容区可视高度（渲染时用渲染回调给的 h，命中时用 {@link #contentViewHeight()}，两者相等） */
+    private ConfirmLayout confirmLayout(int viewH) {
+        int dlgW = width() - PhoneText.px(40);
+        int dlgH = PhoneText.px(80);
+        int dlgX = (width() - dlgW) / 2;
+        int dlgY = viewH / 2 - dlgH / 2;
+        int btnW = (dlgW - PhoneText.px(30)) / 2;
+        int btnH = PhoneText.px(22);
+        int btnY = dlgY + dlgH - btnH - PhoneText.px(8);
+        int cancelX = dlgX + PhoneText.px(10);
+        int delX = dlgX + dlgW - PhoneText.px(10) - btnW;
+        return new ConfirmLayout(dlgX, dlgY, dlgW, dlgH, btnW, btnH, btnY, cancelX, delX);
     }
 
     /** 渲染删除联系人二次确认弹窗 */
-    private void renderConfirmDialog(GuiGraphics g, Font font, Layout L, int baseX, int w, int baseY) {
-        int h = PhoneOverlay.getPhoneHeight();
-        g.fill(baseX, baseY + L.navH, baseX + w, baseY + h, 0x66000000);
-        int dlgW = w - UiFont.sh(40);
-        int dlgH = UiFont.sh(80);
-        int dlgX = baseX + (w - dlgW) / 2;
-        int dlgY = baseY + (L.navH + h) / 2 - dlgH / 2;
-        PhoneShapes.fillRoundedRect(g, dlgX, dlgY, dlgW, dlgH, 8, 0xFFFAFAFA);
+    private void renderConfirmDialog(GuiGraphics g, Font font, ColorScheme c,
+                                     int originX, int originY, int w, int h) {
+        float s = PhoneText.scale(1.0f);
+        int lineH = Math.max(1, PhoneText.height(font, s));
+        g.fill(originX, originY, originX + w, originY + h, 0x66000000);
 
-        int textY = dlgY + UiFont.sh(12);
-        drawScaledText(g, font, "确认删除？此操作无法恢复", dlgX + UiFont.sh(10), textY, TEXT_COLOR, UiFont.sc(1.0f));
-        textY += textH(font) + UiFont.sh(2);
-        drawScaledText(g, font, "将同时清除聊天记录与联系人", dlgX + UiFont.sh(10), textY, TEXT_SUB, UiFont.sc(1.0f));
+        ConfirmLayout d = confirmLayout(h);
+        int dlgX = originX + d.x();
+        int dlgY = originY + d.y();
+        PhoneShapes.fillRoundedRect(g, dlgX, dlgY, d.w(), d.h(), 8, 0xFFFAFAFA);
 
-        int btnW = (dlgW - UiFont.sh(30)) / 2;
-        int btnH = UiFont.sh(22);
-        int btnY = dlgY + dlgH - btnH - UiFont.sh(8);
-        int cancelX = dlgX + UiFont.sh(10);
-        int delX = dlgX + dlgW - UiFont.sh(10) - btnW;
-        PhoneShapes.fillRoundedRect(g, cancelX, btnY, btnW, btnH, btnH / 2, 0xFFE0E0E0);
-        drawScaledText(g, font, "取消", cancelX + (btnW - font.width("取消") * UiFont.sc(1.0f)) / 2f,
-                btnY + (btnH - textH(font)) / 2 + 1, TEXT_COLOR, UiFont.sc(1.0f));
-        PhoneShapes.fillRoundedRect(g, delX, btnY, btnW, btnH, btnH / 2, 0xFFE53935);
-        drawScaledText(g, font, "确认", delX + (btnW - font.width("确认") * UiFont.sc(1.0f)) / 2f,
-                btnY + (btnH - textH(font)) / 2 + 1, 0xFFFFFFFF, UiFont.sc(1.0f));
+        int textY = dlgY + PhoneText.px(12);
+        PhoneText.draw(g, font, "确认删除？此操作无法恢复", dlgX + PhoneText.px(10), textY, c.textPrimary(), s);
+        textY += lineH + PhoneText.px(2);
+        PhoneText.draw(g, font, "将同时清除聊天记录与联系人", dlgX + PhoneText.px(10), textY, c.textSecondary(), s);
+
+        int btnY = originY + d.btnY();
+        int btnTextY = btnY + (d.btnH() - lineH) / 2 + 1;
+        PhoneShapes.fillRoundedRect(g, originX + d.cancelX(), btnY, d.btnW(), d.btnH(), d.btnH() / 2, 0xFFE0E0E0);
+        PhoneText.draw(g, font, "取消",
+                originX + d.cancelX() + (d.btnW() - PhoneText.width(font, "取消", s)) / 2f,
+                btnTextY, c.textPrimary(), s);
+        PhoneShapes.fillRoundedRect(g, originX + d.delX(), btnY, d.btnW(), d.btnH(), d.btnH() / 2, 0xFFE53935);
+        PhoneText.draw(g, font, "确认",
+                originX + d.delX() + (d.btnW() - PhoneText.width(font, "确认", s)) / 2f,
+                btnTextY, 0xFFFFFFFF, s);
     }
 
     // ==================== 鼠标事件 ====================
 
+    /** 弹窗打开时，顶栏点击也必须先给弹窗（旧实现在返回键判定之前就处理弹窗） */
     @Override
-    public boolean mouseClicked(double relX, double relY, int button, int action) {
+    protected boolean onTopBarClick(double relX, double relY, int button, int action) {
+        if (!confirmDeletePending) return false;
+        if (button != GLFW.GLFW_MOUSE_BUTTON_LEFT || action != GLFW.GLFW_PRESS) return false;
+        handleConfirmClick(relX, relY - contentTop());
+        return true;
+    }
+
+    @Override
+    protected boolean onContentClick(double localX, double localY, int button, int action) {
         if (button != GLFW.GLFW_MOUSE_BUTTON_LEFT) return false;
         if (action != GLFW.GLFW_PRESS) return false;
-        int w = PhoneOverlay.getPhoneWidth();
-        Layout L = computeLayout();
+        Layout L = layout();
 
         if (confirmDeletePending) {
-            return handleConfirmClick(relX, relY, w, L);
-        }
-
-        if (relX >= 0 && relX <= UiFont.sh(60) && relY >= 0 && relY <= L.navH) {
-            PhoneOverlay.popPage();
+            // 弹窗打开时吞掉内容区的一切左键（旧实现同样总是返回 true）
+            handleConfirmClick(localX, localY);
             return true;
         }
-        if (relY < L.navH) return false;
+        // 顶栏区域（骨架已把它交回内容钩子；非返回键区域在旧实现里直接被忽略）
+        if (localY < 0) return false;
 
-        double ly = relY + scrollOffset;
-        int cardX = UiFont.sh(10);
-        int cardW = w - UiFont.sh(20);
+        double logical = logicalY(localY);
+        int cardX = PhoneText.px(10);
+        int cardW = width() - PhoneText.px(20);
 
         // 管理 4 项
-        if (hit(relX, ly, cardX, L.cardY[0], cardW, cardH())) {
+        if (PhoneLayout.hit(localX, logical, cardX, L.cardY[0], cardW, cardH())) {
             PhoneOverlay.pushPage(new ChatPage(stableId, maidName));
             return true;
         }
-        if (hit(relX, ly, cardX, L.cardY[1], cardW, cardH())) {
+        if (PhoneLayout.hit(localX, logical, cardX, L.cardY[1], cardW, cardH())) {
             if (ChatHistoryStorage.hasConversation(stableId)) {
                 ChatHistoryStorage.deleteConversation(stableId);
                 // 删除聊天记录时，把该会话收件箱里尚未领取的文件一股脑掉到玩家脚下
@@ -546,17 +593,17 @@ public class MaidInfoPage implements IPhonePage {
             }
             return true;
         }
-        if (hit(relX, ly, cardX, L.cardY[2], cardW, cardH())) {
+        if (PhoneLayout.hit(localX, logical, cardX, L.cardY[2], cardW, cardH())) {
             confirmDeletePending = true;
             return true;
         }
-        if (hit(relX, ly, cardX, L.cardY[3], cardW, cardH())) {
+        if (PhoneLayout.hit(localX, logical, cardX, L.cardY[3], cardW, cardH())) {
             updateAvatar();
             return true;
         }
 
         // SOS 呼叫（绑定开关）
-        if (hit(relX, ly, cardX, L.bindCardY, cardW, cardH())) {
+        if (PhoneLayout.hit(localX, logical, cardX, L.bindCardY, cardW, cardH())) {
             PacketDistributor.sendToServer(new C2SToggleSosBindPacket(stableId));
             return true;
         }
@@ -564,11 +611,11 @@ public class MaidInfoPage implements IPhonePage {
         // SOS 工作模式：先处理下拉列表项，再处理模式卡片展开
         boolean bound = SosBindCache.isBound(stableId);
         if (bound && modeDropdownOpen && L.modeListY >= 0
-                && hit(relX, ly, cardX, L.modeListY, cardW, L.modeListH)) {
+                && PhoneLayout.hit(localX, logical, cardX, L.modeListY, cardW, L.modeListH)) {
             List<String> tasks = SosTaskCache.getAll();
             int windowStart = clamp(modeCursor - DROPDOWN_VISIBLE_ROWS / 2,
-                    0, Math.max(0, tasks.size() - DROPDOWN_VISIBLE_ROWS));
-            int row = (int) ((ly - L.modeListY) / dropdownRowH());
+                    Math.max(0, tasks.size() - DROPDOWN_VISIBLE_ROWS));
+            int row = (int) ((logical - L.modeListY) / dropdownRowH());
             int idx = windowStart + row;
             if (idx >= 0 && idx < tasks.size()) {
                 PacketDistributor.sendToServer(new C2SSetSosModePacket(stableId, tasks.get(idx)));
@@ -576,12 +623,11 @@ public class MaidInfoPage implements IPhonePage {
             }
             return true;
         }
-        if (hit(relX, ly, cardX, L.modeCardY, cardW, cardH())) {
+        if (PhoneLayout.hit(localX, logical, cardX, L.modeCardY, cardW, cardH())) {
             if (bound) {
                 modeDropdownOpen = !modeDropdownOpen;
                 if (modeDropdownOpen) {
-                    int idx = SosTaskCache.getAll().indexOf(SosBindCache.getTaskUid(stableId));
-                    modeCursor = idx < 0 ? 0 : idx;
+                    modeCursor = Math.max(0, SosTaskCache.getAll().indexOf(SosBindCache.getTaskUid(stableId)));
                 }
             } else {
                 showFlash("请先绑定 SOS 呼叫");
@@ -590,38 +636,30 @@ public class MaidInfoPage implements IPhonePage {
         }
 
         // 分组设置：折叠栏（点击展开/收起）
-        if (hit(relX, ly, cardX, L.groupBoxY, cardW, cardH())) {
+        if (PhoneLayout.hit(localX, logical, cardX, L.groupBoxY, cardW, cardH())) {
             groupDropdownOpen = !groupDropdownOpen;
             return true;
         }
         // 展开时的分组选项 / 新建分组（都在折叠栏内部）
         for (GroupSlot slot : L.groupSlots) {
-            if (!hit(relX, ly, cardX, slot.y, cardW, slot.h)) continue;
-            if (slot.isNewGroup) {
+            if (!PhoneLayout.hit(localX, logical, cardX, slot.y(), cardW, slot.h())) continue;
+            if (slot.isNewGroup()) {
                 Minecraft.getInstance().setScreen(new PhoneGroupNameInputScreen(this));
             } else {
-                HuhuTalkClientSettings.setMaidGroup(stableId, slot.label);
+                HuhuTalkClientSettings.setMaidGroup(stableId, slot.label());
                 groupDropdownOpen = false;
-                showFlash("已分到「" + slot.label + "」");
+                showFlash("已分到「" + slot.label() + "」");
             }
             return true;
         }
         return false;
     }
 
-    private boolean handleConfirmClick(double relX, double relY, int w, Layout L) {
-        int h = PhoneOverlay.getPhoneHeight();
-        int dlgW = w - UiFont.sh(40);
-        int dlgH = UiFont.sh(80);
-        int dlgX = (w - dlgW) / 2;
-        int dlgY = (L.navH + h) / 2 - dlgH / 2;
-        int btnW = (dlgW - UiFont.sh(30)) / 2;
-        int btnH = UiFont.sh(22);
-        int btnY = dlgY + dlgH - btnH - UiFont.sh(8);
-        int cancelX = dlgX + UiFont.sh(10);
-        int delX = dlgX + dlgW - UiFont.sh(10) - btnW;
+    /** @param x/y 弹窗坐标（弹窗画在内容区里，所以是<b>内容坐标</b>） */
+    private void handleConfirmClick(double x, double y) {
+        ConfirmLayout d = confirmLayout(contentViewHeight());
 
-        if (relX >= delX && relX <= delX + btnW && relY >= btnY && relY <= btnY + btnH) {
+        if (PhoneLayout.hit(x, y, d.delX(), d.btnY(), d.btnW(), d.btnH())) {
             PacketDistributor.sendToServer(new C2SDeleteContactPacket(stableId));
             ChatHistoryStorage.deleteConversation(stableId);
             // 删除联系人/会话时，一并把未领取文件掉到玩家脚下
@@ -629,53 +667,40 @@ public class MaidInfoPage implements IPhonePage {
             HuhuTalkClientSettings.setMaidGroup(stableId, "");
             confirmDeletePending = false;
             showFlash("☠ 已删除联系人");
-            return true;
+            return;
         }
-        boolean onCancel = relX >= cancelX && relX <= cancelX + btnW
-                && relY >= btnY && relY <= btnY + btnH;
-        boolean insideDlg = relX >= dlgX && relX <= dlgX + dlgW
-                && relY >= dlgY && relY <= dlgY + dlgH;
+        boolean onCancel = PhoneLayout.hit(x, y, d.cancelX(), d.btnY(), d.btnW(), d.btnH());
+        boolean insideDlg = PhoneLayout.hit(x, y, d.x(), d.y(), d.w(), d.h());
         if (onCancel || !insideDlg) {
             confirmDeletePending = false;
-            return true;
         }
-        return true;
     }
 
+    /**
+     * 下拉展开时滚轮改为「移动高亮光标」；其余情况交给骨架滚动内容。
+     * <p>坐标：{@code relY} 是手机内容区坐标（顶栏在里面），减 {@link #contentTop()} 才是内容坐标，
+     * 与 {@link #renderContent} 的绘制坐标一致。
+     */
     @Override
     public boolean mouseScrolled(double relX, double relY, double scrollDelta) {
         if (confirmDeletePending) return true;
-        int w = PhoneOverlay.getPhoneWidth();
-        Layout L = computeLayout();
-        int cardX = UiFont.sh(10);
-        int cardW = w - UiFont.sh(20);
+        double localY = relY - contentTop();
+        Layout L = layout();
+        int cardX = PhoneText.px(10);
+        int cardW = width() - PhoneText.px(20);
 
         if (SosBindCache.isBound(stableId) && modeDropdownOpen && L.modeListY >= 0) {
-            int listTop = L.modeListY - scrollOffset;
+            int listTop = scrollY(L.modeListY);
             if (relX >= cardX && relX <= cardX + cardW
-                    && relY >= listTop && relY <= listTop + L.modeListH) {
+                    && localY >= listTop && localY <= listTop + L.modeListH) {
                 List<String> tasks = SosTaskCache.getAll();
                 if (!tasks.isEmpty()) {
                     int step = scrollDelta > 0 ? -1 : 1;
-                    modeCursor = clamp(modeCursor + step, 0, tasks.size() - 1);
+                    modeCursor = clamp(modeCursor + step, tasks.size() - 1);
                 }
                 return true;
             }
         }
-
-        int viewH = Math.max(0, PhoneOverlay.getPhoneHeight() - L.navH);
-        int maxScroll = Math.max(0, L.contentH - viewH);
-        scrollOffset = Math.max(0, Math.min(scrollOffset - (int) (scrollDelta * 10), maxScroll));
-        return true;
-    }
-
-    /** 以任意倍率绘制文本（无阴影） */
-    private static void drawScaledText(GuiGraphics g, Font font, String text,
-                                       float x, float y, int color, float scale) {
-        float inv = 1.0f / scale;
-        g.pose().pushPose();
-        g.pose().scale(scale, scale, 1.0f);
-        g.drawString(font, text, x * inv, y * inv, color, false);
-        g.pose().popPose();
+        return super.mouseScrolled(relX, relY, scrollDelta);
     }
 }

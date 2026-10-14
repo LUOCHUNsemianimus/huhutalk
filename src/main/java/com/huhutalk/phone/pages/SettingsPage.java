@@ -54,7 +54,8 @@ import java.util.List;
  * <h2>与旧实现的差异（刻意接受）</h2>
  * <ul>
  *   <li>页面底色 / 分组标题色 / 分隔线色改走主题色板（略有色差）；</li>
- *   <li>行高由 {@link PhoneRow} 按「文字高 + 控件高 + 留白」自动算，不再固定 24px；</li>
+ *   <li>行高统一为 {@code sh(28)}（{@link PhoneRow#rowHeight(int)}）。旧实现是 {@code sh(24)}，
+ *       但 {@link PhoneRow} 的滑块行要求 ≥27px 轨道才不会切过标签（见 {@link #ROW_H}）；</li>
  *   <li>每字耗时 / 单句上限改用 <b>离散档位</b>（50ms / 100ms 一档，上限 3000 / 10000ms），
  *       旧实现是无限 +50 —— 档位表必须有上界，而默认值 500 / 2400 都落在网格上；</li>
  *   <li>字体倍率档位仍是 0.5 / 0.75 / 1.0 / 1.5 / 2.0（与 {@code HuhuTalkClientSettings} 一致）。</li>
@@ -68,6 +69,18 @@ public class SettingsPage extends PhonePage {
     private static final int CARD_PAD = 10;
     /** 行内左右内边距（与 {@link PhoneRow} 的默认值一致，显式写出以免依赖默认值） */
     private static final int ROW_PAD = 12;
+    /**
+     * 统一行高（基准像素）。
+     * <p>
+     * 旧实现就是所有行等高（{@code sh(24)}），所以「开关 / stepper / 滑块 / 按钮」四种控件
+     * 混在一起看着是齐的。{@link PhoneRow} 默认按内容自动算，会得到 4 种不同行高
+     * （开关 8px、按钮 8px、stepper 18px、滑块另起一行 13px），一页里"每行都不一样高"。
+     * <p>
+     * ⚠ 这里用 <b>28</b> 而不是旧值 24：滑块行的最小无碰撞高度是
+     * {@code 上留白 5 + 标签 9 + 滑块控件 13 = 27}（控件贴底），
+     * 取 24 会让 3px 的轨道正好横穿标签文字。28 留了 1px 余量。
+     */
+    private static final int ROW_H = 28;
     /** 分组标题的左边距 */
     private static final int TITLE_PAD = 12;
     /** 卡片圆角 */
@@ -299,11 +312,11 @@ public class SettingsPage extends PhonePage {
     }
 
     private static PhoneRow row(String label, PhoneWidget widget) {
-        return PhoneRow.of(label, widget).pad(ROW_PAD);
+        return PhoneRow.of(label, widget).pad(ROW_PAD).rowHeight(ROW_H);
     }
 
     private static PhoneRow row(java.util.function.Supplier<String> label, PhoneWidget widget) {
-        return PhoneRow.of(label, widget).pad(ROW_PAD);
+        return PhoneRow.of(label, widget).pad(ROW_PAD).rowHeight(ROW_H);
     }
 
     // ==================== 布局 ====================
