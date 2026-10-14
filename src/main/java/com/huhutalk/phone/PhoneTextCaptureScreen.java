@@ -1,6 +1,6 @@
 package com.huhutalk.phone;
 
-import com.huhutalk.api.phone.ui.PhoneTextInput;
+import com.huhutalk.api.phone.ui.PhoneTextEditable;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.client.gui.components.EditBox;
@@ -9,13 +9,19 @@ import net.minecraft.network.chat.Component;
 import org.lwjgl.glfw.GLFW;
 
 /**
- * <b>完全透明</b>的键盘捕获屏——只为了让手机上的内联输入控件（{@link PhoneTextInput}）能收到键盘。
+ * <b>完全透明</b>的键盘捕获屏——只为了让手机上的内联输入控件
+ * （{@link com.huhutalk.api.phone.ui.PhoneTextInput} /
+ * {@link com.huhutalk.api.phone.ui.PhoneTextArea}）能收到键盘。
  *
  * <h2>为什么必须有它</h2>
  * 手机页面走的是 {@code IPhonePage}，那套接口<b>没有任何键盘回调</b>：
  * 手机 UI 是画在一个 GUI 层上的，键盘事件在原版里只会送给当前 {@code Screen}。
  * 所以"在手机页面里直接打字"在原版机制下不可能 —— 页面全都是开一个 Screen 抢键盘
- * （聊天页 {@code PhoneInputScreen} 是唯一还自己画弹窗的；其它内联输入见 {@link PhoneTextInput}）。
+ * （聊天页 {@code PhoneInputScreen} 是唯一还自己画弹窗的；其它内联输入见
+ * {@link com.huhutalk.api.phone.ui.PhoneTextInput}）。
+ * <p>
+ * 本屏只依赖 {@link PhoneTextEditable} 这个契约，不认具体控件类型 ——
+ * 所以单行与多行控件共用同一个捕获屏。
  *
  * <h2>和它们的不同：这里什么都不画</h2>
  * 那两个屏都画了自己的弹窗。本屏<b>一个像素都不画</b>：手机界面继续在底下渲染，
@@ -31,10 +37,10 @@ import org.lwjgl.glfw.GLFW;
  */
 public class PhoneTextCaptureScreen extends Screen {
 
-    private final PhoneTextInput target;
+    private final PhoneTextEditable target;
     private EditBox box;
 
-    public PhoneTextCaptureScreen(PhoneTextInput target) {
+    public PhoneTextCaptureScreen(PhoneTextEditable target) {
         super(Component.literal("输入"));
         this.target = target;
     }
@@ -75,7 +81,7 @@ public class PhoneTextCaptureScreen extends Screen {
         }
         this.box.setFocused(true);
         boolean handled = this.box.keyPressed(keyCode, scanCode, modifiers);
-        target.updateEditingText(this.box.getValue());
+        target.updateEditingText(this.box.getValue(), this.box.getCursorPosition());
         return handled;
     }
 
@@ -83,7 +89,7 @@ public class PhoneTextCaptureScreen extends Screen {
     public boolean charTyped(char codePoint, int modifiers) {
         this.box.setFocused(true);
         boolean handled = this.box.charTyped(codePoint, modifiers);
-        target.updateEditingText(this.box.getValue());
+        target.updateEditingText(this.box.getValue(), this.box.getCursorPosition());
         return handled;
     }
 

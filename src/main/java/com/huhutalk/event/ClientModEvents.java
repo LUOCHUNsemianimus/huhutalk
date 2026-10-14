@@ -82,7 +82,7 @@ public class ClientModEvents {
     }
 
     /**
-     * 把本机的「识图走哪个平台、用哪个模型」推给服务端（幂等，可重复调用）。
+     * 把本机的「识图走哪个平台 / 用哪个模型 / 主人长什么样」推给服务端（幂等，可重复调用）。
      * <p>
      * 服务端只在会话内按 UUID 缓存（见 {@code VisionSettings}），所以每次登录、
      * 每次在设置里改动都要推一次。
@@ -90,7 +90,8 @@ public class ClientModEvents {
     public static void pushVisionSelection() {
         String siteId = HuhuTalkClientSettings.getVisionSiteId();
         PacketDistributor.sendToServer(
-                new C2SVisionSelectionPacket(siteId, HuhuTalkClientSettings.getVisionModel(siteId)));
+                new C2SVisionSelectionPacket(siteId, HuhuTalkClientSettings.getVisionModel(siteId),
+                        HuhuTalkClientSettings.getPlayerAppearance()));
     }
 
     /** 把本机的「药水复活」偏好推给服务端（幂等，可重复调用）。 */

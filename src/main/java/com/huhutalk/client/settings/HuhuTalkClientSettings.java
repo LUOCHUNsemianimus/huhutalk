@@ -3,6 +3,7 @@ package com.huhutalk.client.settings;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonParseException;
+import com.huhutalk.common.vision.VisionAppearance;
 import com.huhutalk.common.vision.VisionProvider;
 import com.huhutalk.common.vision.VisionProviders;
 import com.mojang.logging.LogUtils;
@@ -114,6 +115,19 @@ public final class HuhuTalkClientSettings {
      * 有了这个标记，自定义模式就成了一个<b>显式状态</b>，与"输入框里有没有字"解耦。
      */
     private static final Set<String> visionCustomModelSites = new HashSet<>();
+    /**
+     * 「你的样貌」：主人（玩家）的外貌描述，识图时拼进提示词，让女仆能认出画面里的人是谁。
+     * <p>
+     * 空串 = 未填写（识图行为与改造前逐字一致）。长度上限见 {@link VisionAppearance#MAX_CHARS}。
+     */
+    private static String playerAppearance = "";
+    /**
+     * 「女仆的样貌」：stableId -> 该女仆的外貌描述。
+     * <p>
+     * 与 {@link #maidGroups} 同型同处（客户端本地持久化，不跟服务端走）。
+     * 缺失或空串 = 未填写。发图时按<b>聊天窗口所属的女仆</b>取用，这是"女仆认出自己"的落点。
+     */
+    private static final Map<String, String> maidAppearance = new HashMap<>();
 
     private HuhuTalkClientSettings() {
     }
@@ -232,6 +246,52 @@ public final class HuhuTalkClientSettings {
     /** 全部手动分组映射（不可变副本） */
     public static Map<String, String> getMaidGroups() {
         return Map.copyOf(maidGroups);
+    }
+
+    // ==================== 外貌描述（识图人设） ====================
+
+    /** 「你的样貌」：主人（玩家）的外貌描述；未填写返回空串。 */
+    public static String getPlayerAppearance() {
+        return playerAppearance;
+    }
+
+    /**
+     * 设置「你的样貌」并落盘。
+     * <p>
+     * 传空 / 空白 = 清空（回到"不认人"的默认识图行为）。
+     * 文本会经 {@link VisionAppearance#clean} 规整并截断到上限。
+     */
+    public static void setPlayerAppearance(String text) {
+        playerAppearance = VisionAppearance.clean(text);
+        save();
+    }
+
+    /** 「女仆的样貌」：某个女仆的外貌描述；未填写返回空串。 */
+    public static String getMaidAppearance(String stableId) {
+        if (stableId == null) {
+            return "";
+        }
+        String v = maidAppearance.get(stableId);
+        return v == null ? "" : v;
+    }
+
+    /**
+     * 设置某个女仆的「女仆的样貌」并落盘。
+     * <p>
+     * <b>空串 = 删除该条目</b>（与 {@link #setMaidGroup} 同一语义）：
+     * 否则清空描述后设置文件里会永远留着一堆空条目。
+     */
+    public static void setMaidAppearance(String stableId, String text) {
+        if (stableId == null) {
+            return;
+        }
+        String v = VisionAppearance.clean(text);
+        if (v.isEmpty()) {
+            maidAppearance.remove(stableId);
+        } else {
+            maidAppearance.put(stableId, v);
+        }
+        save();
     }
 
     /** 玩家自定义分组名列表（不可变副本） */
@@ -551,6 +611,18 @@ public final class HuhuTalkClientSettings {
                     }
                 }
             }
+            // 外貌描述：老配置没有这两个字段 → 保持空（= 未填写），识图行为与改造前一致。
+            // 这里同样走一遍 clean：设置文件是玩家可以手改的，超长/带换行的文本不该流进提示词。
+            playerAppearance = VisionAppearance.clean(data.playerAppearance);
+            maidAppearance.clear();
+            if (data.maidAppearance != null) {
+                data.maidAppearance.forEach((k, v) -> {
+                    String cleaned = VisionAppearance.clean(v);
+                    if (k != null && !k.isBlank() && !cleaned.isEmpty()) {
+                        maidAppearance.put(k, cleaned);
+                    }
+                });
+            }
         } catch (JsonParseException e) {
             // 损坏/不合法 JSON：不崩溃，回退默认设置；原文件改名备份，避免下次继续崩
             LOGGER.error("[HuhuTalk] 设置文件损坏，已回退默认设置: {}", file, e);
@@ -593,6 +665,8 @@ public final class HuhuTalkClientSettings {
             data.visionSiteId = visionSiteId;
             data.visionModels = visionModels;
             data.visionCustomModelSites = visionCustomModelSites;
+            data.playerAppearance = playerAppearance;
+            data.maidAppearance = maidAppearance;
             Path file = settingsFile();
             Files.createDirectories(file.getParent());
             // 原子写入：先写临时文件再重命名，避免写一半崩溃/断电导致 JSON 损坏
@@ -640,5 +714,13 @@ public final class HuhuTalkClientSettings {
         Map<String, String> visionModels;
         /** 处于「自定义模型」模式的平台集合 */
         Set<String> visionCustomModelSites;
+        /**
+         * 「你的样貌」（可空：缺失 = 未填写）。
+         * <p>与 {@code screenBrightness} 同款写法：可空类型 + 缺失时取默认，
+         * 于是老设置文件天然向后兼容、不需要版本号。
+         */
+        String playerAppearance;
+        /** 「女仆的样貌」：stableId -> 描述（可空：缺失 = 全部未填写） */
+        Map<String, String> maidAppearance;
     }
 }

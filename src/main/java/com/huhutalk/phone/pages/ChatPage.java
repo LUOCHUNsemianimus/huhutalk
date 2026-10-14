@@ -2362,7 +2362,10 @@ public class ChatPage implements PhoneCameraHost {
                 stableId, text, toSend.length);
         PacketDistributor.sendToServer(new C2SMaidImageChatPacket(stableId,
                 text == null ? "" : text, toSend,
-                HuhuTalkClientSettings.isMaidWhisperEnabled(), HuhuTalkClientSettings.isImmersiveChatEnabled()));
+                HuhuTalkClientSettings.isMaidWhisperEnabled(), HuhuTalkClientSettings.isImmersiveChatEnabled(),
+                // 「女仆的样貌」按窗口取：stableId 是当前聊天窗口所属的女仆，
+                // 于是不同女仆的窗口发同一张图，带过去的是各自的样貌（"女仆认出自己"的落点）
+                HuhuTalkClientSettings.getMaidAppearance(stableId)));
         this.waitingResponse = true;
         // 清空输入框与草稿（否则重进页面草稿里还存着已发出去的这份文字）
         resetAfterSend();

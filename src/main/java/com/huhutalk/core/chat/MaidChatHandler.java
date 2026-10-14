@@ -7,6 +7,7 @@ import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
 import com.huhutalk.common.MaidStatus;
 import com.huhutalk.common.PhoneHelper;
 import com.huhutalk.common.StableIdProvider;
+import com.huhutalk.common.vision.VisionAppearance;
 import com.huhutalk.core.contact.MaidContactBook;
 import com.huhutalk.core.contact.MaidContactEntry;
 import com.huhutalk.core.vision.VisionService;
@@ -158,9 +159,17 @@ public class MaidChatHandler {
      * 图片字节已由客户端降采样后<b>内联进包</b>传输（不再依赖共享 {@code vision_tmp} 目录）。
      * 流程：{@link VisionService#describe} 识图得到描述 → 把描述作为<b>本次调用的临时系统消息</b>
      * （不写历史、不显示），连同用户文字一起发给聊天 LLM，让女仆对图片做出反应。
+     *
+     * <h2>人设（外貌描述）怎么进来</h2>
+     * 「你的样貌」是<b>每玩家的全局识图偏好</b>，随 {@code C2SVisionSelectionPacket} 存在
+     * {@link VisionSettings} 的会话缓存里；「女仆的样貌」是<b>每女仆</b>的，按发图窗口随包带来
+     * （见 {@link C2SMaidImageChatPacket#maidAppearance()}）。
+     * 两者都为空时提示词逐字走 {@link VisionService#DEFAULT_PROMPT}，老玩家行为零变化。
+     *
+     * @param maidAppearance 发图窗口所属女仆的外貌描述；null/空白 = 未填写
      */
     public static void handleImageChat(ServerPlayer player, String stableId, String userText, byte[] imageData,
-                                       boolean bubbleMute, boolean chatBannerMute) {
+                                       boolean bubbleMute, boolean chatBannerMute, String maidAppearance) {
         EntityMaid maid = findMaidByStableId(player.getServer(), stableId);
         if (maid == null) {
             LOGGER.error("[HuhuTalk] 图片聊天失败：找不到女仆 stableId={}", stableId);
@@ -210,7 +219,11 @@ public class MaidChatHandler {
         // 识图平台由玩家在手机设置里选（「识图模型」页）；服务端只在会话内按 UUID 缓存这份选择。
         // 从未同步过时 VisionSettings 会给出默认值（deepseek），于是老玩家行为与改造前一致。
         VisionSettings.Selection visionSel = VisionSettings.get(player.getUUID());
-        VisionService.describe(imageData, VisionService.DEFAULT_PROMPT,
+        // 人设：主人样貌来自会话缓存（客户端推），女仆样貌来自本包（按窗口取）。
+        // 两端都再清洗一次 —— 客户端可以被改包，服务端不能假设它守规矩。
+        final String playerLook = VisionAppearance.clean(visionSel.playerAppearance());
+        final String maidLook = VisionAppearance.clean(maidAppearance);
+        VisionService.describe(imageData, VisionService.buildPrompt(playerLook, maidLook),
                         visionSel.siteId(), visionSel.resolveModel())
                 .whenComplete((desc, throwable) -> {
                     if (throwable != null) {
@@ -235,7 +248,8 @@ public class MaidChatHandler {
                         }
                         // 先构建消息（此时历史尚未写入本条文字，末尾 userChat 即本条唯一一次），
                         // 发起调用后再把用户文字写入历史，供后续对话记住本条；图片描述本身不写历史。
-                        List<LLMMessage> messages = buildImageMessages(manager, playerIn, desc, userTextIn);
+                        List<LLMMessage> messages = buildImageMessages(manager, playerIn, desc, userTextIn,
+                                identityNote(playerLook, maidLook));
                         HuhuTalkChatCallback callback = new HuhuTalkChatCallback(manager, messages, playerIn, stableIdIn, bubbleMute);
                         // 手机来源窗口：图片消息同样来自手机
                         PhoneChatSourceController.open(maidIn);
@@ -247,8 +261,35 @@ public class MaidChatHandler {
                 });
     }
 
+    /**
+     * 身份参考段：让女仆在<b>聊天里</b>也知道"画面里那个人是主人 / 那个女仆是你自己"。
+     * <p>
+     * 为什么不能只靠识图描述：描述是视觉模型写的，措辞不受控；这里主动把已知的人设
+     * 交给她，她回应时就不会把主人当成陌生人。
+     * <p>
+     * ⚠ 两段都为空时必须返回<b>空串</b>（而不是一段空壳说明），
+     * 这样下面拼出来的系统消息与改造前逐字一致。
+     */
+    private static String identityNote(String playerLook, String maidLook) {
+        boolean hasP = playerLook != null && !playerLook.isBlank();
+        boolean hasM = maidLook != null && !maidLook.isBlank();
+        if (!hasP && !hasM) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder("\n（身份参考，供你理解画面中的人是谁：");
+        if (hasP) {
+            sb.append("\n- 主人（玩家）：").append(playerLook);
+        }
+        if (hasM) {
+            sb.append("\n- 你自己（女仆）：").append(maidLook);
+        }
+        sb.append("）");
+        return sb.toString();
+    }
+
     /** 构建带图片描述系统消息 + 用户文字的 LLM 消息列表。 */
-    private static List<LLMMessage> buildImageMessages(MaidAIChatManager manager, ServerPlayer player, String desc, String userText) {
+    private static List<LLMMessage> buildImageMessages(MaidAIChatManager manager, ServerPlayer player, String desc,
+                                                       String userText, String identityNote) {
         EntityMaid maid = manager.getMaid();
         List<LLMMessage> messages = new ArrayList<>();
         manager.getSetting().ifPresent(setting -> {
@@ -267,6 +308,7 @@ public class MaidChatHandler {
                         + "请忽略你之前看过的、或对话里提到过的任何其他图片或角色——它们已经作废，一律以这张为准。"
                         + "你现在能清楚地看到这张最新图片，画面内容如下：\n"
                         + desc
+                        + identityNote
                         + "\n请严格依据上面这张最新图片的内容回应主人：先准确说出你在图片里看到了什么，"
                         + "再对图中的场景、物品或动作给出自然、符合你性格的反应。"
                         + "不要联想或沿用之前讨论过的内容，也不要说自己看不到图片、看不清、或手里空空之类的话。"));

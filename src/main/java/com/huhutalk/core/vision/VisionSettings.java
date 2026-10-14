@@ -1,5 +1,6 @@
 package com.huhutalk.core.vision;
 
+import com.huhutalk.common.vision.VisionAppearance;
 import com.huhutalk.common.vision.VisionProviders;
 import org.jetbrains.annotations.Nullable;
 
@@ -36,22 +37,29 @@ public final class VisionSettings {
     private VisionSettings() {
     }
 
-    /** 记录某玩家的选择（客户端同步过来时调用）。 */
-    public static void set(UUID playerId, @Nullable String siteId, @Nullable String model) {
+    /**
+     * 记录某玩家的选择与「你的样貌」（客户端同步过来时调用）。
+     *
+     * @param playerAppearance 主人的外貌描述；{@code null}/空白 = 未填写。
+     *                         这里<b>再清洗一遍</b>：客户端可以被改包，服务端不能假设它守规矩。
+     */
+    public static void set(UUID playerId, @Nullable String siteId, @Nullable String model,
+                           @Nullable String playerAppearance) {
         if (playerId == null) {
             return;
         }
         SELECTIONS.put(playerId, new Selection(
                 siteId == null || siteId.isBlank() ? DEFAULT_SITE : siteId,
-                model == null ? "" : model));
+                model == null ? "" : model,
+                VisionAppearance.clean(playerAppearance)));
     }
 
-    /** 某玩家的选择；从未同步过则返回默认（DeepSeek + 空模型 → 由调用方取默认模型）。 */
+    /** 某玩家的选择；从未同步过则返回默认（DeepSeek + 空模型 + 未填写样貌）。 */
     public static Selection get(@Nullable UUID playerId) {
         if (playerId == null) {
-            return new Selection(DEFAULT_SITE, "");
+            return new Selection(DEFAULT_SITE, "", "");
         }
-        return SELECTIONS.getOrDefault(playerId, new Selection(DEFAULT_SITE, ""));
+        return SELECTIONS.getOrDefault(playerId, new Selection(DEFAULT_SITE, "", ""));
     }
 
     /** 玩家登出：清掉记录，避免长开服上累积。 */
@@ -69,10 +77,11 @@ public final class VisionSettings {
     /**
      * 一次选择。
      *
-     * @param siteId 平台（TLM 站点 id）
-     * @param model  模型名；空串表示"用该平台的默认预设模型"
+     * @param siteId           平台（TLM 站点 id）
+     * @param model            模型名；空串表示"用该平台的默认预设模型"
+     * @param playerAppearance 「你的样貌」；空串表示未填写（此时识图走原默认提示词）
      */
-    public record Selection(String siteId, String model) {
+    public record Selection(String siteId, String model, String playerAppearance) {
 
         /** 最终要发给视觉模型的模型名：玩家选了就用玩家的，否则取平台预设的默认。 */
         public String resolveModel() {

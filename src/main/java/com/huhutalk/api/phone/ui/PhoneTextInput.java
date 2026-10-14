@@ -37,7 +37,7 @@ import java.util.function.Consumer;
  *
  * @see PhoneTextCaptureScreen
  */
-public final class PhoneTextInput extends PhoneWidget {
+public final class PhoneTextInput extends PhoneWidget implements PhoneTextEditable {
 
     /** 框体高度（像素，随字体倍率缩放） */
     private static final int BOX_HEIGHT_PX = 20;
@@ -58,6 +58,7 @@ public final class PhoneTextInput extends PhoneWidget {
     // ==================== 配置 ====================
 
     /** 当前文本。 */
+    @Override
     public String value() {
         return value;
     }
@@ -94,17 +95,24 @@ public final class PhoneTextInput extends PhoneWidget {
     // ==================== 编辑期（由捕获屏驱动） ====================
 
     /** 捕获屏打开时调用：记下原值，供"取消"回滚。 */
+    @Override
     public void beginEdit() {
         valueBeforeEdit = value;
         focused = true;
     }
 
-    /** 编辑中同步文本（每敲一个字调一次）。 */
-    public void updateEditingText(String text) {
+    /**
+     * 编辑中同步文本（每敲一个字调一次）。
+     * <p>单行控件用不上 {@code cursorPos}（只显示尾巴），这里刻意忽略它 ——
+     * 多行的 {@link PhoneTextArea} 才需要靠它决定滚动窗口。
+     */
+    @Override
+    public void updateEditingText(String text, int cursorPos) {
         this.value = text == null ? "" : text;
     }
 
     /** 捕获屏关闭：{@code commit=true} 则提交并回调，否则回滚。 */
+    @Override
     public void endEdit(boolean commit) {
         focused = false;
         if (commit) {
@@ -118,10 +126,12 @@ public final class PhoneTextInput extends PhoneWidget {
         }
     }
 
+    @Override
     public int maxLengthValue() {
         return maxLength;
     }
 
+    @Override
     public boolean focused() {
         return focused;
     }

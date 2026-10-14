@@ -4,10 +4,13 @@ import com.huhutalk.api.phone.ui.PhoneDropdown;
 import com.huhutalk.api.phone.ui.PhonePage;
 import com.huhutalk.api.phone.ui.PhoneShapes;
 import com.huhutalk.api.phone.ui.PhoneText;
+import com.huhutalk.api.phone.ui.PhoneTextArea;
 import com.huhutalk.api.phone.ui.PhoneTextInput;
+import com.huhutalk.api.phone.ui.PhoneWidget;
 import com.huhutalk.client.settings.HuhuTalkClientSettings;
 import com.huhutalk.client.theme.ColorScheme;
 import com.huhutalk.client.vision.VisionSiteCache;
+import com.huhutalk.common.vision.VisionAppearance;
 import com.huhutalk.common.vision.VisionProvider;
 import com.huhutalk.common.vision.VisionProviders;
 import com.huhutalk.event.ClientModEvents;
@@ -102,6 +105,28 @@ public class VisionModelSettingsPage extends PhonePage {
     private String toast = "";
     private long toastAt = 0L;
 
+    /**
+     * 「你的样貌」：主人（玩家）自己的外貌描述。
+     *
+     * <h2>它影响什么</h2>
+     * 识图时拼进视觉模型的提示词，让女仆能判断"画面里那个人是主人"，
+     * 并认出主人正在做什么（在看天、在放方块…）。两段描述都为空时，
+     * 识图<b>逐字</b>走原来的默认提示词 —— 老玩家行为零变化。
+     *
+     * <h2>为什么改完要 {@link ClientModEvents#pushVisionSelection()}</h2>
+     * 真正的识图请求由<b>服务端</b>发起，它只知道会话缓存里的那份 {@code VisionSettings}；
+     * 所以外貌描述必须和"用哪个平台"一起推过去，否则服务端拼出来的是没有样貌的旧提示词。
+     */
+    private final PhoneTextArea appearanceInput = new PhoneTextArea()
+            .maxLength(VisionAppearance.MAX_CHARS)
+            .visibleLines(4)
+            .placeholder("描述你的外貌，例如：黑色短发、蓝眼睛、白色衬衫…")
+            .value(HuhuTalkClientSettings.getPlayerAppearance())
+            .onCommit(v -> {
+                HuhuTalkClientSettings.setPlayerAppearance(v);
+                ClientModEvents.pushVisionSelection();
+            });
+
     public VisionModelSettingsPage() {
     }
 
@@ -116,6 +141,9 @@ public class VisionModelSettingsPage extends PhonePage {
     @Override
     public void onOpen() {
         PacketDistributor.sendToServer(new C2SRequestVisionSitesPacket());
+        // 外貌描述是持久化的，但页面实例可能复用：开页时重新对齐一次，
+        // 免得"设置文件里已经是新值、输入框还停在旧值"。
+        appearanceInput.value(HuhuTalkClientSettings.getPlayerAppearance());
     }
 
     @Override
@@ -164,6 +192,10 @@ public class VisionModelSettingsPage extends PhonePage {
 
     private int summaryTop;
     private int summaryHeight;
+    /** 「你的样貌」卡：卡片顶 / 卡片高 / 标题行（均为内容坐标） */
+    private int appearanceTop;
+    private int appearanceHeight;
+    private int appearanceLabelY;
     private int laidOutHeight;
 
     private static int scaled(int px) {
@@ -245,6 +277,20 @@ public class VisionModelSettingsPage extends PhonePage {
         summaryTop = y;
         summaryHeight = scaled(10) * 2 + sumLines * (baseLineH + scaled(2));
         y += summaryHeight + scaled(SUMMARY_TO_LIST);
+
+        // ---- 「你的样貌」卡（摘要卡之下、平台列表之上）----
+        // 位置选在摘要卡下方而不是页面最顶：摘要卡是这页的"标题"（当前走哪家、用哪个模型），
+        // 把它压到外貌卡下面会削弱页面的识别度。
+        appearanceTop = y;
+        appearanceLabelY = appearanceTop + scaled(10);
+        int appearanceBoxY = appearanceLabelY + scaled(LABEL_H) + scaled(2);
+        appearanceHeight = (appearanceBoxY - appearanceTop)
+                + appearanceInput.preferredHeight(font) + scaled(10);
+        y += appearanceHeight + scaled(SUMMARY_TO_LIST);
+        // 控件用视图坐标（scrollY(logical)），与 placeControls 同一条规矩
+        int appearInnerX = scaled(CARD_PAD) + scaled(INNER_PAD);
+        appearanceInput.bounds(appearInnerX, scrollY(appearanceBoxY), innerW,
+                appearanceInput.preferredHeight(font));
 
         // ---- 平台卡 ----
         for (S2CVisionSitesPacket.SiteEntry e : VisionSiteCache.sites()) {
@@ -451,6 +497,7 @@ public class VisionModelSettingsPage extends PhonePage {
         List<Card> cards = layout();
 
         renderSummary(g, font, col, originX, originY, w);
+        renderAppearance(g, font, col, originX, originY, w);
 
         int cardX = originX + scaled(CARD_PAD);
         int cardW = w - scaled(CARD_PAD) * 2;
@@ -569,6 +616,34 @@ public class VisionModelSettingsPage extends PhonePage {
         }
     }
 
+    /**
+     * 「你的样貌」卡：标题 + 一行说明 + 多行输入框。
+     *
+     * <h2>⚠ 坐标系</h2>
+     * 页面自绘的 {@code fillRoundedRect} / {@link PhoneText#draw} 用<b>屏幕坐标</b>
+     * （所以这里每处都带 {@code originY + scrollY(...)}）；而控件
+     * {@link com.huhutalk.api.phone.ui.PhoneWidget#render} 收的 {@code bounds} 是<b>内容坐标</b>，
+     * 它自己会加原点 —— 见 {@link #placeControls} 的说明。
+     */
+    private void renderAppearance(GuiGraphics g, Font font, ColorScheme col,
+                                  int originX, int originY, int w) {
+        int cardX = originX + scaled(CARD_PAD);
+        int cardW = w - scaled(CARD_PAD) * 2;
+        int top = originY + scrollY(appearanceTop);
+        PhoneShapes.fillRoundedRect(g, cardX, top, cardW, appearanceHeight, scaled(CARD_R), col.cardBg());
+
+        PhoneText.drawLeftIn(g, font, "你的样貌", cardX, originY + scrollY(appearanceLabelY), cardW,
+                scaled(LABEL_H), scaled(INNER_PAD), col.textPrimary(), PhoneText.scale(0.9f));
+        String hint = "让女仆在照片里认出你";
+        PhoneText.draw(g, font, hint,
+                cardX + cardW - scaled(INNER_PAD) - PhoneText.width(font, hint, PhoneText.scale(0.75f)),
+                originY + scrollY(appearanceLabelY)
+                        + (scaled(LABEL_H) - PhoneText.height(font, PhoneText.scale(0.75f))) / 2f,
+                col.textMuted(), PhoneText.scale(0.75f));
+
+        appearanceInput.render(g, originX, originY);
+    }
+
     /** 「使用此平台」按钮。选中态是主题强调色实心胶囊 + 白字。 */
     private void renderUseButton(GuiGraphics g, Font font, ColorScheme col, Card c,
                                  int innerX, int originY, int innerW) {
@@ -627,7 +702,11 @@ public class VisionModelSettingsPage extends PhonePage {
             }
         }
 
-        // 第二趟：文本框（点它 = 开透明键盘捕获屏）
+        // 第二趟：文本框（点它 = 开透明键盘捕获屏）。
+        // 「你的样貌」在前：它所在的外貌卡画在平台卡之上，命中顺序必须与绘制顺序一致。
+        if (dispatchText(appearanceInput, localX, localY, button, action)) {
+            return true;
+        }
         for (Card c : cards) {
             if (!c.expanded) {
                 continue;
@@ -667,8 +746,11 @@ public class VisionModelSettingsPage extends PhonePage {
      * 把一次点击转给某个文本控件（尺寸为 0 的跳过）。
      * <p>
      * 只处理 PRESS：这些控件都不需要拖动，{@code PhoneWidget#mouseReleased} 是空实现。
+     * <p>
+     * 参数类型是 {@link PhoneWidget} 而不是 {@link PhoneTextInput}：
+     * 本页现在同时有单行（模型名 / API Key / 接口地址）与多行（你的样貌）两种控件。
      */
-    private static boolean dispatchText(PhoneTextInput in, double x, double y,
+    private static boolean dispatchText(PhoneWidget in, double x, double y,
                                         int button, int action) {
         if (in == null || in.width() <= 0) {
             return false;

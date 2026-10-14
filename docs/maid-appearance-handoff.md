@@ -1,7 +1,7 @@
 # 「形象描述」让女仆认出自己 · 调研与实施交接
 
 > **面向**：下一条对话来实现这个功能。
-> **状态**：**调研完成、尚未开工**。本文给出已核实的链路、推荐方案、硬约束与待拍板的点。
+> **状态**：**已实施完成，编译通过，待实机验收**。调研结论见 §1~§13；**实际改了什么、怎么改的见 §14**。
 > **前置阅读**：[phone-camera-api.md](phone-camera-api.md)（相机）、
 > [phone-page-skeleton.md](phone-page-skeleton.md) §8.1.1（`PhoneTextInput` / 透明捕获屏）、
 > [phone-ui-toolkit-handoff.md](phone-ui-toolkit-handoff.md)（页面与控件现状）。
@@ -187,7 +187,7 @@ Map<String, String> maidAppearance;      // ② stableId -> 描述（缺失/null
 
 ---
 
-## 9. 待作者拍板的 5 件事
+## 9. 待作者拍板的 5 件事（**已全部拍板，见 §14**）
 
 1. **控件形态**：方案 A（单行 60 字）还是 **B（新 `PhoneTextArea` 多行 200 字，推荐）**？
 2. **① 的精确位置**：摘要卡**之上**还是**之下**（我推荐之下）？
@@ -257,3 +257,60 @@ Map<String, String> maidAppearance;      // ② stableId -> 描述（缺失/null
   IDE 终端里 `cmd /c "set JAVA_HOME=C:\Users\10217\.jdks\ms-21.0.12&& gradlew.bat compileJava --offline --console=plain"`
   （JDK 路径可用 `Get-CimInstance Win32_Process -Filter "Name='java.exe'"` 查到）。
 - ⚠ **改了 Java 必须重启客户端**，`F3+T` 只重载资源、不重载 class。
+
+---
+
+## 14. 实施记录（本轮已完成）
+
+### 14.1 拍板结果（对应 §9 的 5 问）
+
+| # | 问题 | 决定 |
+|---|---|---|
+| 1 | 控件形态 | **B：新增 `PhoneTextArea` 多行控件**，200 字、4~5 行可见 |
+| 2 | ① 的精确位置 | **摘要卡之下、平台列表之前** |
+| 3 | ② 的精确位置 | **管理组第 5 行（「更新头像」之后）**，点它展开下方内联输入框 |
+| 4 | ② 存哪 | **客户端本地**（与 `maidGroups` 同文件同写法） |
+| 5 | "看出玩家状态" | 作者澄清：**只在提示词里要求"描述玩家正在做什么"**（看天、放方块…），**不做**实时状态注入 |
+
+### 14.2 新增文件
+
+| 文件 | 作用 |
+|---|---|
+| `common/vision/VisionAppearance.java` | 两段描述共用的上限（`MAX_CHARS = 200`）与 `clean()`（压空白 + 截断）。放 `common` 是因为**客户端与服务端都要过一遍**，上限定两处必然漂移 |
+| `api/phone/ui/PhoneTextEditable.java` | 「能被透明捕获屏编辑」的控件契约（`value` / `maxLengthValue` / `beginEdit` / `updateEditingText(text, cursorPos)` / `endEdit` / `focused`） |
+| `api/phone/ui/PhoneTextArea.java` | 多行内联输入控件：自写按字宽折行（`Font.split` 不给"每行首字符索引"，没法把光标映射到行）、编辑期**窗口跟着光标走**、非编辑期显示开头 |
+
+### 14.3 改动文件
+
+| 文件 | 改动 |
+|---|---|
+| `PhoneTextInput.java` | `implements PhoneTextEditable`；`updateEditingText(String)` → `(String, int)`（单行忽略 cursorPos） |
+| `PhoneTextCaptureScreen.java` | 字段类型 `PhoneTextInput` → `PhoneTextEditable`，**单行/多行共用一个捕获屏**；转发时补传 `box.getCursorPosition()` |
+| `HuhuTalkClientSettings.java` | 新增 `playerAppearance`（String）与 `maidAppearance`（Map）；配套读写方法（**空串 = 删除条目**，与 `setMaidGroup` 同语义）；`load`/`save`/`SettingsData` 各加两处，**可空类型 + 缺失取默认**，与 `screenBrightness` 同款、老配置天然兼容 |
+| `C2SVisionSelectionPacket.java` | 2 → **3** 字段，加 `playerAppearance`（离上限 6 还很远） |
+| `VisionSettings.java` | `Selection` 加 `playerAppearance`；`set(...)` 多一个入参，**服务端再 clean 一遍**（客户端可被改包） |
+| `C2SMaidImageChatPacket.java` | 5 → **6** 字段（正好卡满 composite 上限），加 `maidAppearance` |
+| `VisionService.java` | 新增 **`buildPrompt(playerLook, maidLook)`**：两段皆空时**逐字返回 `DEFAULT_PROMPT`**；有人设时换成显式解禁 + 要求点名身份 + 要求描述玩家动作的一套提示词 |
+| `MaidChatHandler.java` | `handleImageChat` 多收一个 `maidAppearance`；识图前算 `playerLook`/`maidLook` 并交给 `buildPrompt`；新增 `identityNote(...)` 传给 `buildImageMessages`，让女仆在**聊天里**也知道谁是谁（两段皆空时返回空串 ⇒ 拼出的系统消息与改造前**逐字一致**） |
+| `ChatPage.java` | `sendImageChat` 发图时按 **`stableId`（当前窗口）** 取女仆样貌塞进包 —— 这是"不同窗口带各自女仆样貌"的落点 |
+| `ClientModEvents.java` | `pushVisionSelection()` 一并推 `playerAppearance` |
+| `VisionModelSettingsPage.java` | 摘要卡之下新增「你的样貌」卡（标题 + 提示 + `PhoneTextArea`）；`dispatchText` 形参放宽到 `PhoneWidget`（本页现在同时有单行/多行两种控件）；`onOpen` 重新对齐输入框内容 |
+| `MaidInfoPage.java` | 管理组 4 行 → **5 行**（`cardY` 扩到 5，"👗 女仆的样貌"，右端显示「已填写/未填写」+ ▲▼）；点行展开下方的 `PhoneTextArea`，`manageRectH` 由 `manageBottom` 算出、矩形自动包住 —— **`rectY/H` 的公式本身没改** |
+
+### 14.4 刻意保持的"零变化"保证
+
+- 两段描述都为空 ⇒ `VisionService.buildPrompt` 返回的**就是** `DEFAULT_PROMPT` 那个对象；
+- `identityNote` 返回 `""` ⇒ 图片系统消息字符串与改造前逐字相同；
+- 两个新包字段默认为空串 ⇒ 老客户端/新服务端、新客户端/老服务端的组合都不会崩。**⚠ 但这是协议改动：客户端与服务端必须一起升级**（`StreamCodec` 分量数不同，混用会在解码时抛错）。
+
+### 14.5 验证情况
+
+- IDEA `build_project`：**通过**（0 error / 0 problem）。
+- IDEA `lint_files`：新代码引入的告警已清（`Math.clamp`、`isEmpty`、无用字段与无用方法）；余下均为本文件历史遗留告警。
+- **尚未实机验证** —— §11 的验收清单全部待跑（其中"两个都不填时逐字一致"是最该先跑的一条）。
+
+### 14.6 下一轮可做（未做，不在本次范围）
+
+- 若嫌 200 字不够：只改 `VisionAppearance.MAX_CHARS` 一处即可（客户端控件与服务端裁剪都引它）。
+- `PhoneTextArea` 目前没有"点击框内定位光标"（真光标由 `EditBox` 管，视觉光标只做提示），与 `PhoneTextInput` 现状一致。
+

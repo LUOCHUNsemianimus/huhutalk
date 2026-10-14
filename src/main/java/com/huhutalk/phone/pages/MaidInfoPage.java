@@ -4,6 +4,7 @@ import com.huhutalk.api.phone.ui.PhoneLayout;
 import com.huhutalk.api.phone.ui.PhonePage;
 import com.huhutalk.api.phone.ui.PhoneShapes;
 import com.huhutalk.api.phone.ui.PhoneText;
+import com.huhutalk.api.phone.ui.PhoneTextArea;
 import com.huhutalk.api.phone.ui.PhoneTextInput;
 import com.huhutalk.client.ChatHistoryStorage;
 import com.huhutalk.client.MaidAvatarManager;
@@ -15,6 +16,7 @@ import com.huhutalk.client.SosTaskCache;
 import com.huhutalk.client.settings.HuhuTalkClientSettings;
 import com.huhutalk.client.theme.ColorScheme;
 import com.huhutalk.common.MaidStatus;
+import com.huhutalk.common.vision.VisionAppearance;
 import com.huhutalk.network.C2SDeleteContactPacket;
 import com.huhutalk.network.C2SRequestMaidStatusPacket;
 import com.huhutalk.network.C2SRequestSosTaskListPacket;
@@ -39,7 +41,8 @@ import java.util.Map;
  * UI：顶栏 #de7e7e；头部大头像（女仆照片）+ 名称/状态（1.75/1.25 倍字号）；页面底取自主题；
  * 全部设置项为圆角卡片（圆角 8）。分三组：
  * <ul>
- *   <li><b>管理</b>：发消息 / 删除记录 / 删除联系人 / 更新头像。</li>
+ *   <li><b>管理</b>：发消息 / 删除记录 / 删除联系人 / 更新头像 / <b>女仆的样貌</b>
+ *       （最后一项点一下展开一个内联的多行输入框，填写她的外貌描述，供识图认人用）。</li>
  *   <li><b>SOS呼叫</b>：SOS呼叫（绑定开关）/ SOS工作模式（点击展开原下拉）。</li>
  *   <li><b>分组设置</b>：现有分组选项（默认 + 自定义）+ 末行<b>内联的「新建分组」输入框</b>。</li>
  * </ul>
@@ -113,6 +116,28 @@ public class MaidInfoPage extends PhonePage {
     /** 分组设置折叠栏是否展开 */
     private boolean groupDropdownOpen = false;
 
+    /**
+     * 「女仆的样貌」多行输入框是否展开。
+     * <p>
+     * 它是管理组第 5 行下方的一块内联编辑区：行本身只有一行高（放不下多行文本），
+     * 所以点那一行才展开这个框，展开后由管理组的大矩形自动包住（见 {@link #layout()}）。
+     */
+    private boolean maidAppearanceOpen = false;
+
+    /**
+     * 「女仆的样貌」：这位女仆的外貌描述。
+     *
+     * <h2>它影响什么</h2>
+     * 从<b>本女仆的聊天窗口</b>发图片时随包带给服务端，拼进识图提示词，
+     * 于是女仆能认出照片里的自己（"画面里是你自己"）。
+     * 没填时识图<b>逐字</b>走原来的默认提示词 —— 老玩家行为零变化。
+     *
+     * <h2>为什么在构造器里建</h2>
+     * 它的初值取决于 {@link #stableId}（每个女仆一份描述），
+     * 而 {@code stableId} 是构造参数，字段初始化表达式里拿不到。
+     */
+    private final PhoneTextArea appearanceInput;
+
     /** 是否有二次确认弹窗打开（弹窗期间吞掉页面的其它输入） */
     private boolean isConfirming() {
         return confirm != Confirm.NONE;
@@ -159,6 +184,11 @@ public class MaidInfoPage extends PhonePage {
     public MaidInfoPage(String stableId, String maidName) {
         this.stableId = stableId;
         this.maidName = maidName;
+        this.appearanceInput = new PhoneTextArea()
+                .maxLength(VisionAppearance.MAX_CHARS)
+                .placeholder("描述她的外貌，例如：银色长发、红色眼睛、黑色女仆装…")
+                .value(HuhuTalkClientSettings.getMaidAppearance(stableId))
+                .onCommit(v -> HuhuTalkClientSettings.setMaidAppearance(stableId, v));
         PacketDistributor.sendToServer(new C2SRequestMaidStatusPacket(List.of(stableId)));
         if (SosTaskCache.isEmpty()) {
             PacketDistributor.sendToServer(new C2SRequestSosTaskListPacket());
@@ -325,8 +355,11 @@ public class MaidInfoPage extends PhonePage {
         int headerY, headerH, avatarX, avatarY, avatarH, avatarSize;
         int nameX, nameTop, statusTop;
         int manageTitleY;
-        int[] cardY = new int[4]; // 管理 4 项
+        /** 管理组各行：发消息 / 删除记录 / 删除联系人 / 更新头像 / 女仆的样貌 */
+        int[] cardY = new int[5];
         int manageRectY, manageRectH;
+        /** 展开的「女仆的样貌」输入框（逻辑坐标；{@code -1} = 未展开，不渲染也不命中） */
+        int appearanceBoxY = -1, appearanceBoxH = 0;
         int sosTitleY, bindCardY, modeCardY, modeListY, modeListH;
         int sosRectY, sosRectH;
         int groupTitleY, groupBoxY;
@@ -363,16 +396,24 @@ public class MaidInfoPage extends PhonePage {
         L.statusTop = L.nameTop + nameH + PhoneText.px(2);
         y += L.headerH + groupTitleTop();
 
-        // 管理 分组（一个大矩形内 4 行，灰色横线分隔）
+        // 管理 分组（一个大矩形内 5 行，灰色横线分隔）
+        // 第 5 行是「女仆的样貌」；展开它的多行输入框时，下面 manageBottom 跟着变长，
+        // 大矩形自动把它包进去 —— 所以 rectY/H 的公式本身不需要改。
         L.manageTitleY = y;
         y += groupTitleToCard();
-        for (int i = 0; i < 4; i++) {
+        for (int i = 0; i < L.cardY.length; i++) {
             L.cardY[i] = y;
             y += cardH();
         }
         L.manageRectY = L.cardY[0] - rectPad();
-        L.manageRectH = (L.cardY[3] + cardH()) - L.manageRectY + rectPad();
-        y = L.cardY[3] + cardH() + rectPad();
+        int manageBottom = L.cardY[L.cardY.length - 1] + cardH();
+        if (maidAppearanceOpen) {
+            L.appearanceBoxY = manageBottom + PhoneText.px(4);
+            L.appearanceBoxH = appearanceInput.preferredHeight(font) + PhoneText.px(4);
+            manageBottom = L.appearanceBoxY + L.appearanceBoxH;
+        }
+        L.manageRectH = manageBottom - L.manageRectY + rectPad();
+        y = manageBottom + rectPad();
         y += groupTitleTop();
 
         // SOS 分组（大矩形内含 2 行 + 展开时的工作模式列表）
@@ -491,17 +532,58 @@ public class MaidInfoPage extends PhonePage {
         int rectW = width() - PhoneText.px(20);
         PhoneText.draw(g, font, "管理", originX + PhoneText.px(12),
                 originY + scrollY(L.manageTitleY) - PhoneText.px(4), c.textMuted(), s);
-        // 大矩形（含 4 行，灰色横线分隔）
+        // 大矩形（含 5 行，灰色横线分隔；展开外貌输入框时会自动包住它）
         PhoneShapes.fillRoundedRect(g, rectX, originY + scrollY(L.manageRectY), rectW, L.manageRectH, CARD_R, c.cardBg());
-        String[] labels = {"💬 发消息", "🗑 删除记录", "☠ 删除联系人", "📷 更新头像"};
-        int[] labelColors = {c.textPrimary(), c.textPrimary(), c.dangerBg(), 0xFF2E7D32};
-        for (int i = 0; i < 4; i++) {
+        String[] labels = {"💬 发消息", "🗑 删除记录", "☠ 删除联系人", "📷 更新头像", "👗 女仆的样貌"};
+        int[] labelColors = {c.textPrimary(), c.textPrimary(), c.dangerBg(), 0xFF2E7D32, c.textPrimary()};
+        for (int i = 0; i < labels.length; i++) {
             int y = originY + scrollY(L.cardY[i]);
             int textY = y + (cardH() - lineH) / 2 + 1;
             PhoneText.draw(g, font, labels[i], rectX + PhoneText.px(12), textY, labelColors[i], s);
-            PhoneText.draw(g, font, "›", rectX + rectW - PhoneText.px(16), textY, 0xFFB9AAB0, s);
-            if (i < 3) drawDivider(g, c, rectX, rectW, y + cardH());
+            if (i == labels.length - 1) {
+                // 最后一行不画「›」（它不跳转，只展开下面的输入框），改画展开箭头 + 填写状态
+                PhoneText.draw(g, font, maidAppearanceOpen ? "▲" : "▼",
+                        rectX + rectW - PhoneText.px(16), textY, 0xFFB9AAB0, s);
+                String state = HuhuTalkClientSettings.getMaidAppearance(stableId).isEmpty() ? "未填写" : "已填写";
+                PhoneText.draw(g, font, state,
+                        rectX + rectW - PhoneText.px(22) - PhoneText.width(font, state, s),
+                        textY, c.textMuted(), s);
+            } else {
+                PhoneText.draw(g, font, "›", rectX + rectW - PhoneText.px(16), textY, 0xFFB9AAB0, s);
+            }
+            if (i < labels.length - 1 || L.appearanceBoxY >= 0) {
+                drawDivider(g, c, rectX, rectW, y + cardH());
+            }
         }
+        renderAppearanceBox(g, c, L, originX, originY);
+    }
+
+    /**
+     * 展开的「女仆的样貌」多行输入框（未展开时自动收成零尺寸）。
+     *
+     * <h2>⚠ 坐标系：页面自绘用<b>屏幕坐标</b>，控件的 {@code bounds} 用<b>内容坐标</b></h2>
+     * 与 {@link #renderNewGroupRow} 完全同一条规矩（那里记录了踩坑经过）：
+     * {@code fillRoundedRect} 要自己带 {@code originX/originY}，
+     * 而 {@code PhoneWidget#render} 的 {@code bounds} 用 {@code scrollY(logical)}、不加原点。
+     */
+    private void renderAppearanceBox(GuiGraphics g, ColorScheme c, Layout L, int originX, int originY) {
+        if (L.appearanceBoxY < 0) {
+            appearanceInput.bounds(0, 0, 0, 0);
+            return;
+        }
+        int cardX = PhoneText.px(10);
+        int cardW = width() - PhoneText.px(20);
+        int inX = cardX + PhoneText.px(8);
+        int inW = cardW - PhoneText.px(16);
+        int inH = appearanceInput.preferredHeight(font());
+        int inY = scrollY(L.appearanceBoxY);
+
+        // 垫一层比卡片深一档的底：输入框自己的底色也是 cardBg()，直接压在卡片上等于没有边框。
+        PhoneShapes.fillRoundedRect(g, originX + inX - PhoneText.px(2), originY + inY - PhoneText.px(2),
+                inW + PhoneText.px(4), inH + PhoneText.px(4), 6, c.pageBgList());
+
+        appearanceInput.bounds(inX, inY, inW, inH);
+        appearanceInput.render(g, originX, originY);
     }
 
     private void renderSosGroup(GuiGraphics g, Font font, ColorScheme c, Layout L, int originX, int originY) {
@@ -809,6 +891,18 @@ public class MaidInfoPage extends PhonePage {
         }
         if (PhoneLayout.hit(localX, logical, cardX, L.cardY[3], cardW, cardH())) {
             updateAvatar();
+            return true;
+        }
+        // 第 5 行「女仆的样貌」：点一下展开 / 收起下方的多行输入框
+        if (PhoneLayout.hit(localX, logical, cardX, L.cardY[4], cardW, cardH())) {
+            maidAppearanceOpen = !maidAppearanceOpen;
+            return true;
+        }
+        // 展开的输入框：**整块都是热区**（与「新建分组」那一行同一处理）——
+        // 点在框内任意处都算点在它上面，不去凑控件自己的框体几何。
+        if (L.appearanceBoxY >= 0
+                && PhoneLayout.hit(localX, logical, cardX, L.appearanceBoxY, cardW, L.appearanceBoxH)) {
+            appearanceInput.startEditing();
             return true;
         }
 
