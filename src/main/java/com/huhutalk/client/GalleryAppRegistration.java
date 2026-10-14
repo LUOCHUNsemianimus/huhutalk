@@ -27,8 +27,8 @@ public final class GalleryAppRegistration {
     /** 图库 App 的桌面槽位：第二行第一格 */
     public static final int GALLERY_SLOT = 3;
 
-    /** 图标底色：青绿（贴图没加载出来时兜底，也是启动动画色块的颜色） */
-    private static final int ICON_COLOR = 0xFF26A69A;
+    /** 图标底色：深绿（贴图没加载出来时兜底，也是启动动画色块的颜色） */
+    private static final int ICON_COLOR = 0xFF255D4B;
 
     /** 桌面图标贴图（256×256，铺满图标方块）：assets/huhutalk/textures/icon/gallery.png */
     private static final ResourceLocation ICON_TEXTURE =

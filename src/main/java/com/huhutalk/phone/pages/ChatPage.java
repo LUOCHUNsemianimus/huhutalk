@@ -545,6 +545,10 @@ public class ChatPage implements PhoneCameraHost {
             this.splitting = false;
             this.splitQueue.clear();
             this.splitIndex = 0;
+            this.splitGameTime = groupTime;
+            // ⚠ 这条路径也必须回执：整段一次落屏 = 已经播完，没有理由让服务端空等 30 秒兜底
+            this.splitDoneNotified = false;
+            notifySplitDone();
             return;
         }
         // 进入断句模式：重置队列，每条短句按"自己字数 × 0.5s（封顶 2.4s）"逐条显示。
@@ -641,14 +645,28 @@ public class ChatPage implements PhoneCameraHost {
             splitting = false;
             waitingResponse = false;
             PENDING_SPLIT.remove(this);
-            if (!splitDoneNotified) {
-                splitDoneNotified = true;
-                // 通知服务端：本条回复已播完 → 关闭手机来源窗口 → 动画放下手机
-                // （隔离演示页不发包：服务端从未开过窗口）
-                if (!demoIsolated) {
-                    PacketDistributor.sendToServer(new C2SPhoneTypingDonePacket(stableId));
-                }
-            }
+            notifySplitDone();
+        }
+    }
+
+    /**
+     * 回执服务端：「这条回复已经播完」→ 关闭手机来源窗口 → 动画放下手机。
+     *
+     * <h2>⚠ 每一条回复路径都必须走到这里</h2>
+     * 服务端只有收到这个回执（{@link C2SPhoneTypingDonePacket}）才会提前关窗；
+     * 漏掉的路径只能等 {@code PhoneChatSourceController.WINDOW_TICKS}（30 秒）兜底，
+     * 表现就是<b>女仆一直举着手机不放</b>。曾经漏掉的是"整段单句 + 无表情"那条分支
+     * （回复里一个标点都没有时走它），所以这里收成一个入口，三条路径共用。
+     *
+     * <p>幂等（{@link #splitDoneNotified}）；隔离演示页不发包——服务端从未为它开过窗口。
+     */
+    private void notifySplitDone() {
+        if (splitDoneNotified) {
+            return;
+        }
+        splitDoneNotified = true;
+        if (!demoIsolated) {
+            PacketDistributor.sendToServer(new C2SPhoneTypingDonePacket(stableId));
         }
     }
 
@@ -684,12 +702,7 @@ public class ChatPage implements PhoneCameraHost {
         splitIndex = 0;
         PENDING_SPLIT.remove(this);
         // 内容已全部落屏（玩家抢先发了下一条）：同样回执服务端关闭窗口，动画才能放下手机
-        if (!splitDoneNotified) {
-            splitDoneNotified = true;
-            if (!demoIsolated) {
-                PacketDistributor.sendToServer(new C2SPhoneTypingDonePacket(stableId));
-            }
-        }
+        notifySplitDone();
     }
 
     // ==================== P→M 传文件：队列访问（供 FileTransferPage 使用） ====================

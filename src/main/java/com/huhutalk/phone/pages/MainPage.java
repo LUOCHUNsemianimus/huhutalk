@@ -223,7 +223,7 @@ public class MainPage implements IPhonePage {
         //   图标用 256×256 贴图（assets/huhutalk/textures/icon/settings.png）；
         //   中心的 ⚙ 与底色保留 —— 底色是启动动画色块色，文字是贴图缺失时的兜底。
         list.add(new AppInfo(5, AppBehavior.PLAIN, false,
-                "设置", 0xFFEEEEEE, "⚙", true, 2.0f, 0xFF757575, true, false, false,
+                "设置", 0xFF727377, "⚙", true, 2.0f, 0xFFF5F5F5, true, false, false,
                 SettingsAppPage::new,
                 ResourceLocation.fromNamespaceAndPath("huhutalk", "textures/icon/settings.png"),
                 256, 256, 1.0f));
