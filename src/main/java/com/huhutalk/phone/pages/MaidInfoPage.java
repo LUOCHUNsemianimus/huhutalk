@@ -4,6 +4,7 @@ import com.huhutalk.api.phone.ui.PhoneLayout;
 import com.huhutalk.api.phone.ui.PhonePage;
 import com.huhutalk.api.phone.ui.PhoneShapes;
 import com.huhutalk.api.phone.ui.PhoneText;
+import com.huhutalk.api.phone.ui.PhoneTextInput;
 import com.huhutalk.client.ChatHistoryStorage;
 import com.huhutalk.client.MaidAvatarManager;
 import com.huhutalk.client.MaidGroupHelper;
@@ -20,9 +21,7 @@ import com.huhutalk.network.C2SRequestSosTaskListPacket;
 import com.huhutalk.network.C2SSetSosModePacket;
 import com.huhutalk.network.C2SToggleSosBindPacket;
 import com.huhutalk.network.S2CMaidListPacket;
-import com.huhutalk.phone.PhoneGroupNameInputScreen;
 import com.huhutalk.phone.PhoneOverlay;
-import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.Component;
@@ -41,10 +40,18 @@ import java.util.List;
  * <ul>
  *   <li><b>管理</b>：发消息 / 删除记录 / 删除联系人 / 更新头像。</li>
  *   <li><b>SOS呼叫</b>：SOS呼叫（绑定开关）/ SOS工作模式（点击展开原下拉）。</li>
- *   <li><b>分组设置</b>：现有分组选项（默认 + 自定义）+ 底部「+ 新建分组」。</li>
+ *   <li><b>分组设置</b>：现有分组选项（默认 + 自定义）+ 末行<b>内联的「新建分组」输入框</b>。</li>
  * </ul>
  * 新建分组把新组名写入持久化列表并分当前女仆到该组，联系人页据此同步展示（含空组）。
  * 逻辑（删除/绑定/模式/分组/头像）均沿用原有实现。
+ *
+ * <h2>「新建分组」曾经是个弹窗（已改）</h2>
+ * 旧实现点「＋ 新建分组」会开一个自带居中对话框的 {@code Screen}。
+ * 那套观感和手机页面不是一回事（弹窗把整块手机屏盖掉，连状态栏/水印栏一起），
+ * 也与「内联编辑」的设计语言相悖。现在改成公开控件 {@link PhoneTextInput} 内联在列表末行，
+ * 点它只开一个<b>完全透明</b>的 {@code PhoneTextCaptureScreen} 抢键盘 ——
+ * 与设置 App 的 API Key / 模型名 / 接口地址三个输入框同一条通路。
+ * 详见 {@link #groupNewInput} 与 {@link #commitNewGroup(String)}。
  *
  * <h2>改用公开骨架（批次 3）</h2>
  * 旧实现 {@code implements IPhonePage}，把每个页面都要抄一遍的样板都写在文件里：
@@ -93,6 +100,28 @@ public class MaidInfoPage extends PhonePage {
     private boolean confirmDeletePending = false;
     /** 分组设置折叠栏是否展开 */
     private boolean groupDropdownOpen = false;
+
+    /**
+     * 「新建分组」的内联输入框（分组设置展开时，作为列表最后一行出现）。
+     *
+     * <h2>为什么不是弹窗（本页曾经的实现）</h2>
+     * 旧实现点「＋ 新建分组」会 {@code setScreen(new PhoneGroupNameInputScreen(...))} ——
+     * 由那个屏自己画一个居中对话框。手机页面的设计语言里没有"对话框"这种东西：
+     * 手机屏本身就是一整块内容区，弹窗会把它整块盖掉（连同状态栏、水印栏一起），
+     * 看起来像一个和手机无关的原版界面。
+     * <p>
+     * 现在改成公开控件 {@link PhoneTextInput} 的<b>内联</b>形态：框就长在分组列表最后一行，
+     * 点它才开一个<b>完全透明</b>的 {@code PhoneTextCaptureScreen} 只为抢键盘
+     * （手机页面收不到键盘事件，这条通路无法回避；见 {@link PhoneTextInput} 的类注释）。
+     * 编辑期手机界面照常渲染在底下，玩家看到的就是"这一格在闪、我直接往里打字"。
+     * <p>
+     * 同一套做法已经用在设置 App 的「API Key / 模型名 / 接口地址」三个输入框上
+     * （{@code VisionModelSettingsPage}），本页只是把它搬到联系人设置页。
+     */
+    private final PhoneTextInput groupNewInput = new PhoneTextInput()
+            .placeholder("＋ 输入新分组名，回车确定")
+            .maxLength(16)
+            .onCommit(this::commitNewGroup);
     /** 短暂提示（toast）：文本 + 到期时间戳 */
     private String flashText = "";
     private long flashUntil = 0;
@@ -161,9 +190,41 @@ public class MaidInfoPage extends PhonePage {
         }
     }
 
-    /** 新建分组成功后由输入屏回调：提示（页面随下一帧重渲染即同步到分组列表） */
+    /** 新建分组成功后回调：提示（页面随下一帧重渲染即同步到分组列表） */
     public void onGroupCreated() {
         showFlash("✅ 已新建分组");
+    }
+
+    /**
+     * 「新建分组」内联输入框提交（回车 / 点别处 / 失焦）时调用。
+     *
+     * <h2>校验失败为什么是"发个提示 + 留着已输入的字"</h2>
+     * 旧弹窗把错误画在对话框里并<b>拒绝关闭</b>；内联形态没有"拒绝关闭"这个动作 ——
+     * 捕获屏一结束就已经提交了。所以这里退一步：
+     * <ul>
+     *   <li>校验失败 → {@link #showFlash} 提示，<b>输入框里的字原样留着</b>
+     *       （{@code PhoneTextInput.endEdit} 已经把最终文本写进控件），再点一下就能接着改；</li>
+     *   <li>校验通过 → 落盘 + 把当前女仆分到新组 + 清空输入框，分组栏保持展开
+     *       （与旧弹窗一致：玩家能立刻看到新组带着 ✓ 出现在列表里）。</li>
+     * </ul>
+     * ⚠ <b>不要在 onCommit 里重新 {@code setScreen} 打开捕获屏</b>：
+     * 捕获屏的 {@code finish()} 是「先 endEdit、后 setScreen(null)」，
+     * 这里新开的屏会被紧接着那一下关掉（想重试就让玩家再点一下输入框）。
+     */
+    private void commitNewGroup(String raw) {
+        String name = raw == null ? "" : raw.trim();
+        if (name.isEmpty()) {
+            showFlash("⚠ 分组名不能为空");
+            return;
+        }
+        if (!HuhuTalkClientSettings.addCustomGroup(name)) {
+            showFlash("⚠ 分组已存在或与默认分组重名");
+            return;
+        }
+        // 把当前女仆分到新分组 → 联系人页据此同步展示（含空组）
+        HuhuTalkClientSettings.setMaidGroup(stableId, name);
+        groupNewInput.value("");
+        onGroupCreated();
     }
 
     /** 把 taskUid 转为可读名称 */
@@ -214,8 +275,8 @@ public class MaidInfoPage extends PhonePage {
 
     // ==================== 布局 ====================
 
-    /** 分组设置里的一个槽位：分组选项 或 "+ 新建分组"按钮（{@code y}/{@code h} 为逻辑坐标） */
-    private record GroupSlot(String label, int y, int h, boolean isNewGroup) {
+    /** 分组设置里的一个槽位：一个可选中的分组（{@code y}/{@code h} 为逻辑坐标） */
+    private record GroupSlot(String label, int y, int h) {
     }
 
     /**
@@ -233,6 +294,8 @@ public class MaidInfoPage extends PhonePage {
         int groupTitleY, groupBoxY;
         int groupRectY, groupRectH;
         List<GroupSlot> groupSlots = new ArrayList<>();
+        /** 「新建分组」内联输入框那一行（逻辑坐标；{@code -1} = 未展开，不渲染也不命中） */
+        int groupNewRowY = -1, groupNewRowH = 0;
         int contentH;
     }
 
@@ -301,11 +364,15 @@ public class MaidInfoPage extends PhonePage {
         int groupBottom = L.groupBoxY + cardH();
         if (groupDropdownOpen) {
             for (String g : groupOptions()) {
-                L.groupSlots.add(new GroupSlot(g, y, cardH(), false));
+                L.groupSlots.add(new GroupSlot(g, y, cardH()));
                 y += cardH();
             }
-            L.groupSlots.add(new GroupSlot("+ 新建分组", y, cardH(), true));
-            y += cardH();
+            // 最后一行 = 「新建分组」内联输入框。行高取 max(行高, 输入框高)：
+            // 默认字体倍率下输入框(20px)比行(30px)矮，行高不变；
+            // 字体倍率调小到输入框比行还高时才需要把行撑开（否则框会压到上面的分隔线）。
+            L.groupNewRowY = y;
+            L.groupNewRowH = Math.max(cardH(), groupNewInput.preferredHeight(font));
+            y += L.groupNewRowH;
             groupBottom = y;
         }
         L.groupRectY = L.groupBoxY - rectPad();
@@ -472,21 +539,49 @@ public class MaidInfoPage extends PhonePage {
             for (GroupSlot slot : L.groupSlots) {
                 int y = originY + scrollY(slot.y());
                 int textY = y + (slot.h() - lineH) / 2 + 1;
-                if (slot.isNewGroup()) {
-                    PhoneText.draw(g, font, "＋ 新建分组", rectX + PhoneText.px(12), textY, 0xFFB06A6A, s);
-                    g.fill(rectX + PhoneText.px(2), y + slot.h() - PhoneText.px(2),
-                            rectX + rectW - PhoneText.px(2), y + slot.h() - 1, 0x22B06A6A);
-                } else {
-                    boolean isCurrent = slot.label().equals(current);
-                    int col = isCurrent ? 0xFFB06A6A : c.textPrimary();
-                    PhoneText.draw(g, font, slot.label(), rectX + PhoneText.px(12), textY, col, s);
-                    if (isCurrent) {
-                        PhoneText.draw(g, font, "✓", rectX + rectW - PhoneText.px(18), textY, 0xFFB06A6A, s);
-                    }
+                boolean isCurrent = slot.label().equals(current);
+                int col = isCurrent ? 0xFFB06A6A : c.textPrimary();
+                PhoneText.draw(g, font, slot.label(), rectX + PhoneText.px(12), textY, col, s);
+                if (isCurrent) {
+                    PhoneText.draw(g, font, "✓", rectX + rectW - PhoneText.px(18), textY, 0xFFB06A6A, s);
                 }
                 drawDivider(g, c, rectX, rectW, y + slot.h());
             }
         }
+        renderNewGroupRow(g, c, L, originX, originY);
+    }
+
+    /**
+     * 「新建分组」内联输入框那一行（分组栏收起时自动收成零尺寸）。
+     *
+     * <h2>⚠ 坐标系：{@code bounds} 用<b>视图坐标</b>，命中传<b>未滚动的</b> {@code localY}</h2>
+     * {@link com.huhutalk.api.phone.ui.PhoneWidget#render} 只在 y 上加内容区原点，
+     * 它<b>不知道滚动偏移</b>；而页面自己画的东西走 {@code originY + scrollY(logical)}。
+     * 所以控件必须按同一套坐标摆（{@code scrollY(logical)}），
+     * 而命中时传未滚动的 {@code localY} —— 两者恰好差一个 {@code scrollOffset}，正好抵消。
+     * <p>
+     * 同样的规矩写在 {@code VisionModelSettingsPage.placeControls} 的注释里；
+     * 写错的表现是"控件钉在屏幕上不动、它所在的卡片却正常滚动"。
+     */
+    private void renderNewGroupRow(GuiGraphics g, ColorScheme c, Layout L, int originX, int originY) {
+        if (L.groupNewRowY < 0) {
+            // 收起态：收成零尺寸，既不渲染也不接受命中（与 hideControls 同一处理）
+            groupNewInput.bounds(0, 0, 0, 0);
+            return;
+        }
+        int cardX = PhoneText.px(10);
+        int cardW = width() - PhoneText.px(20);
+        int inX = cardX + PhoneText.px(8);
+        int inW = cardW - PhoneText.px(16);
+        int inH = groupNewInput.preferredHeight(font());
+        int inY = scrollY(L.groupNewRowY + (L.groupNewRowH - inH) / 2);
+
+        // 垫一层比卡片深一档的底：输入框自己的底色就是 cardBg()，直接压在卡片上会看不见
+        PhoneShapes.fillRoundedRect(g, inX - PhoneText.px(2), inY - PhoneText.px(2),
+                inW + PhoneText.px(4), inH + PhoneText.px(4), 6, c.pageBgList());
+
+        groupNewInput.bounds(inX, inY, inW, inH);
+        groupNewInput.render(g, originX, originY);
     }
 
     /** 组内灰色分隔线（两端内缩） */
@@ -640,16 +735,20 @@ public class MaidInfoPage extends PhonePage {
             groupDropdownOpen = !groupDropdownOpen;
             return true;
         }
-        // 展开时的分组选项 / 新建分组（都在折叠栏内部）
+        // 展开时的分组选项（都在折叠栏内部）
         for (GroupSlot slot : L.groupSlots) {
             if (!PhoneLayout.hit(localX, logical, cardX, slot.y(), cardW, slot.h())) continue;
-            if (slot.isNewGroup()) {
-                Minecraft.getInstance().setScreen(new PhoneGroupNameInputScreen(this));
-            } else {
-                HuhuTalkClientSettings.setMaidGroup(stableId, slot.label());
-                groupDropdownOpen = false;
-                showFlash("已分到「" + slot.label() + "」");
-            }
+            HuhuTalkClientSettings.setMaidGroup(stableId, slot.label());
+            groupDropdownOpen = false;
+            showFlash("已分到「" + slot.label() + "」");
+            return true;
+        }
+        // 「新建分组」那一行：**整行都是热区** —— 输入框比行矮，点在行内空白处也该算点在它上面。
+        // 所以这里用行的逻辑坐标判定，命中后直接让控件开捕获屏（startEditing），
+        // 不去凑控件自己的框体几何（那会把命中区缩成框那么大，很难点）。
+        if (L.groupNewRowY >= 0
+                && PhoneLayout.hit(localX, logical, cardX, L.groupNewRowY, cardW, L.groupNewRowH)) {
+            groupNewInput.startEditing();
             return true;
         }
         return false;

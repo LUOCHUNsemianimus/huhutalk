@@ -14,8 +14,8 @@ import org.lwjgl.glfw.GLFW;
  * <h2>为什么必须有它</h2>
  * 手机页面走的是 {@code IPhonePage}，那套接口<b>没有任何键盘回调</b>：
  * 手机 UI 是画在一个 GUI 层上的，键盘事件在原版里只会送给当前 {@code Screen}。
- * 所以"在手机页面里直接打字"在原版机制下不可能——既有页面全都是开一个 Screen 抢键盘
- * （聊天页 {@code PhoneInputScreen}、联系人页 {@code PhoneGroupNameInputScreen}）。
+ * 所以"在手机页面里直接打字"在原版机制下不可能 —— 页面全都是开一个 Screen 抢键盘
+ * （聊天页 {@code PhoneInputScreen} 是唯一还自己画弹窗的；其它内联输入见 {@link PhoneTextInput}）。
  *
  * <h2>和它们的不同：这里什么都不画</h2>
  * 那两个屏都画了自己的弹窗。本屏<b>一个像素都不画</b>：手机界面继续在底下渲染，
@@ -112,7 +112,7 @@ public class PhoneTextCaptureScreen extends Screen {
             target.endEdit(true);
         }
         super.onClose();
-        // 键盘交还给游戏：恢复鼠标抓取（与 PhoneGroupNameInputScreen 同一处理）
+        // 键盘交还给游戏：恢复鼠标抓取（那几张透明输入屏都是同一处理）
         if (Minecraft.getInstance().screen == null) {
             long window = Minecraft.getInstance().getWindow().getWindow();
             GLFW.glfwSetInputMode(window, GLFW.GLFW_CURSOR, GLFW.GLFW_CURSOR_DISABLED);

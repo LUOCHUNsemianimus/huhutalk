@@ -412,7 +412,7 @@ PhoneImages.drawRegion(g, skin, x, y, 30, 30, 8, 8, 8, 8, 64, 64);
 
 ## 8. 控件与 `PhoneRow`
 
-### 8.1 四个控件
+### 8.1 五个控件
 
 | 控件 | 形态 | 关键行为 |
 |---|---|---|
@@ -420,12 +420,44 @@ PhoneImages.drawRegion(g, skin, x, y, 30, 30, 8, 8, 8, 8, 64, 64);
 | `PhoneStepper` | 竖排 ▲▼ | **离散档位** `steps(...)`，`setValue` 自动吸附最近档位；到顶/到底仍消费点击，不穿透 |
 | `PhoneSlider` | 轨道 + 把手 | 值恒为 `0.0~1.0`；**`onChange` 拖动中实时、`onCommit` 松手落盘**——不需要自己写 `dragging` 布尔量 |
 | `PhoneDropdown` | 点击展开 | 展开时**画在自己矩形之外**，见下方警告；展开时吃掉滚轮 |
+| `PhoneTextInput` | 内联文本框 | 点它编辑；**打字靠一个完全透明的 `Screen` 抢键盘**，见 §8.1.1 |
 
-四个控件都默认从主题取色（`accent` / `neutralBg` / `cardBg` / `textPrimary`），也都能用 `colors(...)` 覆盖。
+五个控件都默认从主题取色（`accent` / `neutralBg` / `cardBg` / `textPrimary`），也都能用 `colors(...)` 覆盖。
 
 > ⚠️ **`PhoneDropdown` 展开时会画到矩形外**：高度是 `extraHeight()`。
 > `PhoneRow` 已经把它算进行高（后续行会自动下移），所以**用 `PhoneRow` 摆就没问题**；
 > 直接裸用的话要自己预留高度，并且注意它的渲染顺序。
+
+#### 8.1.1 `PhoneTextInput`：内联的样子，Screen 的键盘
+
+`IPhonePage` **没有任何键盘钩子**（手机 UI 画在一个 GUI 层上，键盘事件在原版里只送给当前 `Screen`），
+所以"在手机页面里直接打字"必须开一个 `Screen`。既有做法是连样子一起做成弹窗 ——
+**那与手机页面的设计语言相悖**（弹窗会把整块手机屏盖掉，连状态栏和水印栏一起）。
+`PhoneTextInput` 把两者拆开：**样子内联在页面里，键盘交给一个完全透明的捕获屏**
+（`PhoneTextCaptureScreen`，一个像素都不画）。
+
+```java
+private final PhoneTextInput input = new PhoneTextInput()
+        .placeholder("＋ 输入新分组名，回车确定")
+        .maxLength(16)
+        .onCommit(this::commit);           // 回车 / 点别处 / 失焦提交
+
+// 渲染：bounds 用【视图坐标】（见下），render 传内容区屏幕原点
+input.bounds(x, scrollY(logicalY), w, PhoneText.px(20));
+input.render(g, originX, originY);
+```
+
+三个必知点：
+
+| 事项 | 说明 |
+|---|---|
+| **坐标** | `bounds` 的 y 用 `scrollY(logicalY)`（**视图坐标**，`PhoneWidget.render` 不知道滚动偏移）；命中时传**未滚动的** `localY`。两者差一个 `scrollOffset`，正好抵消。写错的表现是"控件钉在屏幕上不动、它所在的卡片却正常滚动" |
+| **`startEditing()`** | 以编程方式进入编辑态。**整行都可点**的场合用它：框体比行矮时，页面按自己的行矩形判定完直接调它，不必去凑控件的内部几何 |
+| **`onCommit` 里别重开捕获屏** | 捕获屏的 `finish()` 是「先 `endEdit`、后 `setScreen(null)`」，新开的屏会被紧接着关掉。校验失败就发个提示 + 把已输入的字留着（控件里已经是最终文本），让玩家再点一下 |
+
+> 参考实现：`VisionModelSettingsPage`（API Key / 模型名 / 接口地址三个框）、
+> `MaidInfoPage`（分组设置末行的「新建分组」）。
+> 还自己画弹窗的只剩 `PhoneInputScreen`（聊天页输入框）。
 
 #### 8.2.1 统一行高：`rowHeight(int)`
 

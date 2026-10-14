@@ -127,6 +127,69 @@ z 越大离摄像机越近 ⇒ 物品先把 150 写进深度缓冲，之后 z=0 
 > **都要自己声明 z**，不能指望"后画 = 在上层" —— 深度测试会让后画的 z=0 元素沉到先画的 z=150 之下。
 > 以及：`ChatPage` / `GalleryPage` 之类**同时画物品与 z=0 覆盖层**的地方，以后新增覆盖层时记得这条。
 
+### ⑤ 「新建分组」从自绘弹窗改成内联输入 —— **已完成**
+
+**问题**：`MaidInfoPage` 分组设置里点「＋ 新建分组」会开
+`setScreen(new PhoneGroupNameInputScreen(this))` —— 那个屏**自己画一个居中对话框**
+（半透明遮罩 + 白框 + 输入框 + 取消/确定）。这与手机页面的设计语言相悖：
+手机屏本身就是一整块内容区，弹窗会把它整块盖掉（连同状态栏、水印栏一起），
+看起来像一个和手机无关的原版界面。
+
+**改法**：改用公开控件 `PhoneTextInput` 的**内联**形态，长在分组列表最后一行。
+点它只开一个**完全透明**的 `PhoneTextCaptureScreen` 抢键盘 —— 与设置 App 的
+API Key / 模型名 / 接口地址三个框**同一条通路**（`VisionModelSettingsPage` 早就这么做了）。
+编辑期手机界面照常渲染在底下，玩家看到的是"这一格在闪、我直接往里打字"。
+
+| 项 | 变化 |
+|---|---|
+| `MaidInfoPage` | 分组设置末行 = 内联输入框（占位「＋ 输入新分组名，回车确定」，`maxLength(16)`）；`GroupSlot` 去掉 `isNewGroup` 分量；新增 `commitNewGroup(String)` 承担原弹窗的校验与落盘；输入框底下垫一层 `pageBgList()`（输入框自身底色就是 `cardBg`，直接压在卡片上看不见） |
+| `PhoneTextInput` | **新增公开 `startEditing()`** —— 给"页面自己管热区"的场合用（框比行矮时，页面按行矩形判定完直接调它，不必凑控件的内部几何） |
+| `PhoneGroupNameInputScreen` | **删除**（全工程仅此一处引用；它也是 `UiShapes` 改名那轮的 11 个文件之一） |
+| 行为差异 | 校验失败不再"拒绝关闭弹窗"，而是发提示 + **把已输入的字留在框里**，玩家再点一下接着改。⚠ 捕获屏的 `finish()` 是「先 `endEdit`、后 `setScreen(null)`」，所以 **`onCommit` 里不能重开捕获屏**（会被紧接着关掉） |
+
+文档：`phone-page-skeleton.md` §8.1 把控件表从「四个」更新为「五个」，新增 §8.1.1
+（`PhoneTextInput` 的坐标规矩 / `startEditing` / `onCommit` 的坑）。
+
+### ⑥ 离屏绘制批处理 —— **已回退**（踩到的坑比优化值钱，务必读完）
+
+**做了**：`PhoneOverlay.renderExternal` 整段包 `graphics.drawManaged(...)`，把模型屏的 draw call
+从「O(绘制调用数)」压到「O(RenderType 切换数)」（圆角矩形逐像素行 `fill`，一个 200px 高的矩形
+= 200 次 `endBatch`）。
+
+**回退原因（实机现象：手机独立光标消失）**：
+
+`drawManaged` 把 `GuiGraphics` 置为 `managed=true`，于是 `fill` / `blit` / `drawString`
+**不再立刻 flush**。而本模组的代码里有若干处"**在绘制前后改 RenderSystem 全局状态**"的写法 ——
+它们在旧的 unmanaged 语义下是**隐式安全**的（因为每次绘制都已立刻落盘），批处理化之后
+那个窗口里攒着的几何会在**状态已经改掉之后**才被刷出：
+
+```java
+// PhoneOverlay：离屏靶 alpha 钉底
+RenderSystem.colorMask(false, false, false, true);   // ← 关掉 RGB 写
+graphics.flush();     // ⚠ 这句原注释是"先把上面所有绘制的批处理落盘"
+                      //    unmanaged 时它恒为空操作；managed 时它真的开始刷 ——
+                      //    于是尚未落盘的几何被"只写 alpha"地刷了出去
+fillRoundedRect(..., 0xFFFFFFFF);
+graphics.flush();
+RenderSystem.colorMask(true, true, true, true);
+```
+
+**光标是整帧最后一批 `gui()` 填充**，正好落在这个窗口里 ⇒ RGB 一个像素都没写、只写了 alpha
+⇒ 光标看不见。同理还有 `renderPageTranslated`（`setShaderColor(1,1,1,alpha)` → `page.render` →
+立刻恢复 `(1,1,1,1)` + `disableBlend()`）：批处理化后转场/启动动画的**淡入 alpha 会丢**。
+
+> **通用教训（"批处理化"这类改动的检查表）**：
+> 只要把 `GuiGraphics` 从 unmanaged 改成 managed（或反过来），就必须把每一处
+> 「改 RenderSystem 状态 → 绘制 → 还原状态」的代码改成
+> 「**改状态 → 绘制 → 显式 `graphics.flush()` → 还原状态**」。
+> `RenderType` 自己会重设混合/深度（所以 `disableBlend` 通常无害），
+> 但 **`colorMask` / `setShaderColor`（ColorModulator）这类"着色器 uniform + 光栅化掩码"是全局的，
+> RenderType 不会替你恢复** —— 这两类才是真凶。
+> 本项目里的全部窗口只有两处：`PhoneOverlay` 的 alpha 钉底、`PhoneOverlay.renderPageTranslated`。
+
+**当前状态**：两个文件已 `git checkout b1bbbae -- …` 回退到批处理之前（编译绿）。
+要重新启用，先修上面两处窗口，并且**必须在模型屏与悬浮窗两条路上都实测**。
+
 ---
 
 ## 1. 都做了什么（详细工作日志）

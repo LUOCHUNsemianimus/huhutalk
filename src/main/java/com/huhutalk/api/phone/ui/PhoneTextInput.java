@@ -14,8 +14,9 @@ import java.util.function.Consumer;
  * <h2>为什么需要配套的 {@link PhoneTextCaptureScreen}</h2>
  * 手机页面（{@link PhonePage}）<b>收不到任何键盘事件</b>：{@code IPhonePage} 上根本没有
  * {@code keyPressed} / {@code charTyped} 钩子。手机的文字输入一直是靠
- * 「打开一个（半）透明的 {@code Screen} 抢键盘」实现的（聊天页的 {@code PhoneInputScreen}、
- * 联系人页的 {@code PhoneGroupNameInputScreen} 都是这个套路）。
+ * 「打开一个（半）透明的 {@code Screen} 抢键盘」实现的 —— 既有做法是连样子一起做成弹窗
+ * （聊天页的 {@code PhoneInputScreen}；联系人页的「新建分组」曾经也是），
+ * 那与手机页面的设计语言相悖。
  * <p>
  * 所以本控件是「内联的样子 + 屏幕级键盘捕获」的组合：
  * <ul>
@@ -192,17 +193,26 @@ public final class PhoneTextInput extends PhoneWidget {
         if (!enabled() || !isPrimaryPress(button) || !hit(px, py)) {
             return false;
         }
-        openCaptureScreen();
+        startEditing();
         return true;
     }
 
     /**
-     * 打开透明键盘捕获屏。
-     * <p>
-     * 与 {@code MaidInfoPage} 打开分组名输入屏是同一个时机（内容区点击回调里直接换 Screen），
-     * 所以行为上已经被现有页面验证过。
+     * 以编程方式进入编辑态（等价于点一下本控件）。
+     *
+     * <h2>什么时候需要它</h2>
+     * 给「<b>页面自己管热区</b>」的场合用：控件框体通常比它所在的那一行矮，
+     * 玩家点在行内空白处时页面的矩形命中会成立、而 {@link #mousePressed} 的框体命中不成立。
+     * 这时页面按自己的行矩形判定完直接调本方法即可，<b>不必去凑控件的内部几何</b>
+     * （也不用把框体硬撑到整行高，那会让输入框在视觉上变形）。
+     *
+     * <p>已经处于编辑态时重复调用无副作用：会重新记一次原值并重开捕获屏。
+     * 控件被 {@link #setEnabled(boolean) 禁用} 时什么都不做。
      */
-    private void openCaptureScreen() {
+    public void startEditing() {
+        if (!enabled()) {
+            return;
+        }
         Minecraft.getInstance().setScreen(new PhoneTextCaptureScreen(this));
     }
 }
