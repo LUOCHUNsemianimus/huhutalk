@@ -32,15 +32,27 @@ SRC = pathlib.Path(r"D:\Moddevelop\模组配图")
 MANUAL_DIR = ROOT / "src" / "main" / "resources" / "assets" / "huhutalk" / "manual"
 ICON_DIR = ROOT / "src" / "main" / "resources" / "assets" / "huhutalk" / "textures" / "icon"
 
-# 图标要走"精灵图处理"：颜色外扩 + 降采样，并附一个 .mcmeta 让 GPU 走线性过滤。
-# 为什么必须这么干（2026-10-12 读 Minecraft 源码 + 离线模拟定案）：
-#   * 手机上每格图标实际只有 ~28 真实像素，而素材是 256px；
-#   * SimpleTexture 在没有 .mcmeta 时是 **最近邻（GL_NEAREST）+ 不生成 mipmap**，
-#     最近邻只挑一个像素、不做平均 → PS 里柔和的半透明边缘被抽成一圈浅色硬边
-#     （浅底图标如「设置」#EEEEEE 上就是"白描边"）；
-#   * 素材透明区的 RGB 是纯白（26376 个像素），一旦启用线性过滤就会渗进边缘，
-#     所以**先做颜色外扩**（把真实颜色扩散进透明区、alpha 保持 0）再开过滤。
-ICON_TARGET = 96
+# ⚠ 图标流水线在 2026-10 的实机复查后**改回「原图直上」**，别再改回去：
+#   * 旧流水线（去污 → 降采样到 96px → 再去污 → .mcmeta）的依据是
+#     "手机上每格图标实际只有 ~28 真实像素"。**这个前提是错的**：
+#     28 是 **GUI 逻辑像素**，屏幕上真正占的是 **设备像素 = 逻辑 × GUI Scale**。
+#     按排版公式重算（iconW = (phoneWidth - 4*margin)/3，见 MainPage.appRect）：
+#       1080p 窗口 → 图标 112~201 设备像素；1440p → 160~268；480p → 54~90。
+#     也就是说**正常情况下图标一直是"被放大显示"的**，把 256 降到 96 等于白丢 4/5 的像素，
+#     放大后又把 96 网格上的硬台阶一并放大 —— 这就是实机看到的"锯齿/毛边"。
+#   * 于是：**原图分辨率直上**（ICON_TARGET = 0），像素一个都不动，只补 .mcmeta。
+#   * .mcmeta 必须留：没有它 SimpleTexture 走 **最近邻（GL_NEAREST）+ 不生成 mipmap**，
+#     只挑一个像素、不做平均 → 柔和的半透明边缘被抽成一圈硬边。
+#   * 去污/颜色外扩（把透明区的白 RGB 换成内容色）**仍然是防白边的那一半**：
+#     线性过滤对 RGBA 是各通道独立插值的，透明区的纯白会被插进轮廓。
+#     在 256 原图上实测这一步无视觉代价（与不做相比 MAE 0.94 → 0.94），
+#     所以留成开关：实机若看到白边，把 ICON_BLEED 改 True 重跑即可（不必降采样）。
+ICON_TARGET = 0        # 0 = 不降采样（用原图分辨率）；>0 = 降到该长边（旧行为是 96）
+# 2026-10 实机验收：原图直上时**确实有一圈淡淡的白边**（但不扎眼），
+# 说明"透明区纯白 RGB 被线性过滤插进轮廓"这一条是真的 —— 所以去污这半步要留下。
+# 它把非全不透明像素的 RGB 换成最近实心像素的颜色，**alpha 一个不动**，
+# 实测与原图相比 MAE 0.94 → 0.94（无视觉代价）。
+ICON_BLEED = True      # True = 只清理透明区 RGB（不降采样时也单独生效）
 ICON_MCMETA = '{\n  "texture": {\n    "blur": true,\n    "clamp": true\n  }\n}\n'
 
 FIGURES = {f"图{i}.png": f"manual_fig_{i}.png" for i in range(1, 18)}
@@ -92,7 +104,13 @@ def copy_one(src: pathlib.Path, dst: pathlib.Path, dry: bool) -> str:
 
 
 def copy_icon(src: pathlib.Path, dst: pathlib.Path, dry: bool) -> str:
-    """图标专用：颜色外扩 + 降采样 + 写 .mcmeta（详见文件头 ICON_* 注释）。"""
+    """图标专用。
+
+    三种模式（由 {@link ICON_TARGET} / {@link ICON_BLEED} 决定）：
+      * 默认（ICON_TARGET=0, ICON_BLEED=False）：**原图直上**，逐字节拷贝 + 写 .mcmeta；
+      * ICON_BLEED=True：只把透明区的 RGB 换成内容色，分辨率不动，再写 .mcmeta；
+      * ICON_TARGET>0：旧的降采样路径（去污 → 降采样 → 再去污 + .mcmeta）。
+    """
     if not src.exists():
         return (f"SKIP     {src.name}（还没提供）" if src.name in OPTIONAL
                 else f"MISSING  {src.name}")
@@ -100,23 +118,43 @@ def copy_icon(src: pathlib.Path, dst: pathlib.Path, dry: bool) -> str:
     if size is None:
         return f"NOT_PNG  {src.name}（Minecraft 的 NativeImage 只认 PNG/JPG，先转格式）"
     if dry:
+        mode = ("原图直上" if ICON_TARGET <= 0 and not ICON_BLEED
+                else ("只清理透明区 RGB" if ICON_TARGET <= 0
+                      else f"颜色外扩 + {ICON_TARGET}px"))
         return (f"would-fix {src.name} -> {dst.relative_to(ROOT)}"
-                f"（颜色外扩 + {ICON_TARGET}px + .mcmeta blur/clamp）")
+                f"（{mode} + .mcmeta blur/clamp）")
     w, h, ch, data = sprite_alpha.read_png(src)
-    px = sprite_alpha.to_rgba(w, h, ch, data)
     if ch == 3:
         return f"NO_ALPHA {src.name}（没有透明通道：先去 PS 导出带透明的 PNG-24）"
+
+    # ── 模式 1：原图直上（连像素都不碰） ─────────────────────────────
+    if ICON_TARGET <= 0 and not ICON_BLEED:
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(src, dst)
+        dst.with_name(dst.name + ".mcmeta").write_text(ICON_MCMETA, encoding="utf-8")
+        return (f"copied   {src.name} -> {dst.relative_to(ROOT)}"
+                f"  ({w}x{h} 原图直上 + .mcmeta)")
+
+    px = sprite_alpha.to_rgba(w, h, ch, data)
     # 调色板导出常常没透明度（Piskel「8 位图片」/ PS 索引色）：透明区会变成实心白。
     # 这种图直接上就是手机屏上一个白方块 —— 检测到"几乎没有透明像素"就自动抠背景。
     n_trans = sum(1 for i in range(w * h) if px[i * 4 + 3] == 0)
     keyed = 0
     if n_trans < w * h * 0.02:
         keyed = sprite_alpha.key_background(px, w, h, (255, 255, 255), 0)
-    n_bleed = sprite_alpha.decontaminate(px, w, h, 250)
-    nw, nh, out = sprite_alpha.downsample(px, w, h, ICON_TARGET)
-    # 降采样会把"整块全透明"的输出像素写成 (0,0,0,0)，等于把上面的处理抹掉 →
-    # 再处理一次：保证**最终这张 96px 图**里，透明区和半透明区的 RGB 都是内容色。
-    n_bleed += sprite_alpha.decontaminate(out, nw, nh, 250)
+
+    if ICON_TARGET <= 0:
+        # ── 模式 2：只清理透明区 RGB，分辨率不动 ─────────────────────
+        n_bleed = sprite_alpha.decontaminate(px, w, h, 250)
+        nw, nh, out = w, h, px
+    else:
+        # ── 模式 3：旧路径（降采样）────────────────────────────────
+        n_bleed = sprite_alpha.decontaminate(px, w, h, 250)
+        nw, nh, out = sprite_alpha.downsample(px, w, h, ICON_TARGET)
+        # 降采样会把"整块全透明"的输出像素写成 (0,0,0,0)，等于把上面的处理抹掉 →
+        # 再处理一次：保证**最终这张图**里，透明区和半透明区的 RGB 都是内容色。
+        n_bleed += sprite_alpha.decontaminate(out, nw, nh, 250)
+
     dst.parent.mkdir(parents=True, exist_ok=True)
     sprite_alpha.write_png(dst, nw, nh, bytes(out))
     # .mcmeta 与贴图同名同目录：Minecraft 读到它才会启用线性过滤（blur）与边缘钳制（clamp）
@@ -150,7 +188,9 @@ def main() -> int:
     print(f"手册配图 -> {MANUAL_DIR.relative_to(ROOT)}（原样拷贝：截图不透明，不需要精灵图处理）")
     for name, dst_name in sorted(FIGURES.items(), key=lambda kv: int(kv[0][1:-4])):
         print("  " + copy_one(SRC / name, MANUAL_DIR / dst_name, args.dry_run))
-    print(f"App 图标 -> {ICON_DIR.relative_to(ROOT)}（边缘去污 + {ICON_TARGET}px + .mcmeta）")
+    print(f"App 图标 -> {ICON_DIR.relative_to(ROOT)}"
+          f"（{'原图直上' if ICON_TARGET <= 0 and not ICON_BLEED else ('只清理透明区 RGB' if ICON_TARGET <= 0 else f'边缘去污 + {ICON_TARGET}px')}"
+          f" + .mcmeta）")
     for dst_name, cands in ICON_SOURCES.items():
         src = pick_source(cands)
         note = f"（源：{src.name}）" if len(cands) > 1 else ""
