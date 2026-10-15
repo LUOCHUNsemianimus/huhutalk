@@ -47,9 +47,17 @@ public class SettingsAppPage extends PhonePage {
     /** 内容区顶部留白 */
     private static final int TOP_PAD = 8;
     /** 分组标题到卡片顶的间距 */
-    private static final int TITLE_GAP = 6;
-    /** 卡片底到下一个分组标题的间距 */
-    private static final int SECTION_GAP = 10;
+    private static final int TITLE_GAP = 3;
+    /**
+     * 卡片底到下一个分组标题的间距。
+     * <p>
+     * 作者验收后要求「两项栏目的行间距缩到一半」：本常量与 {@link #TITLE_GAP} 一起减半
+     * （10→5、6→3），两栏之间的可见间距因此从约 23px 收到约 15px。
+     * <p>
+     * ⚠ 收不到精确的 50%：那条间距里还夹着分组标题自己的高度（≈7px），它是字号决定的、缩不了。
+     * 想再紧就继续减这两个常量 —— <b>它们只影响"栏与栏之间"，不动卡片内部的行高</b>。
+     */
+    private static final int SECTION_GAP = 5;
     /** 末尾留白 */
     private static final int BOTTOM_PAD = 12;
 
