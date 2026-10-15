@@ -389,4 +389,51 @@ public abstract class PhonePage implements IPhonePage {
     /** 内容区内鼠标移动（内容坐标）。默认什么都不做。 */
     protected void onContentMoved(double localX, double localY) {
     }
+
+    // ==================== 拖动换位（可选） ====================
+    //
+    // IPhonePage 那边的四个钩子收的是**手机内容区**坐标（顶栏在里面，与 mouseClicked 一致），
+    // 而本骨架的所有渲染/命中都在**内容坐标**（原点在顶栏下方）里做。
+    // 与 onContentClick 一样，这里再切一刀，子类只需要实现下面四个 protected 方法，
+    // 不必自己记着扣 contentTop()（那是"两个坐标系混用"的经典失手点）。
+
+    @Override
+    public final boolean beginDragReorder(double relX, double relY) {
+        return onDragReorderStart(relX, relY - contentTop());
+    }
+
+    @Override
+    public final void dragReorderTo(double relX, double relY) {
+        onDragReorderMove(relX, relY - contentTop());
+    }
+
+    @Override
+    public final void endDragReorder(double relX, double relY) {
+        onDragReorderEnd(relX, relY - contentTop());
+    }
+
+    @Override
+    public final void cancelDragReorder() {
+        onDragReorderCancel();
+    }
+
+    /**
+     * 这次按住拖动要不要本页接管（拖动换位的入口）。坐标是<b>内容坐标</b>。
+     * <p>默认 false = 不接管，手势照旧是滚动。见 {@link IPhonePage#beginDragReorder}。
+     */
+    protected boolean onDragReorderStart(double localX, double localY) {
+        return false;
+    }
+
+    /** 接管中的拖动移动（内容坐标）。 */
+    protected void onDragReorderMove(double localX, double localY) {
+    }
+
+    /** 接管中的拖动松手 + 落点（内容坐标）。在这里落位。 */
+    protected void onDragReorderEnd(double localX, double localY) {
+    }
+
+    /** 接管中的拖动被打断：只清临时状态，别落位。 */
+    protected void onDragReorderCancel() {
+    }
 }

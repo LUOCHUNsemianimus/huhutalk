@@ -129,6 +129,33 @@ public final class HuhuTalkClientSettings {
      */
     private static final Map<String, String> maidAppearance = new HashMap<>();
 
+    /**
+     * 桌面图标布局：<b>appKey → 槽位</b>。只记「玩家在「桌面图标管理」里动过的」那些图标。
+     * <p>
+     * 没记录 = 用默认位置（内置 App 用自己声明的槽位、附属模组的 App 按 {@code order} 自动落位），
+     * 于是这份数据天然向后兼容：老配置文件里没有它 = 布局就是出厂状态。
+     * <p>
+     * <b>为什么这里存的是稀疏覆盖而不是整张表</b>：附属模组随时可能注册新 App、也可能被卸载。
+     * 存整张表就必须在卸载时做一次"清理陈旧键"的迁移；存稀疏覆盖则漂移的键永远不生效、
+     * 也永远不碍事。键是 {@link com.huhutalk.api.phone.PhoneApp#id()} 的字符串形式
+     * （内置 App 用固定短名，见 {@code MainPage.buildApps()}）。
+     */
+    private static final Map<String, Integer> desktopSlots = new HashMap<>();
+    /**
+     * 被玩家从桌面<b>移除</b>的 appKey 集合（图标还在、只是不画在桌面上）。
+     * <p>
+     * 主应用 HuhuTalk 不在此列 —— 它的槽位恒为 0，{@code MainPage} 会拒绝任何针对它的增删。
+     */
+    private static final Set<String> desktopHidden = new HashSet<>();
+    /**
+     * 桌面布局版本号：每次布局变动 +1。
+     * <p>
+     * 与 {@code PhoneAppRegistry.generation()} 是<b>两个独立的失效源</b>：
+     * 前者是"注册表变了"，后者是"玩家动了布局"。桌面把两者一起当缓存键，
+     * 少一个就会出现"拖完图标要重开手机才生效"这种哑失败。
+     */
+    private static int desktopLayoutGeneration = 0;
+
     private HuhuTalkClientSettings() {
     }
 
@@ -537,6 +564,89 @@ public final class HuhuTalkClientSettings {
         save();
     }
 
+    // ==================== 桌面图标布局 ====================
+
+    /**
+     * 某 App 被玩家指定的槽位；<b>-1 = 没指定</b>（用默认位置）。
+     * <p>槽位合法性（0 ~ {@code MAX_SLOTS-1}）由桌面在应用布局时判定，
+     * 这样设置层不需要认识 {@code api.phone} 的类型。</p>
+     */
+    public static int getDesktopSlot(String key) {
+        Integer v = key == null ? null : desktopSlots.get(key);
+        return v == null ? -1 : v;
+    }
+
+    /** 全部布局覆盖（不可变副本，供诊断/文档用）。 */
+    public static Map<String, Integer> getDesktopSlots() {
+        return Map.copyOf(desktopSlots);
+    }
+
+    /**
+     * 把某 App 指定到某槽位并落盘。
+     * <p><b>调用方负责交换语义</b>：若目标槽位已被别人占着，要自己再调一次把对方挪走
+     * （见 {@code MainPage.moveDesktopApp}）。这里只做"写一条覆盖"。
+     */
+    public static void setDesktopSlot(String key, int slot) {
+        if (key == null || key.isBlank() || slot < 0) {
+            return;
+        }
+        if (desktopSlots.getOrDefault(key, -1) == slot) {
+            return;
+        }
+        desktopSlots.put(key, slot);
+        desktopLayoutGeneration++;
+        save();
+    }
+
+    /** 清掉某 App 的槽位覆盖（回到默认位置）。 */
+    public static void clearDesktopSlot(String key) {
+        if (key == null || desktopSlots.remove(key) == null) {
+            return;
+        }
+        desktopLayoutGeneration++;
+        save();
+    }
+
+    /** 某 App 是否被玩家从桌面移除。 */
+    public static boolean isDesktopHidden(String key) {
+        return key != null && desktopHidden.contains(key);
+    }
+
+    /** 被移除的全部 appKey（不可变副本）。 */
+    public static Set<String> getDesktopHidden() {
+        return Set.copyOf(desktopHidden);
+    }
+
+    /**
+     * 移除 / 放回某 App。
+     * <p>
+     * <b>移除时会连它的槽位覆盖一起清掉</b>：否则"移除 A"与"把 B 拖到 A 那格"会让两个 key
+     * 同时指向一个槽位，谁赢取决于遍历顺序（不确定）。清掉之后，放回 = 回到默认位置，
+     * 被占则按桌面的既有纪律退让到最小空槽。
+     *
+     * @return true = 状态确实变了（调用方据此决定要不要重绘/提示）
+     */
+    public static boolean setDesktopHidden(String key, boolean hidden) {
+        if (key == null || key.isBlank()) {
+            return false;
+        }
+        boolean changed = hidden ? desktopHidden.add(key) : desktopHidden.remove(key);
+        if (!changed) {
+            return false;
+        }
+        if (hidden) {
+            desktopSlots.remove(key);
+        }
+        desktopLayoutGeneration++;
+        save();
+        return true;
+    }
+
+    /** 桌面布局版本号；桌面把它当合并缓存的键之一。 */
+    public static int getDesktopLayoutGeneration() {
+        return desktopLayoutGeneration;
+    }
+
     // ==================== 持久化 ====================
 
     /** 设置文件：.minecraft/huhutalk/settings.json */
@@ -623,6 +733,26 @@ public final class HuhuTalkClientSettings {
                     }
                 });
             }
+            // 桌面图标布局：老配置没有这两个字段 → 保持空 = 出厂布局（与改造前逐像素一致）。
+            // 槽位范围不在这里判：设置层不认识 api.phone，越界值由桌面在应用布局时忽略并退让。
+            desktopSlots.clear();
+            if (data.desktopSlots != null) {
+                data.desktopSlots.forEach((k, v) -> {
+                    if (k != null && !k.isBlank() && v != null && v >= 0) {
+                        desktopSlots.put(k, v);
+                    }
+                });
+            }
+            desktopHidden.clear();
+            if (data.desktopHidden != null) {
+                for (String k : data.desktopHidden) {
+                    if (k != null && !k.isBlank()) {
+                        desktopHidden.add(k);
+                    }
+                }
+            }
+            // 读盘也算一次布局变动：桌面可能在读盘之前就已经建过合并缓存了
+            desktopLayoutGeneration++;
         } catch (JsonParseException e) {
             // 损坏/不合法 JSON：不崩溃，回退默认设置；原文件改名备份，避免下次继续崩
             LOGGER.error("[HuhuTalk] 设置文件损坏，已回退默认设置: {}", file, e);
@@ -667,6 +797,8 @@ public final class HuhuTalkClientSettings {
             data.visionCustomModelSites = visionCustomModelSites;
             data.playerAppearance = playerAppearance;
             data.maidAppearance = maidAppearance;
+            data.desktopSlots = desktopSlots;
+            data.desktopHidden = desktopHidden;
             Path file = settingsFile();
             Files.createDirectories(file.getParent());
             // 原子写入：先写临时文件再重命名，避免写一半崩溃/断电导致 JSON 损坏
@@ -722,5 +854,12 @@ public final class HuhuTalkClientSettings {
         String playerAppearance;
         /** 「女仆的样貌」：stableId -> 描述（可空：缺失 = 全部未填写） */
         Map<String, String> maidAppearance;
+        /**
+         * 桌面图标布局覆盖：appKey -> 槽位（可空：缺失 = 出厂布局，老配置天然兼容）。
+         * <p>稀疏覆盖：只记玩家在「桌面图标管理」里动过的图标。
+         */
+        Map<String, Integer> desktopSlots;
+        /** 被玩家从桌面移除的 appKey（可空：缺失 = 一个都没移除） */
+        Set<String> desktopHidden;
     }
 }

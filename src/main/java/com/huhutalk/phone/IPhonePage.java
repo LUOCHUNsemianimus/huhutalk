@@ -103,4 +103,49 @@ public interface IPhonePage {
      * @return true 表示已消费 —— 上层<b>不会</b>再补一次普通点击
      */
     default boolean onLongPress(double relX, double relY) { return false; }
+
+    /**
+     * 「按住拖动」开始时问页面：<b>这次拖动你自己接管吗？</b>
+     *
+     * <h2>为什么需要这个口子</h2>
+     * 手机里唯一的手势通路是"按住拖动 = 滚动"（{@code PhoneOverlay.moveCursor}）：
+     * 位移一旦超过 4 像素且主轴占优，整段手势就升级成 {@link #mouseScrolled} 的增量，
+     * <b>页面再也收不到光标位置</b>，松开也不补点击。也就是说：光靠现有钩子，
+     * 页面<b>做不出真正的拖放</b>（{@link #onLongPress} 要求按住 1 秒且不能移动，同样救不了）。
+     * <p>
+     * 所以拖放只能是"页面显式声明接管"：在按下那一刻返回 true，
+     * Overlay 就会跳过滚动 latch，改为把整段手势转给
+     * {@link #dragReorderTo} / {@link #endDragReorder}。
+     * 这是 {@link #dragAxisBoth()} 那条"给特殊页面开口子"的同一套做法。
+     *
+     * <h2>默认返回 false，既有页面零影响</h2>
+     * 返回 false 时整条路径与改造前<b>逐字节等价</b>（判据都不再计算一次，
+     * 只是多了一次常量 false 的调用）。子类若继承 {@code PhonePage}，
+     * 应该覆盖它的 {@code onDragReorderStart} 而不是本方法。
+     *
+     * @param relX,relY 按下那一刻的<b>手机内容区</b>相对坐标（与 {@link #mouseClicked} 同一坐标系）。
+     *                  返回 true 时要记住这个起点 —— 之后只会给你移动与落点，不会再给起点。
+     * @return true = 本次手势由本页接管（Overlay 不再滚动、不补点击、不判长按）
+     */
+    default boolean beginDragReorder(double relX, double relY) { return false; }
+
+    /**
+     * 接管中的拖动移动到了这里。坐标同 {@link #beginDragReorder}。
+     * <p>只在 {@link #beginDragReorder} 返回过 true 的手势里被调用。
+     */
+    default void dragReorderTo(double relX, double relY) {}
+
+    /**
+     * 接管中的拖动松手了，落点就是这里。坐标同 {@link #beginDragReorder}。
+     * <p>页面在这里判"落在哪一格"并落位。之后 Overlay 会清掉接管状态，
+     * <b>不会</b>再补一次普通点击（所以不会出现"拖完顺带点开一个 App"）。
+     */
+    default void endDragReorder(double relX, double relY) {}
+
+    /**
+     * 接管中的拖动被<b>打断</b>了（掏出/收起手机、拖动途中换了页面），不是正常落位。
+     * <p>页面只该清掉拖动中的临时状态，<b>不要</b>在这里落位 ——
+     * 玩家没有在任何一个格子上松手。
+     */
+    default void cancelDragReorder() {}
 }

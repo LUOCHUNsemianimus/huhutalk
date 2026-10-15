@@ -16,7 +16,10 @@ import net.minecraft.resources.ResourceLocation;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 import java.util.function.Supplier;
 import java.util.regex.Matcher;
@@ -45,8 +48,12 @@ public class MainPage implements IPhonePage {
     private static int desktopBg() {
         return com.huhutalk.client.theme.ThemeManager.getActive().pageBg();
     }
-    /** 每行 app 图标个数 */
-    private static final int APP_COLS = 3;
+    /**
+     * 每行 app 图标个数。
+     * <p>包内可见（不是 private）：「桌面图标管理」页的网格列数必须与桌面完全一致，
+     * 它直接引用这个常量而不是各写一个 3 —— 两处一旦漂移，管理页的格子就和槽位对不上了。
+     */
+    static final int APP_COLS = 3;
     /**
      * 桌面槽位总数 = 三种屏幕比例的<b>最小</b>容量（{@code 4:3} → 3 行 × {@link #APP_COLS} 列）。
      * <p>
@@ -60,6 +67,14 @@ public class MainPage implements IPhonePage {
      * 后续「游戏内热切换」也只允许调整其他 App 的位置（作者原话：HuhuTalk 不动）。
      */
     public static final int SLOT_TALK = 0;
+    /**
+     * 主应用在持久化布局里的稳定 key。
+     * <p>
+     * 它同时是「不可移动 / 不可移除」的判据 —— {@link #moveDesktopApp} / {@link #removeDesktopApp}
+     * 见到它就拒绝。用 key 而不是槽位号判，是因为 key 是布局数据里的东西、槽位号不是：
+     * 万一玩家的配置文件里被人手改出"把 HuhuTalk 挪走"的记录，照样会被这里挡掉。
+     */
+    public static final String KEY_TALK = "huhutalk";
     /** 图标下方名称的灰字颜色 */
     private static final int LABEL_COLOR = 0xFF7A7A7A;
     /** 桌面中央表情边长 = 手机内容宽度 × 该比例 */
@@ -108,6 +123,13 @@ public class MainPage implements IPhonePage {
     private static AppInfo[] mergedSlots = null;
     /** {@link #mergedSlots} 对应的注册版本号；与 {@link PhoneAppRegistry#generation()} 不一致时重建 */
     private static int mergedGeneration = -1;
+    /** {@link #mergedSlots} 对应的<b>布局</b>版本号；与 {@code HuhuTalkClientSettings#getDesktopLayoutGeneration()} 不一致时重建 */
+    private static int mergedLayoutGeneration = -1;
+    /**
+     * 全部候选 App（内置 + 外部，<b>含被玩家移除的</b>），按 key 索引。
+     * <p>与 {@link #mergedSlots} 同一批重建。管理页要靠它把"已移除"的图标画出来。
+     */
+    private static Map<String, AppInfo> mergedByKey = null;
 
     /**
      * 桌面当前应该显示的槽位表 = 内置 {@link #apps} + {@link PhoneAppRegistry} 里的外部 App。
@@ -121,53 +143,123 @@ public class MainPage implements IPhonePage {
         // 反过来会在"广播期间刚好有人注册"时把版本号读成旧值，导致缓存永不更新。
         List<PhoneApp> external = PhoneAppRegistry.apps();
         int generation = PhoneAppRegistry.generation();
-        if (mergedSlots == null || mergedGeneration != generation) {
-            mergedSlots = buildSlots(external);
+        int layoutGeneration = HuhuTalkClientSettings.getDesktopLayoutGeneration();
+        if (mergedSlots == null || mergedGeneration != generation
+                || mergedLayoutGeneration != layoutGeneration) {
+            rebuild(external);
             mergedGeneration = generation;
+            mergedLayoutGeneration = layoutGeneration;
         }
         return mergedSlots;
     }
 
+    /** 全部候选 App（含被移除的），按 key 索引。管理页用。 */
+    private static Map<String, AppInfo> allByKey() {
+        slots(); // 触发一次重建/缓存命中
+        return mergedByKey;
+    }
+
     /**
-     * 合并内置与外部 App 到槽位表。
-     * <p>
-     * <b>内置优先</b>：内置 App 先占自己的槽位，外部 App 只能填空位或自己申请的格子。
-     * <p>
-     * <b>申请不到就退让，而不是消失</b>：附属模组明确指定了被占用的槽位时，落到最小空槽并打 WARN。
-     * 「图标不出现」这种哑失败比「位置不对」难排查得多——注册表刻意不抛异常的同一套理由。
+     * 重建候选表与槽位表。两个缓存键（注册表版本、布局版本）任一变化都会走到这里。
      */
-    private static AppInfo[] buildSlots(List<PhoneApp> external) {
-        AppInfo[] out = new AppInfo[SLOT_COUNT];
+    private static void rebuild(List<PhoneApp> external) {
+        // ① 候选表：内置先、外部后（顺序与改造前一致，稳定排序才有意义）
+        Map<String, AppInfo> byKey = new LinkedHashMap<>();
         for (AppInfo a : apps) {
-            if (a.slot >= 0 && a.slot < SLOT_COUNT) {
-                out[a.slot] = a;
-            }
+            byKey.put(a.key, a);
         }
         for (PhoneApp app : external) {
-            int want = app.slot();
+            AppInfo a = toAppInfo(app, app.slot());
+            // 同 id 在注册表里已被去重，这里 putIfAbsent 只是防御
+            byKey.putIfAbsent(a.key, a);
+        }
+        mergedByKey = byKey;
+        // ② 槽位表：把玩家长久化的布局叠上去
+        mergedSlots = placeByLayout(byKey);
+    }
+
+    /**
+     * 把候选 App 摆进 {@link #SLOT_COUNT} 个槽位。
+     *
+     * <h2>优先级（从高到低）</h2>
+     * <ol>
+     *   <li><b>HuhuTalk 恒定槽位 0</b> —— 玩家的布局数据也改不了它（配置文件被手改也挡得住）；</li>
+     *   <li><b>玩家在「桌面图标管理」里指定的位置</b>（{@code HuhuTalkClientSettings#getDesktopSlot}）；</li>
+     *   <li><b>App 自己声明的位置</b>：内置 App 的槽位、外部 App 的 {@code PhoneApp#slot()}；</li>
+     *   <li>都没声明 → <b>最小空槽</b>（即过去的"追加在后面"）。</li>
+     * </ol>
+     *
+     * <h2>为什么是"稳定排序 + 依次落位"，而不是"直接按下标赋值"</h2>
+     * 直接赋值遇到两个 App 抢同一格时，谁赢取决于遍历顺序 —— 那是隐式的、换个 Map 实现就变。
+     * 排序后落位则把"谁让路"写成显式规则：<b>优先级高的先占，冲突的一方退让到最小空槽并打 WARN</b>。
+     * 「图标不出现」这种哑失败比「位置不对」难排查得多，所以退让而不是丢弃（沿用既有纪律）。
+     *
+     * <h2>玩家没动过任何图标时</h2>
+     * 全部候选都是优先级 3，顺序 = 内置在前、外部按注册顺序 → 与改造前<b>逐格相同</b>。
+     */
+    private static AppInfo[] placeByLayout(Map<String, AppInfo> byKey) {
+        AppInfo[] out = new AppInfo[SLOT_COUNT];
+        List<AppInfo> queue = new ArrayList<>();
+        for (AppInfo a : byKey.values()) {
+            if (a.hidden) {
+                continue; // 内置的"逻辑保留但暂不显示"，与玩家移除无关
+            }
+            if (!KEY_TALK.equals(a.key) && HuhuTalkClientSettings.isDesktopHidden(a.key)) {
+                continue; // 玩家移除的
+            }
+            queue.add(a);
+        }
+        // 稳定排序：权重相同的保持上面的顺序（内置先、外部后）
+        queue.sort(Comparator.comparingInt(MainPage::wishPriority));
+        for (AppInfo a : queue) {
+            int want = wishSlot(a);
             int at = -1;
             if (want >= 0) {
                 if (want >= SLOT_COUNT) {
+                    // 只可能来自被手改的配置文件：声明槽位在 build() 时已校验过
                     HuhuTalk.LOGGER.warn("[HuhuTalk/PhoneApp] App「{}」申请的槽位 {} 越界（合法 0~{}），已改放空槽",
-                            app.displayName(), want, SLOT_COUNT - 1);
+                            a.name, want, SLOT_COUNT - 1);
                 } else if (out[want] == null) {
                     at = want;
                 } else {
                     HuhuTalk.LOGGER.warn("[HuhuTalk/PhoneApp] 槽位 {} 已被「{}」占用，App「{}」已改放空槽",
-                            want, out[want].name, app.displayName());
+                            want, out[want].name, a.name);
                 }
             }
             if (at < 0) {
                 at = firstFreeSlot(out);
                 if (at < 0) {
                     HuhuTalk.LOGGER.warn("[HuhuTalk/PhoneApp] 桌面 {} 格已满，App「{}」未能显示",
-                            SLOT_COUNT, app.displayName());
+                            SLOT_COUNT, a.name);
                     continue;
                 }
             }
-            out[at] = toAppInfo(app, at);
+            // ★ AppInfo 的 slot 必须等于它在数组里的下标：启动动画的原点、
+            //   点击命中、管理页的高亮全都靠"下标即位置"这一条。
+            out[at] = a.withSlot(at);
         }
         return out;
+    }
+
+    /** 落位优先级：数字小的先占。见 {@link #placeByLayout}。 */
+    private static int wishPriority(AppInfo a) {
+        if (KEY_TALK.equals(a.key)) {
+            return 0;
+        }
+        int user = HuhuTalkClientSettings.getDesktopSlot(a.key);
+        return user >= 0 && user < SLOT_COUNT ? 1 : 3;
+    }
+
+    /** 该 App 期望落在哪个槽位；-1 = 没有期望（自动落位）。 */
+    private static int wishSlot(AppInfo a) {
+        if (KEY_TALK.equals(a.key)) {
+            return SLOT_TALK; // 恒定，玩家的布局数据也改不了
+        }
+        int user = HuhuTalkClientSettings.getDesktopSlot(a.key);
+        if (user >= 0 && user < SLOT_COUNT) {
+            return user;
+        }
+        return a.slot;
     }
 
     /** 最小空槽下标；没有空位返回 -1。 */
@@ -182,7 +274,7 @@ public class MainPage implements IPhonePage {
 
     /** 把外部注册的 {@link PhoneApp} 转成桌面内部使用的 {@link AppInfo}。 */
     private static AppInfo toAppInfo(PhoneApp app, int slot) {
-        return new AppInfo(slot, AppBehavior.PLAIN, false,
+        return new AppInfo(slot, app.id().toString(), AppBehavior.PLAIN, false,
                 app.displayName(), app.iconColor(), app.centerText(), false,
                 app.centerScale(), app.centerColor(),
                 app.pageFactory() != null, false, app.launchAnimation(), app.pageFactory(),
@@ -211,18 +303,18 @@ public class MainPage implements IPhonePage {
         List<AppInfo> list = new ArrayList<>();
         // 0 HuhuTalk：狐狸 emoji 居中（2.25 倍），点击进入 App 内容区（消息页 + 底部导航）。底色用 #de6f8d
         // 恒定占 SLOT_TALK，不参与后续的「游戏内热切换」。
-        list.add(new AppInfo(SLOT_TALK, AppBehavior.TALK, true,
+        list.add(new AppInfo(SLOT_TALK, KEY_TALK, AppBehavior.TALK, true,
                 "HuhuTalk", 0xFFDE6F8D, "🦊", true, 2.25f, 0xFFFFFFFF, true, false, null));
         // 1 刻意留空：预留给「相机」App —— 它作为外部注册走 PhoneAppRegistry（见 Phase 3 的计划），
         //   显式申请槽位 1。留空而不是先占住，是为了让「我们自己的 App 也能走公开注册通路」这条验证成立。
         // 2 手册：手机内置手册（拆分前，「设置」图标指向的就是这个页面）
-        list.add(new AppInfo(2, AppBehavior.MANUAL, false,
+        list.add(new AppInfo(2, "manual", AppBehavior.MANUAL, false,
                 "手册", 0xFFEFEBE9, "📖", true, 2.0f, 0xFF5D4037, true, false, ManualPage::new));
         // 5 设置：设置 App 主页（用公开骨架 PhonePage 画，配色跟主题）。
         //   目前只有「识图模型」一栏（见 SettingsAppPage）；底部导航那个老设置页不受影响。
         //   图标用 256×256 贴图（assets/huhutalk/textures/icon/settings.png）；
         //   中心的 ⚙ 与底色保留 —— 底色是启动动画色块色，文字是贴图缺失时的兜底。
-        list.add(new AppInfo(5, AppBehavior.PLAIN, false,
+        list.add(new AppInfo(5, "settings", AppBehavior.PLAIN, false,
                 "设置", 0xFF727377, "⚙", true, 2.0f, 0xFFF5F5F5, true, false, false,
                 SettingsAppPage::new,
                 ResourceLocation.fromNamespaceAndPath("huhutalk", "textures/icon/settings.png"),
@@ -543,6 +635,187 @@ public class MainPage implements IPhonePage {
         return null;
     }
 
+    // ==================== 「桌面图标管理」的公开 API ====================
+    //
+    // 管理页只通过这些方法读写布局，自己不碰 HuhuTalkClientSettings 的桌面字段。
+    // 这样"位置在哪里决定"只有一个答案（placeByLayout），页面拿到的永远是合并之后的事实，
+    // 不会出现"页面以为挪到了 3 号格、桌面却画在 5 号格"这种两边各算一遍的老毛病。
+
+    /** 桌面槽位数（= 管理页网格的格数）。 */
+    public static int desktopSlotCount() {
+        return SLOT_COUNT;
+    }
+
+    /** 已占用格数（设置页那一行显示 {@code x/9} 用）。 */
+    public static int desktopUsedCount() {
+        int n = 0;
+        for (AppInfo a : slots()) {
+            if (a != null) {
+                n++;
+            }
+        }
+        return n;
+    }
+
+    /**
+     * 桌面槽位表快照：下标 = 槽位 = 管理页网格格号；空槽的 {@link DesktopSlot#key} 为 {@code null}。
+     * <p>长度恒为 {@link #SLOT_COUNT}，所以管理页的网格与桌面槽位是<b>同一个下标空间</b>，
+     * 不需要任何映射表。
+     */
+    public static List<DesktopSlot> desktopSlots() {
+        AppInfo[] arr = slots();
+        List<DesktopSlot> out = new ArrayList<>(arr.length);
+        for (int i = 0; i < arr.length; i++) {
+            out.add(arr[i] == null ? DesktopSlot.empty(i) : DesktopSlot.of(arr[i]));
+        }
+        return out;
+    }
+
+    /** 被玩家移除的 App（可以放回桌面）。主应用永不在此列。 */
+    public static List<DesktopSlot> desktopRemoved() {
+        List<DesktopSlot> out = new ArrayList<>();
+        for (AppInfo a : allByKey().values()) {
+            if (a.hidden || isDesktopFixed(a.key)) {
+                continue;
+            }
+            if (HuhuTalkClientSettings.isDesktopHidden(a.key)) {
+                out.add(DesktopSlot.of(a));
+            }
+        }
+        return out;
+    }
+
+    /** 该 key 是否是「固定不可动」的主应用（HuhuTalk）。 */
+    public static boolean isDesktopFixed(String key) {
+        return KEY_TALK.equals(key);
+    }
+
+    /**
+     * 把某个 App 挪到目标槽位。
+     * <p>
+     * <b>拖到别人身上 = 两人换位</b>，而不是把对方挤到别处：后者会让"拖一下"连累第三个图标，
+     * 与玩家的预期不符。目标格为空则是单纯移入。
+     *
+     * @return true = 布局确实变了（或本来就在目标格）
+     */
+    public static boolean moveDesktopApp(String key, int targetSlot) {
+        if (key == null || isDesktopFixed(key)) {
+            return false; // 主应用固定在第一排第一位：不可拖、不可换
+        }
+        if (targetSlot < 0 || targetSlot >= SLOT_COUNT || targetSlot == SLOT_TALK) {
+            return false;
+        }
+        AppInfo[] cur = slots();
+        int from = -1;
+        for (int i = 0; i < cur.length; i++) {
+            if (cur[i] != null && key.equals(cur[i].key)) {
+                from = i;
+                break;
+            }
+        }
+        if (from < 0) {
+            return false; // 不在桌面上（可能已被移除）
+        }
+        if (from == targetSlot) {
+            return true;
+        }
+        AppInfo occupant = cur[targetSlot];
+        HuhuTalkClientSettings.setDesktopSlot(key, targetSlot);
+        if (occupant != null && !isDesktopFixed(occupant.key)) {
+            HuhuTalkClientSettings.setDesktopSlot(occupant.key, from);
+        }
+        return true;
+    }
+
+    /** 从桌面移除某 App（只是不画，随时能从管理页底部放回）。主应用拒绝。 */
+    public static boolean removeDesktopApp(String key) {
+        if (key == null || isDesktopFixed(key)) {
+            return false;
+        }
+        return HuhuTalkClientSettings.setDesktopHidden(key, true);
+    }
+
+    /** 把移除过的 App 放回桌面（回到默认位置；被占则按既有纪律退让到最小空槽）。 */
+    public static boolean restoreDesktopApp(String key) {
+        if (key == null || isDesktopFixed(key)) {
+            return false;
+        }
+        return HuhuTalkClientSettings.setDesktopHidden(key, false);
+    }
+
+    /**
+     * 一个槽位的<b>只读快照</b>，供「桌面图标管理」页渲染与命中。
+     * <p>
+     * {@link AppInfo} 的字段是包内可见的，管理页虽然同包也能直接读；但走这个快照有两条好处：
+     * 页面<b>改不动</b>桌面状态（只能通过 {@link #moveDesktopApp} 等入口），
+     * 而且主应用那种"图标样式由设置现算"的特殊情况在这里被抹平成一个字段。
+     */
+    public static final class DesktopSlot {
+        /** 槽位（= 网格格号）；空槽为它自己的格号 */
+        public final int slot;
+        /** 稳定标识；{@code null} = 空槽 */
+        public final String key;
+        public final String name;
+        public final int color;
+        public final String center;
+        public final boolean emoji;
+        public final float centerScale;
+        public final int centerColor;
+        /** 贴图图标；{@code null} = 画 {@link #center} 文字/emoji */
+        public final ResourceLocation iconTexture;
+        public final int iconTexWidth;
+        public final int iconTexHeight;
+        public final float iconFill;
+        /** 是否是固定不可动的主应用 */
+        public final boolean fixed;
+
+        private DesktopSlot(int slot, String key, String name, int color, String center, boolean emoji,
+                            float centerScale, int centerColor, ResourceLocation iconTexture,
+                            int iconTexWidth, int iconTexHeight, float iconFill, boolean fixed) {
+            this.slot = slot;
+            this.key = key;
+            this.name = name;
+            this.color = color;
+            this.center = center;
+            this.emoji = emoji;
+            this.centerScale = centerScale;
+            this.centerColor = centerColor;
+            this.iconTexture = iconTexture;
+            this.iconTexWidth = iconTexWidth;
+            this.iconTexHeight = iconTexHeight;
+            this.iconFill = iconFill;
+            this.fixed = fixed;
+        }
+
+        /** 空槽 */
+        static DesktopSlot empty(int slot) {
+            return new DesktopSlot(slot, null, "", 0, "", false, 1f, 0, null, 0, 0, 1f, false);
+        }
+
+        static DesktopSlot of(AppInfo a) {
+            ResourceLocation tex = a.iconTexture;
+            int tw = a.iconTexWidth;
+            int th = a.iconTexHeight;
+            if (a.behavior == AppBehavior.TALK) {
+                // 主应用的图标在桌面上是「按设置里的风格」现算的（高清贴图 / 低清贴图 / 狐狸 emoji），
+                // 不走 AppInfo.iconTexture（那条字段是附属模组注册的 App 专用）。
+                // 管理页必须与桌面长得一模一样，所以在这里把风格解析成结果。
+                String style = HuhuTalkClientSettings.getHuhutalkIconStyle();
+                if ("fox".equals(style)) {
+                    tex = null;
+                } else if ("symbol".equals(style)) {
+                    tex = ICON_SYMBOL;
+                    tw = th = ICON_SYMBOL_SIZE;
+                } else {
+                    tex = ICON_SYMBOL2;
+                    tw = th = ICON_SYMBOL2_SIZE;
+                }
+            }
+            return new DesktopSlot(a.slot, a.key, a.name, a.color, a.center, a.emoji, a.centerScale,
+                    a.centerColor, tex, tw, th, a.iconFill, KEY_TALK.equals(a.key));
+        }
+    }
+
     /**
      * 内置 App 的点击行为。
      * <p>
@@ -562,6 +835,15 @@ public class MainPage implements IPhonePage {
     public static class AppInfo {
         /** 所在槽位（0 ~ {@link #SLOT_COUNT}-1）；决定图标画在哪一格，与列表顺序无关。 */
         final int slot;
+        /**
+         * <b>稳定标识</b>：布局落盘、拖动换位、移除/恢复全靠它。
+         * <p>
+         * 内置 App 用固定短名（{@code huhutalk} / {@code manual} / {@code settings}），
+         * 附属模组的 App 用 {@code PhoneApp#id()} 的字符串形式。
+         * <b>刻意不用 {@link #name}</b>：名字是给玩家看的文案，改名/翻译会让布局静默失联
+         * —— 这正是本轮要拆掉的那种"按名字判功能"的老写法。
+         */
+        final String key;
         /** 点击行为。取代了原先散在各处的 {@code "SOS".equals(name)} 这类按名字判功能的写法。 */
         final AppBehavior behavior;
         /** 是否画未读红点（目前只有 HuhuTalk）。 */
@@ -593,20 +875,21 @@ public class MainPage implements IPhonePage {
         final float iconFill;         // 贴图在图标方块内的占比（1.0 = 撑满）
 
         /** 内置 App 用的构造器（无贴图图标、不播启动动画）。 */
-        AppInfo(int slot, AppBehavior behavior, boolean unreadBadge,
+        AppInfo(int slot, String key, AppBehavior behavior, boolean unreadBadge,
                 String name, int color, String center, boolean emoji, float centerScale, int centerColor,
                 boolean implemented, boolean hidden, Supplier<IPhonePage> pageFactory) {
-            this(slot, behavior, unreadBadge, name, color, center, emoji, centerScale, centerColor,
+            this(slot, key, behavior, unreadBadge, name, color, center, emoji, centerScale, centerColor,
                     implemented, hidden, false, pageFactory, null, 0, 0, 1.0f);
         }
 
         /** 完整构造器：多出「贴图图标」一组字段，供附属模组注册的 App 使用。 */
-        AppInfo(int slot, AppBehavior behavior, boolean unreadBadge,
+        AppInfo(int slot, String key, AppBehavior behavior, boolean unreadBadge,
                 String name, int color, String center, boolean emoji, float centerScale, int centerColor,
                 boolean implemented, boolean hidden, boolean launchAnimation,
                 Supplier<IPhonePage> pageFactory,
                 ResourceLocation iconTexture, int iconTexWidth, int iconTexHeight, float iconFill) {
             this.slot = slot;
+            this.key = key;
             this.behavior = behavior;
             this.unreadBadge = unreadBadge;
             this.name = name;
@@ -623,6 +906,22 @@ public class MainPage implements IPhonePage {
             this.iconTexWidth = iconTexWidth;
             this.iconTexHeight = iconTexHeight;
             this.iconFill = iconFill;
+        }
+
+        /**
+         * 换一个槽位（其余字段逐字复制）。
+         * <p>
+         * {@link #slot} 是 {@code final}，而布局需要在合并阶段把 App 摆到另一个格子 ——
+         * 与其把它改成可变（那会让"两个 AppInfo 指向同一格"变成可能），不如复制一份新的。
+         * 结果是<b>位置只在 {@link #placeByLayout} 一处决定</b>。
+         */
+        AppInfo withSlot(int newSlot) {
+            if (newSlot == this.slot) {
+                return this;
+            }
+            return new AppInfo(newSlot, key, behavior, unreadBadge, name, color, center, emoji,
+                    centerScale, centerColor, implemented, hidden, launchAnimation, pageFactory,
+                    iconTexture, iconTexWidth, iconTexHeight, iconFill);
         }
     }
 }

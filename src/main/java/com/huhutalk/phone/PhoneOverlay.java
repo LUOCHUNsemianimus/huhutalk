@@ -252,6 +252,17 @@ public class PhoneOverlay {
     private static float dragTotalY = 0f;
     private static boolean dragIsScroll = false;
     /**
+     * 本次按住拖动被<b>页面接管</b>时的宿主页面；{@code null} = 普通的"拖动即滚动"。
+     * <p>
+     * 只有在按下那一刻 {@link IPhonePage#beginDragReorder} 返回 true 才会被置上
+     * （目前只有「桌面图标管理」页这么做）。置上之后：移动不再累积成滚动、
+     * 松开不补点击也不判长按，整段手势原样转给这个页面 —— 也就是真正的"拖放"。
+     * <p>
+     * 「拖动即滚动」是这个模组里唯一的手势通路（见 {@link #moveCursor}），
+     * 所以想要拖放只能在这里开一个口子，而不是让页面去猜 {@code mouseScrolled} 的增量。
+     */
+    private static IPhonePage reorderOwner = null;
+    /**
      * 通用「长按」阈值（毫秒）。按住够久且没拖动成滚动，松开时会先问页面 {@link IPhonePage#onLongPress}。
      * <p>
      * 取 1000：这是"明确的按住"而不是"手滑"，所以比相机那套 350 的保存阈值长得多。
@@ -322,7 +333,20 @@ public class PhoneOverlay {
         dragTotalX = 0f;
         dragTotalY = 0f;
         scrollRemainder = 0.0;
+        cancelReorderOwner();
         cursorResetPending = true;
+    }
+
+    /**
+     * 作废"页面接管拖动"状态：手势被外部打断了（掏出/收起手机、换页、换世界），
+     * 页面只该清掉临时状态，<b>不该落位</b> —— 玩家没有在任何一个格子上松手。
+     */
+    private static void cancelReorderOwner() {
+        IPhonePage owner = reorderOwner;
+        reorderOwner = null;
+        if (owner != null) {
+            owner.cancelDragReorder();
+        }
     }
 
     /**
@@ -435,6 +459,18 @@ public class PhoneOverlay {
         cursorNY = clamp01(cursorNY + dy / Math.max(1f, phoneTotalHeight));
 
         if (cursorPressing) {
+            // ★ 页面接管了这次拖动（拖动换位）→ 不做任何滚动算术，把位置原样转给它。
+            //   这条分支只有 beginDragReorder 返回过 true 才会走到，对所有既有页面等价于不存在。
+            if (reorderOwner != null) {
+                if (reorderOwner != getCurrentPage()) {
+                    // 拖动期间页面被换掉了（右键返回之类）：手势作废，只清状态，不落位
+                    cancelReorderOwner();
+                } else {
+                    reorderOwner.dragReorderTo(cursorLocalX(), cursorLocalY() - PhoneText.px(STATUSBAR_H));
+                    PhoneScreenTarget.markDirty();
+                    return;
+                }
+            }
             dragTotalX += dx;
             dragTotalY += dy;
             // 主轴由页面决定：图库是横向画廊，其余（消息列表、表情网格）都是纵向列表。
@@ -532,6 +568,14 @@ public class PhoneOverlay {
                 dragTotalY = 0f;
                 scrollRemainder = 0.0;
                 pressStartAt = System.currentTimeMillis();
+                // 按下那一刻问一次页面：「这次拖动你自己接管吗？」
+                // 只有"桌面图标管理"这种要拖放的页会答应；答应了就整段手势归它，
+                // 于是它不会在移动 4 像素后被劫持成滚动（见 IPhonePage#beginDragReorder）。
+                IPhonePage cur = getCurrentPage();
+                if (cur != null
+                        && cur.beginDragReorder(cursorLocalX(), cursorLocalY() - PhoneText.px(STATUSBAR_H))) {
+                    reorderOwner = cur;
+                }
             } else {
                 handlePhoneLocalMouse(cursorLocalX(), cursorLocalY(), GLFW.GLFW_MOUSE_BUTTON_RIGHT, GLFW.GLFW_PRESS);
                 handlePhoneLocalMouse(cursorLocalX(), cursorLocalY(), GLFW.GLFW_MOUSE_BUTTON_RIGHT, GLFW.GLFW_RELEASE);
@@ -540,7 +584,16 @@ public class PhoneOverlay {
         }
         if (action == GLFW.GLFW_RELEASE && clickButton && cursorPressing) {
             cursorPressing = false;
-            if (!dragIsScroll) {
+            if (reorderOwner != null) {
+                // 拖放落点：页面自己判坐标（它才知道网格在哪），这里只负责"松手了"
+                IPhonePage owner = reorderOwner;
+                reorderOwner = null;
+                if (owner == getCurrentPage()) {
+                    owner.endDragReorder(cursorLocalX(), cursorLocalY() - PhoneText.px(STATUSBAR_H));
+                } else {
+                    owner.cancelDragReorder();
+                }
+            } else if (!dragIsScroll) {
                 double relX = cursorLocalX();
                 double relY = cursorLocalY();
                 // 长按先给页面一次机会：按住够久 → 页面按"长按语义"处理，

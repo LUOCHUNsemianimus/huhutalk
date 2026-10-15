@@ -516,10 +516,18 @@ HUD 更在整段 `renderLevel` 之后）。所以照片 = 玩家眼里那片干�
       塞进 mip 层的 RGB，alpha 却只贡献 `1/4^k` ⇒ mip 纹素 = "高 alpha + 被污染的 RGB" ⇒ 一圈青描边。
     - **`sprite_alpha.py`**（纯标准库）：`report` 量化诊断 / `fix`（un-matte、erode、颜色外扩）/
       `matte` 漏底三联图 / `sim` 把"游戏那一步缩放"离线重放。已支持**调色板 PNG（PLTE + tRNS）**。
-    - **`import_manual_assets.py`** 每个图标的流水线：
-      `抠背景（可选）→ 边缘去污 decontaminate → 预降采样 96px → 再去污 → 写 .mcmeta(blur/clamp)`。
-      其中 `decontaminate` 是"以 alpha≥250 的实心像素为源做 BFS，把**所有非实心像素**的 RGB
-      换成最近实心色，**alpha 一个不动**"——`bleed`（只填 a==0）救不了 `a=1~12` 那一圈。
+    - **`import_manual_assets.py`** 每个图标的流水线（⚠ **2026-10-14 已改版**）：
+      **原图分辨率直上**（`ICON_TARGET = 0`，不降采样）+ **透明区 RGB 去污**（`ICON_BLEED = True`）
+      + `.mcmeta(blur/clamp)`。
+      - 旧版是 `抠背景（可选）→ 边缘去污 decontaminate → 预降采样 96px → 再去污 → .mcmeta`，
+        依据是"手机上每格图标约 28 真实像素"。**那个前提是错的**：28 是 GUI 逻辑像素，
+        设备像素还要乘 GUI Scale（1080p 下图标实占 120~200 px）→ 96px 贴图一直是**被放大**显示的，
+        降采样纯属丢像素，实机表现为"锯齿/毛边"。完整复盘与量化数据见
+        [desktop-icon-manage-handoff.md](desktop-icon-manage-handoff.md) §1 与
+        [manual-and-starter-kit.md](manual-and-starter-kit.md) §5.4。
+      - `decontaminate` 是"以 alpha≥250 的实心像素为源做 BFS，把**所有非实心像素**的 RGB
+        换成最近实心色，**alpha 一个不动**"——`bleed`（只填 a==0）救不了 `a=1~12` 那一圈。
+        这一步**必须留**：原图透明区 RGB 是纯白，线性过滤会把白插进轮廓（实机确认过）。
     - ⚠ **源表 `ICON_SOURCES` 必须是显式有序候选**，别改回"按修改时间挑最新"：
       需求方**换回旧版**时会静默挑到磁盘上更新的那个，日志里还看不出挑错了（本次踩过）。
     - ⚠ Piskel「8 位图片」导出**常常没有透明**（索引色 + tRNS 全 255）：透明区变成实心白，

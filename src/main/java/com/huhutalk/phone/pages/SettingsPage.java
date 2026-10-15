@@ -291,6 +291,10 @@ public class SettingsPage extends PhonePage {
                 row(() -> "单句上限(ms)：" + (long) maxTypingStepper.value(), maxTypingStepper),
                 row("切屏动画", uiAnimSwitch))));
 
+        // ⚠ 「桌面图标管理」落在**桌面设置 App**（{@link SettingsAppPage}）里，不在这里。
+        //    分工：本页 = 手机本身的设置（屏幕/亮度/配色/动画…）；
+        //    SettingsAppPage = 桌面 App 级的设置（AI 识图、桌面图标管理…）。
+        //    新增条目时先问一句"玩家会在哪一页找它"，两边不要重复。
         out.add(new Section("配色", List.of(
                 row(() -> "配色方案：" + ThemeManager.getActive().displayName(),
                         new CapsuleButton("切换", ThemeManager::cycleNext)),

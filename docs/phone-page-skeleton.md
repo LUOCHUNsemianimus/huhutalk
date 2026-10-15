@@ -207,6 +207,35 @@ public boolean onLongPress(double relX, double relY) {   // 返回 true = 已消
 
 ---
 
+## 4.1 拖动换位（拖放）——`onDragReorder*`
+
+手机里唯一的手势通路是「**按住拖动 = 滚动**」：位移一旦超过阈值（4px 且主轴占优），
+整段手势就升级成 `mouseScrolled` 的增量，**页面再也收不到光标位置，松开也不补点击**。
+所以页面**做不出真正的拖放**（`onLongPress` 要求按住 1 秒且不能移动，同样救不了）。
+
+想要拖放，就得在按下那一刻**声明接管**。骨架把这件事包成四个钩子（都收**内容坐标**）：
+
+| 方法 | 说明 |
+|---|---|
+| `boolean onDragReorderStart(localX, localY)` | 按下时问一次"这次拖动你要接管吗"。**默认 false**（= 照旧滚动）。返回 true 后：Overlay 跳过滚动 latch，移动与落点原样转给你 |
+| `void onDragReorderMove(localX, localY)` | 接管中的拖动移动 |
+| `void onDragReorderEnd(localX, localY)` | 接管中的拖动松手 + 落点。**在这里落位** |
+| `void onDragReorderCancel()` | 拖动被**打断**（掏出/收起手机、拖动途中换页）：只清临时状态，**别落位** |
+
+| 事项 | 说明 |
+|---|---|
+| **默认关闭** | 四个钩子对 `IPhonePage` 都有空默认实现，`PhonePage` 只是把坐标转成内容坐标再转发 —— **既有页面零改动、行为逐字节不变** |
+| **接管之后就没有点击** | 松手时**不会**再补一次普通点击（所以不会"拖完顺带点开一个 App"）。⚠ 反过来说：**被接管的那一小块区域里的按钮会点不动** —— 例如管理页的 ✕ 就特意在 `onDragReorderStart` 里返回 false 让出点击通路 |
+| **该不该接管** | 只在"确实有东西可拖"的地方接管（管理页是"格子非空且非主应用"）。空处按住照旧还给滚动体系，玩家不会觉得"划了没反应" |
+| **坐标** | 与 `onContentClick` 一致（内容坐标，原点在顶栏下方）；`IPhonePage` 那层收的是手机内容区坐标 |
+| **参考实现** | `DesktopIconPage`（桌面图标管理：拖动换位 / 拖进回收栏移除） |
+
+> 口子开在 `PhoneOverlay.moveCursor` 与 `onPhoneSideButton`，判据是 `beginDragReorder` 的返回值；
+> `reorderOwner` 为空时两者与原实现逐字节等价。设计原委见
+> [desktop-icon-manage-handoff.md](desktop-icon-manage-handoff.md) §2。
+
+---
+
 ## 5. `PhoneList<T>` 参考
 
 ### 子类实现
