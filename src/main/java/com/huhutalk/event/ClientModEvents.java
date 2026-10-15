@@ -2,12 +2,14 @@ package com.huhutalk.event;
 
 import com.huhutalk.client.render.PhoneScreenTarget;
 import com.huhutalk.client.render.ProPhoneHandRenderer;
+import com.huhutalk.client.render.SelfieCameraTarget;
 import com.huhutalk.client.settings.HuhuTalkClientSettings;
 import com.huhutalk.client.vision.VisionSiteCache;
 import com.huhutalk.network.C2SPotionRescueSettingPacket;
 import com.huhutalk.network.C2SRemoteSupplyReplySettingPacket;
 import com.huhutalk.network.C2SVisionSelectionPacket;
 import com.huhutalk.phone.PhoneOverlay;
+import com.huhutalk.phone.PhoneInputScreen;
 import com.huhutalk.phone.IPhonePage;
 import com.huhutalk.phone.pages.ChatPage;
 import com.mojang.blaze3d.platform.InputConstants;
@@ -44,6 +46,15 @@ public class ClientModEvents {
     /** 手机「右键」：独立光标下的返回上一页。默认鼠标侧键 5 */
     public static final KeyMapping PHONE_BACK = new KeyMapping(
             "key.huhutalk.phone_back", InputConstants.Type.MOUSE, GLFW.GLFW_MOUSE_BUTTON_5, "key.category.huhutalk");
+    /**
+     * 相机「前后摄切换」（默认 V，可重绑定）。
+     * <p>
+     * 相机界面没有光标，页内那颗切换按钮点不到，所以它必须有一条键位通路 ——
+     * 这就是 V 键存在的原因。页内按钮只负责"显示当前前/后摄状态 + 提示按哪个键"。
+     * 只有支持切换的相机页（{@code PhoneCameraHost#supportsCameraFacingSwitch()}）响应它。
+     */
+    public static final KeyMapping PHONE_CAMERA_FACING = new KeyMapping(
+            "key.huhutalk.camera_facing", GLFW.GLFW_KEY_V, "key.category.huhutalk");
 
     /** 正在按住 H 说话的聊天页（用于松手时停止录音） */
     private static ChatPage quickVoicePage = null;
@@ -54,6 +65,7 @@ public class ClientModEvents {
         event.register(QUICK_VOICE);
         event.register(PHONE_CLICK);
         event.register(PHONE_BACK);
+        event.register(PHONE_CAMERA_FACING);
     }
 
     /**
@@ -156,6 +168,10 @@ public class ClientModEvents {
         while (TOGGLE_PHONE.consumeClick()) {
             PhoneOverlay.toggle();
         }
+        // 前/后摄切换（默认 V，可重绑定）：相机没有光标，切换按钮只能靠键位触达
+        while (PHONE_CAMERA_FACING.consumeClick()) {
+            PhoneOverlay.toggleCameraFacing();
+        }
         // 掏出即渲染：主手开始举着 Pro 手机的那一刻自动打开手机 UI
         PhoneOverlay.onHolderTick();
         // 相机模式长按侧键 4 = 存相册（需在按住期间逐 tick 检查是否到达阈值）
@@ -191,8 +207,31 @@ public class ClientModEvents {
      */
     @SubscribeEvent
     public static void onRenderFramePre(RenderFrameEvent.Pre event) {
+        // 自拍 pass 自身是通过 renderLevel 嵌套渲染的，这个钩子不应在 pass 内再被触发；
+        // 保险起见直接早退，免得任何状态在自拍帧里被二次推进。
+        if (SelfieCameraTarget.isRendering()) {
+            return;
+        }
         // 俯仰低通：供「操控屏幕」状态机判定，须在离屏出图之前更新
         PhoneOverlay.updateLookFilter();
+
+        // 前摄取景：只有「当前页确实在前摄取景」且「第一人称主手真的举着手机」时才开离屏 pass。
+        // setActive 只在开关真的变化时清理；update 内部自带 30fps 节流。
+        // 第三人称、手机不在手上、手机 UI 收起时 PhoneOverlay.isSelfieMode() 为假，
+        // setActive(false) 会兑现未完成请求并作废画面 —— 空闲/不可见时不渲染。
+        // 界面遮挡（真实 Screen 打开）也暂停：透明的手机输入屏不算遮挡（那时世界/手持照常渲染）。
+        Minecraft mc = Minecraft.getInstance();
+        boolean occluded = mc.screen != null && !(mc.screen instanceof PhoneInputScreen);
+        boolean selfie = !occluded && PhoneOverlay.isSelfieMode() && ProPhoneHandRenderer.isActive()
+                && PhoneOverlay.isModelScreen();
+        SelfieCameraTarget.setActive(selfie);
+        if (selfie) {
+            SelfieCameraTarget.update(event.getPartialTick());
+            // 自拍靶刚更新（或至少这一帧有有效画面）：标脏模型屏，
+            // 让稍后 PhoneScreenTarget.update 把最新一帧镜像预览复制进手机屏纹理。
+            PhoneScreenTarget.markDirty();
+        }
+
         if (ProPhoneHandRenderer.isActive()) {
             PhoneScreenTarget.update(event.getPartialTick().getGameTimeDeltaTicks());
         } else {
@@ -223,8 +262,15 @@ public class ClientModEvents {
      */
     @SubscribeEvent
     public static void onRenderLevelStage(RenderLevelStageEvent event) {
-        if (event.getStage() == RenderLevelStageEvent.Stage.AFTER_LEVEL) {
-            PhoneOverlay.consumeWorldCapture();
+        if (event.getStage() != RenderLevelStageEvent.Stage.AFTER_LEVEL) {
+            return;
         }
+        // ⚠ 自拍 pass 内部会再次调用 renderLevel，于是 AFTER_LEVEL 会被嵌套派发一次。
+        // 那一层绝不能被当成"后摄抓图"的时机：此时主渲染靶是自拍 FBO，
+        // 消费抓图会把自拍靶的画面当成主画面抓走。自拍有自己的 requestCapture 通路。
+        if (SelfieCameraTarget.isRendering()) {
+            return;
+        }
+        PhoneOverlay.consumeWorldCapture();
     }
 }

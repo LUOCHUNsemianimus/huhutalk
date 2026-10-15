@@ -148,4 +148,57 @@ public interface PhoneCameraHost extends IPhonePage {
     default boolean handlesLongPress() {
         return true;
     }
+
+    // ==================== 前后摄（自拍）扩展：全部有默认实现，既有相机零影响 ====================
+
+    /**
+     * 当前是否处于<b>前摄 / 自拍取景</b>。
+     * <p>
+     * 为 {@code true} 时，HuhuTalk 会：
+     * <ul>
+     *   <li>把 {@code SelfieCameraTarget} 的前摄离屏取景 pass 打开（仅本地玩家第一人称主视角拿着手机时）；</li>
+     *   <li>把第一人称手持从「抬到眼前的取景姿态」换成<b>右手单手持机、屏朝玩家</b>的自拍姿态
+     *       （见 {@link #cameraUseDefaultHoldPose()}）；</li>
+     *   <li>把本机鼠标<b>普通右键</b>（button=1）在自拍取景时当作快门 —— 相机本来没有光标，
+     *       这条是给"顺手一按"的补充通路；玩家绑定的确认/返回侧键语义完全不变。</li>
+     * </ul>
+     * <p>
+     * <b>默认 {@code false}</b>：所有既有相机页（含附属模组）都是后摄，行为一字不变。
+     * 想加前摄的页面覆盖它即可，同时请覆盖 {@link #supportsCameraFacingSwitch()} /
+     * {@link #cameraToggleFacing()}，并保证<b>只在取景态</b>返回 true（已拍成/确认页不算自拍取景）。
+     */
+    default boolean isSelfieMode() {
+        return false;
+    }
+
+    /**
+     * 本相机是否支持「前摄 / 后摄」切换（决定 V 键与页内切换按钮是否生效）。
+     * <p>
+     * <b>默认 {@code false}</b>：既有相机页没有切换概念，按 V 键不做任何事。
+     */
+    default boolean supportsCameraFacingSwitch() {
+        return false;
+    }
+
+    /**
+     * 切换前摄 / 后摄。仅在 {@link #supportsCameraFacingSwitch()} 为 true 时被路由。
+     * <p>
+     * 实现者应自行判断"现在能不能切"（例如只有取景态可切、已拍成/确认页不切）。
+     * <b>默认空实现。</b>
+     */
+    default void cameraToggleFacing() {
+    }
+
+    /**
+     * 相机模式下，第一人称手持是否改用<b>常规地图式双手持握</b>（也就是平时不拍照时的那套姿态），
+     * 而不是「抬到眼前的取景姿态」。
+     * <p>
+     * 前摄拍完照片后的<b>确认页</b>应当返回 {@code true} —— 那时手机该"放下"，玩家用平常的姿势看照片；
+     * 后摄流程与既有相机保持 {@code false}（始终抬到眼前）。
+     * <p>
+     * <b>默认 {@code false}</b>：既有相机行为完全不变。
+     */
+    default boolean cameraUseDefaultHoldPose() {
+        return false;
+    }
 }

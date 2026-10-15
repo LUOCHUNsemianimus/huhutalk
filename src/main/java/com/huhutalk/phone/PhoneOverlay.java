@@ -5,6 +5,7 @@ import com.huhutalk.api.phone.camera.PhoneCameraHost;
 import com.huhutalk.api.phone.ui.PhoneText;
 import com.huhutalk.client.render.PhoneScreenTarget;
 import com.huhutalk.client.render.ProPhoneHandRenderer;
+import com.huhutalk.client.render.SelfieCameraTarget;
 import com.huhutalk.client.settings.HuhuTalkClientSettings;
 import com.huhutalk.client.theme.ColorScheme;
 import com.huhutalk.client.theme.PhoneCaseRenderer;
@@ -248,6 +249,15 @@ public class PhoneOverlay {
     private static long cameraHoldStartAt = 0L;
     /** 本次按住是否已经触发过"长按保存"，用于松开时不再补一次轻点动作 */
     private static boolean cameraHoldFired = false;
+    /**
+     * 自拍取景时「本机普通右键 = 快门」按下的锁存。
+     * <p>
+     * 不依赖"松开时还在不在取景态"：按下立刻拍照，下一帧回调就可能把页面推进确认页
+     * （{@code isSelfieMode()} 变 false），若那时不锁存，这次右键的 RELEASE 会漏回原版
+     * （原版右键 = 使用物品），表现为"拍一张顺带用了一次手里的东西"。
+     * 所以 PRESS 置位、RELEASE 只在置位时消费并清位。
+     */
+    private static boolean selfieRightLatch = false;
     private static float dragTotalX = 0f;
     private static float dragTotalY = 0f;
     private static boolean dragIsScroll = false;
@@ -946,7 +956,7 @@ public class PhoneOverlay {
      * 把"相机"这件能力锁在了内置聊天页上。
      */
     public static boolean isCameraMode() {
-        return getCurrentPage() instanceof PhoneCameraHost host && host.isCameraMode();
+        return phoneOpen && getCurrentPage() instanceof PhoneCameraHost host && host.isCameraMode();
     }
 
     /**
@@ -956,17 +966,109 @@ public class PhoneOverlay {
      * 它仍然是相机（侧键照旧），但<b>绝对不能透明</b>，否则照片半透、世界穿过来。
      */
     public static boolean isCameraScreenTransparent() {
-        return getCurrentPage() instanceof PhoneCameraHost host && host.cameraScreenTransparent();
+        return phoneOpen && getCurrentPage() instanceof PhoneCameraHost host && host.cameraScreenTransparent();
     }
 
     /** 侧键 4/5 此刻是否归属于相机（路由到相机的动作方法 + 长按手势生效）。 */
     public static boolean isCameraSideKeysActive() {
-        return getCurrentPage() instanceof PhoneCameraHost host && host.cameraSideKeysActive();
+        return phoneOpen && getCurrentPage() instanceof PhoneCameraHost host && host.cameraSideKeysActive();
     }
 
     /** 相机此刻是否独占输入（不画独立光标 + 吞掉鼠标点击），把鼠标完整留给"转视角取景"。 */
     public static boolean isCameraInputExclusive() {
-        return getCurrentPage() instanceof PhoneCameraHost host && host.cameraInputExclusive();
+        return phoneOpen && getCurrentPage() instanceof PhoneCameraHost host && host.cameraInputExclusive();
+    }
+
+    /**
+     * 当前页是否处于<b>前摄取景</b>（且手机 UI 确实开着）。
+     * <p>
+     * 前摄离屏出图（{@link SelfieCameraTarget}）、页内镜像预览、第一人称单手持机姿态
+     * 全部以这一个判据为准。{@code phoneOpen} 必须一起查：手机被收起后页面栈还留着，
+     * 只查 host 会让"关掉手机仍在渲染前摄 / 仍在吃右键"。
+     */
+    public static boolean isSelfieMode() {
+        return phoneOpen && getCurrentPage() instanceof PhoneCameraHost host && host.isSelfieMode();
+    }
+
+    /**
+     * 相机模式下第一人称是否改用「常规地图式双手持握」（而不是抬到眼前的取景姿态）。
+     * <p>前摄确认页用它把手机"放下"；后摄与既有相机保持抬到眼前。手机收起时返回 false。
+     */
+    public static boolean cameraUseDefaultHoldPose() {
+        return phoneOpen && getCurrentPage() instanceof PhoneCameraHost host && host.cameraUseDefaultHoldPose();
+    }
+
+    /**
+     * V 键 / 页内切换按钮：请求当前相机切换前摄/后摄。
+     * <p>只对实现了 {@link PhoneCameraHost#supportsCameraFacingSwitch()} 的页面生效；
+     * 具体"现在能不能切"由页面在 {@link PhoneCameraHost#cameraToggleFacing()} 里决定。
+     */
+    public static void toggleCameraFacing() {
+        if (!phoneOpen) {
+            return;
+        }
+        IPhonePage page = getCurrentPage();
+        if (page instanceof PhoneCameraHost host && host.supportsCameraFacingSwitch()) {
+            host.cameraToggleFacing();
+            PhoneScreenTarget.markDirty();
+        }
+    }
+
+    /**
+     * 自拍取景时「本机普通鼠标右键 = 快门」。
+     *
+     * <h2>为什么单独开这一条</h2>
+     * 相机全程没有独立光标、侧键才是正路，但"顺手按一下右键"是玩家的本能。
+     * 这里只在<b>自拍取景</b>时把右键接过来当快门：后摄的左右键原版行为保持不动
+     * （左键攻击 / 右键使用物品照常）。鼠标右键是 {@code GLFW_MOUSE_BUTTON_RIGHT}（button=1），
+     * <b>与手机侧键 5（默认鼠标侧键 5）是两个完全不同的按钮</b>，别混淆。
+     *
+     * <h2>触发条件（缺一不可）</h2>
+     * <ul>
+     *   <li>当前页确实是前摄取景（{@link #isSelfieMode()}）；</li>
+     *   <li>{@code mc.screen == null}：开着界面时鼠标属于 GUI，不能被手机抢；</li>
+     *   <li>事件来自<b>本机窗口</b>（多窗口/手柄转发时只认自己的 GLFW 窗口）。</li>
+     * </ul>
+     *
+     * <h2>不产生双快门</h2>
+     * 若玩家把手机确认/返回键绑到了右键，就交给原有的侧键通路（调用方随后会转发
+     * {@link #onPhoneSideButton}），这里只负责把原版右键吞掉，绝不再调一次动作。
+     *
+     * @param boundToPhoneKey 右键是否被玩家绑成了手机确认/返回键（由调用方判断后传入）
+     * @return true = 该事件应被取消（不再传给原版）
+     */
+    public static boolean handleSelfieRightButton(long window, int button, int action, boolean boundToPhoneKey) {
+        if (button != GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
+            return false;
+        }
+        // 松开：只看锁存，不看当前是否还在自拍取景 —— 按下后可能已经进确认页/切后摄
+        if (action == GLFW.GLFW_RELEASE) {
+            if (selfieRightLatch) {
+                selfieRightLatch = false;
+                return true;
+            }
+            return false;
+        }
+        if (action != GLFW.GLFW_PRESS) {
+            return false;
+        }
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.screen != null || mc.getWindow() == null || window != mc.getWindow().getWindow()) {
+            return false;
+        }
+        // 与实际自拍出图条件严格一致：页面确在前摄取景（phoneOpen + 正确 host）+ 第一人称主手真的举着手机。
+        // 页面仍是前摄、但玩家换了物品 / 切 F5 / 手机不在手里时，绝不能吞世界右键、也不该发抓图请求。
+        if (!isSelfieMode() || !ProPhoneHandRenderer.isActive() || !isModelScreen()) {
+            return false;
+        }
+        if (!boundToPhoneKey) {
+            IPhonePage page = getCurrentPage();
+            if (page instanceof PhoneCameraHost host) {
+                host.cameraPrimaryAction();
+            }
+        }
+        selfieRightLatch = true;
+        return true;
     }
 
     /**
@@ -1031,6 +1133,8 @@ public class PhoneOverlay {
         // 相机长按同理：若在"按住侧键4"期间手机被收起，不能让状态悬挂到下次打开
         cameraHoldButton = 0;
         cameraHoldFired = false;
+        // 自拍右键锁存同理：收起手机后下一次右键 RELEASE 不该被当成自拍快门
+        selfieRightLatch = false;
         dragIsScroll = false;
         containerAnim = ContainerAnim.IDLE;
         containerTween = null;
@@ -2042,6 +2146,11 @@ public class PhoneOverlay {
         renderMode = RenderMode.NONE;
         armHolderAutoOpen();
         dragging = false;
+        // 切世界/退出：释放前摄取景离屏资源，兑现未完成的抓图请求（绝不悬着）
+        SelfieCameraTarget.release();
+        cameraHoldButton = 0;
+        cameraHoldFired = false;
+        selfieRightLatch = false;
         // 新世界：光标回出生点（顶栏正中），并在下次渲染按真实手机高度校正
         resetCursorToSpawn();
         inChatApp = false;

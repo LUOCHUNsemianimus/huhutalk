@@ -4,6 +4,7 @@ import com.huhutalk.api.phone.ui.PhoneImages;
 import com.huhutalk.api.phone.ui.PhoneShapes;
 import com.huhutalk.api.phone.ui.PhoneText;
 import com.huhutalk.client.PhotoLibrary;
+import com.huhutalk.client.render.SelfieCameraTarget;
 import com.huhutalk.event.ClientModEvents;
 import com.huhutalk.phone.PhoneOverlay;
 import net.minecraft.client.Minecraft;
@@ -16,7 +17,7 @@ import net.minecraft.resources.ResourceLocation;
  *
  * <h2>与聊天内相机的区别（就这两条）</h2>
  * <ol>
- *   <li><b>没有「已拍成页」</b>：按下就是拍照 + 存入相册，然后<b>留在取景界面继续拍</b>——
+ *   <li><b>后摄没有「已拍成页」</b>：按下就是拍照 + 存入相册，然后<b>留在取景界面继续拍</b>——
  *       和真机相机的"按几下拍几下"一致。因为没有"确认/重拍"这个反悔设计，
  *       拍照成功后<b>刻意不弹提示气泡</b>（只有存盘失败才说话）。聊天内相机则有"确认/重拍"两态。</li>
  *   <li><b>左下角缩略图是纯装饰</b>：不参与命中（相机界面全程没有光标，鼠标要留给转视角取景），
@@ -24,6 +25,12 @@ import net.minecraft.resources.ResourceLocation;
  * </ol>
  * 其它版面（顶栏两段文字、四角取景标记、准星、圆形快门、底部黑边）与聊天内相机<b>逐项一致</b> ——
  * 两套相机是同一台手机上的两个入口，不该让玩家以为是两个不同的东西。
+ *
+ * <h2>前摄（自拍）</h2>
+ * 两个入口都支持前摄。本页按 V 键（或页内右侧胶囊提示的键）切换：后摄仍是"按下即存"，
+ * 前摄则进入<b>确认页</b>（整屏照片 + 重拍/保存），由玩家决定存相册还是重来。
+ * 前摄抓图走核心 {@link SelfieCameraTarget}，显示的是"玩家本人 + 其身后场景"的镜像预览。
+ * 详见 {@code docs/selfie-camera-handoff.md}。
  *
  * <h2>它怎么拿到"透明取景框 + 侧键操作"</h2>
  * 全部来自 {@link PhoneCameraHost}：只要 {@link #isCameraMode()} 返回 true，
@@ -34,9 +41,11 @@ import net.minecraft.resources.ResourceLocation;
  * <h2>键位</h2>
  * <table border="1">
  *   <tr><th>操作</th><th>行为</th></tr>
- *   <tr><td>侧键 4（手机左键，默认鼠标侧键 4）</td><td>拍照并存相册，留在取景</td></tr>
- *   <tr><td>侧键 5（手机右键，默认鼠标侧键 5）</td><td>退出相机，回桌面</td></tr>
- *   <tr><td>长按侧键 4</td><td>无第二级语义（已经存了），松开照样拍一张 —— 见 {@link #handlesLongPress()}</td></tr>
+ *   <tr><td>侧键 4（手机左键，默认鼠标侧键 4）</td><td>后摄：拍照并存相册，留在取景；前摄：拍照进确认页；确认页：保存入相册</td></tr>
+ *   <tr><td>侧键 5（手机右键，默认鼠标侧键 5）</td><td>退出相机回桌面；前摄确认页：重拍（回自拍取景）</td></tr>
+ *   <tr><td>前/后摄切换键（默认 V，可重绑定）</td><td>取景中切换前摄/后摄</td></tr>
+ *   <tr><td>普通鼠标右键（仅自摄取景）</td><td>快门（相机没有光标，这是补充通路；与侧键 5 不是同一个按钮）</td></tr>
+ *   <tr><td>长按侧键 4</td><td>无第二级语义，松开照样走侧键 4 —— 见 {@link #handlesLongPress()}</td></tr>
  * </table>
  *
  * <h2>⚠ 不要继承 {@code PhonePage}</h2>
@@ -53,6 +62,14 @@ public class PhoneCameraPage implements PhoneCameraHost {
      */
     public static final String THUMB_KEY = "__appcamshot__";
 
+    /**
+     * 前摄「这一张待确认」的临时照片 key。
+     * <p>
+     * 必须与聊天相机的 {@code __camshot__} 分开：两个相机各自可能停在确认页，
+     * 共用一个 key 会让一台相机把另一台"还没处置的那张"覆盖掉。
+     */
+    public static final String SELFIE_SHOT_KEY = "__appcamselfieshot__";
+
     /** 快门直径 = 手机宽度 × 此比例（与聊天内相机取同一个值，保持同款控件尺寸） */
     private static final float SHUTTER_W_RATIO = 0.15f;
     /** 快门直径下限（随全局字体倍率缩放） */
@@ -63,12 +80,25 @@ public class PhoneCameraPage implements PhoneCameraHost {
     private static final int TOPBAR_BG = 0xFFDE7E7E;
 
     /**
-     * 本次进入相机后是否已经拍过至少一张。
+     * 左下角装饰缩略图当前引用的照片 key（null=还没拍过）。
      * <p>
      * 没拍过时左下角<b>不画</b>缩略图——真机相机也是这样（相册空的时候那儿是空的）。
-     * 一进页面就画个白框反而像坏了。
+     * 一进页面就画个白框反而像坏了。后摄存 {@link #THUMB_KEY}，前摄存 {@link #SELFIE_SHOT_KEY}。
      */
-    private boolean hasShot = false;
+    private String lastShotKey = null;
+
+    /** 当前是否使用前摄（自拍）。默认 false = 后摄，行为与改造前一致。 */
+    private boolean frontCamera = false;
+    /**
+     * 前摄已拍下、等待确认的照片字节（null=不在确认页）。
+     * <p>
+     * 只有前摄才有"确认页"；后摄仍是"按下即存、留在取景"（见 {@link #cameraPrimaryAction()}）。
+     */
+    private byte[] cameraShot = null;
+    /** 前摄抓图请求是否在途（防重复按快门）。 */
+    private boolean selfieShotPending = false;
+    /** 前摄抓图请求序号：切后摄 / 离开页面 / 重新按下都会自增，旧回调据此作废。 */
+    private long selfieRequestSeq = 0L;
 
     // ==================== PhoneCameraHost ====================
 
@@ -83,22 +113,85 @@ public class PhoneCameraPage implements PhoneCameraHost {
         return true;
     }
 
-    /** 侧键 4 轻点：拍照并存相册 */
+    /** 前摄取景：切到了前摄且还没拍成（确认页不算取景）。 */
     @Override
-    public void cameraPrimaryAction() {
-        takePhoto();
+    public boolean isSelfieMode() {
+        return frontCamera && cameraShot == null;
     }
 
-    /** 侧键 5：退出相机，回桌面 */
+    /**
+     * 只有<b>后摄取景中</b>才透明（游戏画面透出）。前摄取景由核心镜像画面覆盖，机身要实心、
+     * 机壳用正常纹理；<b>前摄确认页同样不透明</b>——照片不能半透、背后世界不能穿过来。
+     */
+    @Override
+    public boolean cameraScreenTransparent() {
+        return cameraShot == null && !frontCamera;
+    }
+
+    /** 本相机支持前/后摄切换（V 键与页内按钮据此生效）。 */
+    @Override
+    public boolean supportsCameraFacingSwitch() {
+        return true;
+    }
+
+    /** 只有取景态可切；切换作废任何在途的前摄抓图。 */
+    @Override
+    public void cameraToggleFacing() {
+        if (cameraShot != null) {
+            return;
+        }
+        frontCamera = !frontCamera;
+        selfieRequestSeq++;
+        selfieShotPending = false;
+        PhoneOverlay.requestRedraw();
+    }
+
+    /** 前摄确认页把手机"放下"，用常规地图式双手持握看照片；后摄保持抬到眼前。 */
+    @Override
+    public boolean cameraUseDefaultHoldPose() {
+        return cameraShot != null && frontCamera;
+    }
+
+    /**
+     * 侧键 4 轻点：
+     * <ul>
+     *   <li>后摄取景 → 拍照并<b>直接存相册</b>，留在取景（与改造前完全一致）；</li>
+     *   <li>前摄取景 → 抓一张前摄离屏画面，进入<b>确认页</b>；</li>
+     *   <li>前摄确认页 → <b>保存到相册</b>：成功回自拍预览，失败保留照片可重试。</li>
+     * </ul>
+     */
+    @Override
+    public void cameraPrimaryAction() {
+        if (cameraShot != null) {
+            confirmSelfie();
+        } else if (frontCamera) {
+            takeSelfiePhoto();
+        } else {
+            takePhoto();
+        }
+    }
+
+    /**
+     * 侧键 5：
+     * <ul>
+     *   <li>前摄确认页 → <b>重拍</b>：丢弃这张、回自拍取景（前摄标志保留）；</li>
+     *   <li>其余（后摄取景 / 前摄取景）→ 退出相机，回桌面。</li>
+     * </ul>
+     */
     @Override
     public void cameraBackAction() {
+        if (cameraShot != null) {
+            cameraShot = null;
+            PhoneOverlay.requestRedraw();
+            return;
+        }
         PhoneOverlay.popPage();
     }
 
     /**
      * {@code false}：不启用「长按 = 保存」那套手势。
      * <p>
-     * 本相机按下即存，长按没有第二级语义。如果这里返回 true，玩家按住超过 350ms 再松开就会
+     * 后摄按下即存，长按没有第二级语义。如果这里返回 true，玩家按住超过 350ms 再松开就会
      * 落到 {@code cameraSaveAction()}（空实现）上、并且<b>不再补一次轻点</b>——
      * 表现为"按了没反应"。返回 false 后松开总是拍一张。
      */
@@ -108,7 +201,18 @@ public class PhoneCameraPage implements PhoneCameraHost {
     }
 
     /**
-     * 右键（独立光标那条通路）也当作"退出相机"。
+     * 离开页面（被出栈 / 换世界）：作废在途的前摄抓图请求（回调序号失配，旧照片绝不复活），
+     * 并标脏让下层页面立刻重绘。只清自己的临时状态，<b>不碰任何其它页面的照片</b>。
+     */
+    @Override
+    public void onClose() {
+        selfieRequestSeq++;
+        selfieShotPending = false;
+        PhoneOverlay.requestRedraw();
+    }
+
+    /**
+     * 右键（独立光标那条通路）也当作"退出 / 重拍"。
      * <p>
      * 相机模式下独立光标本来就被关掉了，这条基本走不到；留着是为了万一从别的通路
      * （例如某个界面把右键转发进来）收到右键时行为仍然一致，而不是穿透到上层把手机收起来。
@@ -138,7 +242,9 @@ public class PhoneCameraPage implements PhoneCameraHost {
             }
             // 装饰缩略图：用固定 key 覆盖注册，这样左下角永远显示"刚拍的这张"
             PhotoLibrary.registerCapturedBytes(THUMB_KEY, png);
-            hasShot = true;
+            lastShotKey = THUMB_KEY;
+            // 立即标脏：缩略图要马上更新，不能被模型屏的 100ms 空闲缓存拖一拍
+            PhoneOverlay.requestRedraw();
             String saved = PhotoLibrary.saveToGallery(png);
             // 成功时**不弹气泡**：本相机是"按下即存、没有反悔"的设计，
             // 快门本身就是反馈，再每次弹一条"已保存"只是噪声。
@@ -147,6 +253,55 @@ public class PhoneCameraPage implements PhoneCameraHost {
                 PhoneOverlay.showBubble("保存失败");
             }
         });
+    }
+
+    /**
+     * 前摄拍照：向核心 {@link SelfieCameraTarget} 登记一次抓图请求，成功后进入确认页。
+     * <p>
+     * 与后摄不同，前摄<b>不</b>在按下的一刻就存相册：先让玩家在确认页决定"保存 / 重拍"。
+     * 抓的是"玩家本人 + 其身后场景"的竖屏离屏画面，而不是主画面。
+     * <p>防重复靠 {@link #selfieShotPending}；{@link #selfieRequestSeq} 保证切后摄 / 离开页面后
+     * 旧回调不落照片。
+     */
+    private void takeSelfiePhoto() {
+        if (selfieShotPending) {
+            return;
+        }
+        selfieShotPending = true;
+        long request = ++selfieRequestSeq;
+        SelfieCameraTarget.requestCapture(png -> {
+            if (request != selfieRequestSeq || !frontCamera || cameraShot != null) {
+                return;
+            }
+            selfieShotPending = false;
+            if (png == null) {
+                PhoneOverlay.showBubble("拍照失败");
+                return;
+            }
+            cameraShot = png;
+            PhotoLibrary.registerCapturedBytes(SELFIE_SHOT_KEY, png);
+            lastShotKey = SELFIE_SHOT_KEY;
+            // 立即标脏：确认页要马上出现，不能被模型屏的 100ms 空闲缓存拖一拍
+            PhoneOverlay.requestRedraw();
+        });
+    }
+
+    /**
+     * 前摄确认页：侧键 4 = 保存到相册。
+     * <p>成功弹「已保存」并<b>回到自拍预览</b>（相机继续可用）；失败弹提示并<b>保留照片</b>，
+     * 玩家可再按一次重试。
+     */
+    private void confirmSelfie() {
+        if (cameraShot == null) {
+            return;
+        }
+        if (PhotoLibrary.saveToGallery(cameraShot) != null) {
+            PhoneOverlay.showBubble("已保存");
+            cameraShot = null;
+            PhoneOverlay.requestRedraw();
+        } else {
+            PhoneOverlay.showBubble("保存失败，可重试");
+        }
     }
 
     // ==================== 渲染 ====================
@@ -162,7 +317,8 @@ public class PhoneCameraPage implements PhoneCameraHost {
         // 两段共用同一个缩放：键名是玩家绑定的、可能很长，宁可一起缩也不让它们撞在一起。
         graphics.fill(baseX, baseY, baseX + w, baseY + navH, TOPBAR_BG);
         String backHint = "< 返回 " + keyHint(false);
-        String title = "拍照";
+        // 右段：前摄确认页「确认照片」，前摄取景「自拍」，后摄取景「拍照」。
+        String title = cameraShot != null ? "确认照片" : (frontCamera ? "自拍" : "拍照");
         float barTs = PhoneText.scale(0.85f);
         int barAvail = w - PhoneText.px(10) - PhoneText.px(6);
         int barRaw = font.width(backHint) + font.width(title);
@@ -175,6 +331,12 @@ public class PhoneCameraPage implements PhoneCameraHost {
         PhoneText.draw(graphics, font, title, baseX + w - PhoneText.px(6) - font.width(title) * barTs,
                 barTextY, 0xFFFFFFFF, barTs);
 
+        // ---- 前摄确认页：整块内容区铺刚拍的照片 + 「重拍 / 保存」两颗按钮，独立分派 ----
+        if (cameraShot != null) {
+            renderSelfieConfirm(graphics, font, baseX, baseY, w, h, navH);
+            return;
+        }
+
         // ---- 取景框：不铺任何底色（游戏画面从这里透出来）+ 四角边框 + 十字准星 ----
         int viewTop = baseY + navH + PhoneText.px(8);
         int viewBottom = baseY + viewBottom();
@@ -185,6 +347,10 @@ public class PhoneCameraPage implements PhoneCameraHost {
         int corner = PhoneText.px(16);  // 四角边长
         int l = baseX + PhoneText.px(8);
         int r = baseX + w - PhoneText.px(8);
+
+        // 前摄：先用核心镜像画面覆盖取景框（不透明、左右镜像的实时自拍预览），再叠四角框与准星。
+        drawSelfiePreviewIfFront(graphics, font, l, viewTop, r - l, viewBottom - viewTop);
+
         graphics.fill(l, viewTop, l + corner, viewTop + fr, 0xCCFFFFFF);
         graphics.fill(r - corner, viewTop, r, viewTop + fr, 0xCCFFFFFF);
         graphics.fill(l, viewBottom - fr, l + corner, viewBottom, 0xCCFFFFFF);
@@ -209,10 +375,10 @@ public class PhoneCameraPage implements PhoneCameraHost {
         int shutterX = L[5], shutterY = L[6], shutterD = L[7];
 
         // 左下：装饰缩略图（刚拍的这张）。拍过才画。
-        if (hasShot) {
-            ResourceLocation thumbTex = PhotoLibrary.getOrLoadTexture(THUMB_KEY);
+        if (lastShotKey != null) {
+            ResourceLocation thumbTex = PhotoLibrary.getOrLoadTexture(lastShotKey);
             // getTextureSize 永不返回 null（取不到时兜底 24×24），所以不判空
-            int[] thumbDim = PhotoLibrary.getTextureSize(THUMB_KEY);
+            int[] thumbDim = PhotoLibrary.getTextureSize(lastShotKey);
             if (thumbTex != null) {
                 int tx = baseX + thumbX;
                 int ty = baseY + thumbY;
@@ -239,6 +405,95 @@ public class PhoneCameraPage implements PhoneCameraHost {
         ts = Math.max(0.20f, Math.min(ts, 0.70f));
         PhoneText.draw(graphics, font, key, sx + (shutterD - keyW * ts) / 2f,
                 sy + (shutterD - font.lineHeight * ts) / 2f, 0xFFFFFFFF, ts);
+
+        // 右侧：前/后摄切换按钮（相机无光标，真正触达靠 V 键；按钮只显示状态 + 提示键位）。
+        drawCameraToggle(graphics, font, baseX, baseY, w);
+    }
+
+    /**
+     * 前摄确认页：整块内容区铺刚拍的这张照片（cover，不拉伸），底部「重拍 / 保存」两颗按钮。
+     * <p>
+     * 与聊天页的确认页刻意分开实现（不复制它的整套布局代码）：这里只有"保存入相册"这一条主操作，
+     * 没有"发送给女仆"。键位沿用侧键：4=保存、5=重拍，与取景态一致。
+     */
+    private void renderSelfieConfirm(GuiGraphics g, Font font, int baseX, int baseY, int w, int h, int navH) {
+        int top = baseY + navH;
+        int bottom = baseY + h;
+        // 底色兜底：纹理万一没加载出来也要挡住背后的世界
+        g.fill(baseX, top, baseX + w, bottom, 0xFF101010);
+        ResourceLocation tex = PhotoLibrary.getOrLoadTexture(SELFIE_SHOT_KEY);
+        int[] dim = PhotoLibrary.getTextureSize(SELFIE_SHOT_KEY);
+        if (tex != null) {
+            PhoneImages.drawCover(g, tex, baseX, top, w, bottom - top, dim[0], dim[1]);
+        }
+
+        // 按钮布局：与聊天页同款（对半分、无最小宽度，避免小手机/大字体溢出）
+        int margin = PhoneText.px(8);
+        int gap = PhoneText.px(6);
+        int btnH = Math.max(PhoneText.px(20), Math.round(h * 0.085f));
+        int btnW = Math.max(1, (w - margin * 2 - gap) / 2);
+        int y = h - PhoneText.px(8) - btnH;
+        // 按钮压在照片上，需要一条暗带衬底
+        g.fill(baseX, baseY + y - PhoneText.px(6), baseX + w, bottom, 0x66000000);
+        drawPill(g, font, baseX + margin, baseY + y, btnW, btnH,
+                0xECFFFFFF, 0xFFDE7E7E, "重拍 " + keyHint(false));
+        drawPill(g, font, baseX + margin + btnW + gap, baseY + y, btnW, btnH,
+                0xFFDE7E7E, 0xFFFFFFFF, "保存 " + keyHint(true));
+    }
+
+    /**
+     * 前摄取景预览：把核心的竖屏离屏画面（左右镜像）铺进取景框。
+     * <p>{@link SelfieCameraTarget#renderPreviewFit} 内部等比 letterbox，固定 2:3，
+     * 绝不把 400×600 拉变形。
+     * <p>
+     * ⚠ 只有<b>前摄</b>才接管这块矩形，且<b>永远 opaque 填黑</b>：准备中/失败时绝不透出主视角或世界，
+     * 而是给一句短状态（{@link SelfieCameraTarget#isReady()} / {@link SelfieCameraTarget#isFailed()} 区分）。
+     */
+    private void drawSelfiePreviewIfFront(GuiGraphics g, Font font, int x, int y, int w, int h) {
+        if (!frontCamera || w <= 0 || h <= 0) {
+            return;
+        }
+        g.fill(x, y, x + w, y + h, 0xFF000000);
+        if (SelfieCameraTarget.isReady()) {
+            SelfieCameraTarget.renderPreviewFit(g, x, y, w, h);
+            return;
+        }
+        String hint = SelfieCameraTarget.isFailed() ? "前置相机不可用" : "前置相机准备中…";
+        float ts = Math.min(PhoneText.scale(0.8f), (w - PhoneText.px(8)) / Math.max(1f, (float) font.width(hint)));
+        ts = Math.max(0.25f, ts);
+        PhoneText.draw(g, font, hint, x + (w - font.width(hint) * ts) / 2f,
+                y + (h - font.lineHeight * ts) / 2f, 0xFFCCCCCC, ts);
+    }
+
+    /** 前/后摄切换胶囊：简短状态（前摄/后摄）+ 切换键名，单行自适应宽度。 */
+    private void drawCameraToggle(GuiGraphics g, Font font, int baseX, int baseY, int w) {
+        int[] tr = toggleLayout(w);
+        int tx = baseX + tr[0];
+        int ty = baseY + tr[1];
+        int tw = tr[2];
+        int th = tr[3];
+        if (tw <= 0 || th <= 0) {
+            return;
+        }
+        PhoneShapes.fillRoundedRect(g, tx, ty, tw, th, th / 2, 0xCC000000);
+        // 简短状态 + 切换键名，单行自适应：极窄 GUI 下缩小，不换行、不溢出、不撞中央快门
+        String label = (frontCamera ? "前摄 " : "后摄 ") + facingKeyHint();
+        float ts = Math.min(PhoneText.scale(0.8f),
+                (tw - PhoneText.px(6)) / Math.max(1f, (float) font.width(label)));
+        ts = Math.max(0.20f, ts);
+        PhoneText.draw(g, font, label, tx + (tw - font.width(label) * ts) / 2f,
+                ty + (th - font.lineHeight * ts) / 2f, 0xFFFFFFFF, ts);
+    }
+
+    /** 画一颗动作胶囊：底色 + 居中文字；字号自适应宽度（键名可能很长）。 */
+    private void drawPill(GuiGraphics g, Font font, int x, int y, int w, int h,
+                          int bgColor, int textColor, String label) {
+        PhoneShapes.fillRoundedRect(g, x, y, w, h, h / 2, bgColor);
+        float ts = Math.max(0.25f,
+                Math.min(PhoneText.scale(1.0f), (w - PhoneText.px(6)) / Math.max(1f, (float) font.width(label))));
+        float tw = font.width(label) * ts;
+        PhoneText.draw(g, font, label, x + (w - tw) / 2f,
+                y + (h - font.lineHeight * ts) / 2f, textColor, ts);
     }
 
     /**
@@ -287,6 +542,32 @@ public class PhoneCameraPage implements PhoneCameraHost {
     }
 
     /**
+     * 控件条右侧「前/后摄切换」胶囊的布局。与居中快门分开，手机再窄也不会重叠。
+     *
+     * @return {x, y, w, h}，内容区相对坐标
+     */
+    private int[] toggleLayout(int w) {
+        int barTop = viewBottom();
+        int barH = Math.max(PhoneText.px(24), PhoneOverlay.getPhoneHeight() - barTop);
+        int edge = PhoneText.px(5);
+        int h = Math.max(PhoneText.px(14), barH - 8);
+        // 与居中快门留间隙：切换胶囊只能落在快门右缘之后；极窄时缩到取景框右上角，绝不覆盖快门。
+        int shutterD = Math.max(PhoneText.px(SHUTTER_MIN), Math.round(w * SHUTTER_W_RATIO));
+        int gap = PhoneText.px(3);
+        int shutterRight = w / 2 + shutterD / 2;
+        int maxBw = w - edge - shutterRight - gap;
+        int minBw = PhoneText.px(18);
+        if (maxBw >= minBw) {
+            int want = Math.max(PhoneText.px(34), PhoneOverlay.getPhoneWidth() / 3);
+            int bw = Math.min(want, maxBw);
+            return new int[]{w - edge - bw, barTop + (barH - h) / 2, bw, h};
+        }
+        // 极窄 GUI：控件条右侧放不下 → 简短状态+V 提示缩到取景框右上角
+        int bw = Math.min(Math.max(PhoneText.px(18), w / 4), Math.max(1, w - edge * 2));
+        return new int[]{w - edge - bw, navH() + PhoneText.px(10), bw, h};
+    }
+
+    /**
      * 取当前玩家绑定键位的显示名（例如 {@code 鼠标按键 4} 或 {@code N}）。
      * <p>
      * 必须走 {@code getTranslatedKeyMessage()} 而不是硬编码字符串：玩家改绑之后，
@@ -295,5 +576,10 @@ public class PhoneCameraPage implements PhoneCameraHost {
     private String keyHint(boolean confirmButton) {
         var mapping = confirmButton ? ClientModEvents.PHONE_CLICK : ClientModEvents.PHONE_BACK;
         return mapping.getTranslatedKeyMessage().getString();
+    }
+
+    /** 前/后摄切换键的显示名（默认 V，玩家可改绑；动态取而不是硬编码）。 */
+    private String facingKeyHint() {
+        return ClientModEvents.PHONE_CAMERA_FACING.getTranslatedKeyMessage().getString();
     }
 }

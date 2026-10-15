@@ -10,6 +10,7 @@
   "key.huhutalk.quick_voice": "Hold to talk (voice input)",
   "key.huhutalk.phone_click": "Phone left click (tap/confirm in phone)",
   "key.huhutalk.phone_back": "Phone right click (back in phone)",
+  "key.huhutalk.camera_facing": "Switch front/back camera (selfie)",
   "huhutalk.toast.photo_saved": "Saved to gallery",
   "task.huhutalk.remote_supply": "Remote Supply",
   "task.huhutalk.remote_supply.desc": "When your health or hunger runs low, she picks a suitable food or potion from her own backpack/gap chest and uses it on you, leaving a note in the phone chat. No nagging."

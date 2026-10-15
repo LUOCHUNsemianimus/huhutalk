@@ -46,18 +46,29 @@ public abstract class MouseHandlerMixin {
     }
 
     /**
-     * 鼠标按键：只有玩家绑定的手机侧键额外转发给手机，<b>一律不 cancel</b>，
+     * 鼠标按键：只有玩家绑定的手机侧键额外转发给手机；<b>前摄取景</b>时再额外把
+     * 本机<b>普通右键</b>（button=1）当快门并取消原版行为。<b>其余情况一律不 cancel</b>，
      * 因此左右键的攻击/放置、滚轮切快捷栏全部保持原版。
      * <p>
      * 刻意的分工：{@code PhoneOverlay.onMouseDelta} 负责"光标动"，这里负责"点下去"，
      * 两者都只在 {@link PhoneOverlay#isScreenControl()} 成立时才真正生效（内部各自把关）。
+     * <p>
+     * ⚠ 普通右键（button=1）与手机侧键 5（默认鼠标侧键 5）是两个按钮，不能混为一谈：
+     * 后者是玩家的"手机返回"，永远走 {@link PhoneOverlay#onPhoneSideButton}，本方法不碰它。
      */
-    @Inject(method = "onPress", at = @At("HEAD"))
+    @Inject(method = "onPress", at = @At("HEAD"), cancellable = true)
     private void onMousePress(long window, int button, int action, int mods, CallbackInfo ci) {
+        boolean boundToPhoneKey =
+                ClientModEvents.isPhoneClickButton(button) || ClientModEvents.isPhoneBackButton(button);
+        // 前摄取景：普通右键 = 快门（自带按下锁存，保证确认页出现后的松开也不漏给原版）
+        boolean selfieHandled = PhoneOverlay.handleSelfieRightButton(window, button, action, boundToPhoneKey);
         if (ClientModEvents.isPhoneClickButton(button)) {
             PhoneOverlay.onPhoneSideButton(true, action);
         } else if (ClientModEvents.isPhoneBackButton(button)) {
             PhoneOverlay.onPhoneSideButton(false, action);
+        }
+        if (selfieHandled) {
+            ci.cancel();
         }
     }
 }

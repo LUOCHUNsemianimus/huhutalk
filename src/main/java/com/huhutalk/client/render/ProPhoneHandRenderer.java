@@ -227,6 +227,12 @@ public final class ProPhoneHandRenderer {
                                              MultiBufferSource buffer, int packedLight, float pitch,
                                              float equippedProgress, float swingProgress, ItemStack stack) {
         boolean camera = PhoneOverlay.isCameraMode();
+        // 前摄取景：右手单手持机（屏朝玩家）。模型右臂在自拍 pass 里由核心摆好，
+        // 这里只管第一人称"自己手里那台"的持握，不复用原版 ItemRenderer（那会让屏幕熄灭）。
+        boolean selfie = PhoneOverlay.isSelfieMode();
+        // 「常规地图式双手持握」：非相机态本就如此；前摄的确认页也走它，把手机放下看照片。
+        boolean mapPose = !camera || PhoneOverlay.cameraUseDefaultHoldPose();
+
         float f = Mth.sqrt(swingProgress);
         float f1 = -0.2F * Mth.sin(swingProgress * (float) Math.PI);
         float f2 = -0.4F * Mth.sin(f * (float) Math.PI);
@@ -238,10 +244,10 @@ public final class ProPhoneHandRenderer {
         //
         // ⚠ 相机模式的 tilt 用**另一个参考俯仰**（见 CAM_TILT_REF_PITCH）：
         // 取 +90 时，正常俯仰范围内 tilt 恒为 0 = 手机始终垂直于视线，先天就没有"随俯仰打转"。
-        float tilt = camera
+        float tilt = (camera && !mapPose)
                 ? calculateMapTilt(pitch + CAM_TILT_REF_PITCH)
                 : calculateMapTilt(pitch);
-        if (camera) {
+        if (camera && !mapPose) {
             poseStack.translate(CAM_OFFSET_X, CAM_OFFSET_Y, CAM_OFFSET_Z);
         } else {
             poseStack.translate(0.0F, 0.04F + equippedProgress * -1.2F + tilt * -0.5F, -0.72F);
@@ -251,15 +257,19 @@ public final class ProPhoneHandRenderer {
         if (!player.isInvisible()) {
             poseStack.pushPose();
             poseStack.mulPose(Axis.YP.rotationDegrees(90.0F));
+            // 前摄只画右臂：复用原版 renderRightHand 的手臂模型与朝向，砍掉左臂就是"单手持机"。
+            // 其余任何情况仍画双臂（原版地图式 / 后摄取景姿态）。
             renderPhoneHand(mc, player, poseStack, buffer, packedLight, HumanoidArm.RIGHT);
-            renderPhoneHand(mc, player, poseStack, buffer, packedLight, HumanoidArm.LEFT);
+            if (!selfie) {
+                renderPhoneHand(mc, player, poseStack, buffer, packedLight, HumanoidArm.LEFT);
+            }
             poseStack.popPose();
         }
 
         float f4 = Mth.sin(f * (float) Math.PI);
         poseStack.mulPose(Axis.XP.rotationDegrees(f4 * 20.0F));
 
-        if (camera) {
+        if (camera && !mapPose) {
             applyCameraPose(poseStack, tilt);
             camDiag(player.getXRot(), pitch, tilt);
         }

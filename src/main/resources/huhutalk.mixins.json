@@ -12,7 +12,13 @@
     "MouseHandlerMixin",
     "GeckoMaidEntityMixin",
     "GeckoModelLoaderMixin",
-    "GeckoLayerMaidHeldMixin"
+    "GeckoLayerMaidHeldMixin",
+    "MinecraftSelfieAccessor",
+    "GameRendererSelfieMixin",
+    "LevelRendererSelfieAccessor",
+    "CameraSelfieMixin",
+    "HumanoidModelSelfieMixin",
+    "ItemInHandLayerSelfieMixin"
   ],
   "injectors": {
     "defaultRequire": 1
