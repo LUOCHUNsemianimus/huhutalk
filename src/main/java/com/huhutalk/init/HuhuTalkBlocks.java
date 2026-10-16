@@ -4,8 +4,9 @@ import com.huhutalk.HuhuTalk;
 import net.minecraft.world.item.BlockItem;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.level.block.Block;
-import net.minecraft.world.level.block.Blocks;
+import net.minecraft.world.level.block.SoundType;
 import net.minecraft.world.level.block.state.BlockBehaviour;
+import net.minecraft.world.level.material.MapColor;
 import net.neoforged.neoforge.registries.DeferredHolder;
 import net.neoforged.neoforge.registries.DeferredRegister;
 
@@ -23,7 +24,14 @@ public final class HuhuTalkBlocks {
 
     public static final DeferredHolder<Block, Block> WIFI_BLOCK =
             BLOCKS.register("wifi_block",
-                    () -> new BlockWifi(BlockBehaviour.Properties.ofFullCopy(Blocks.IRON_BLOCK)
+                    // 不再 ofFullCopy(IRON_BLOCK)：那样会连带继承 requiresCorrectToolForDrops()，
+                    // 空手或任何工具挖下来都不掉落（铁块的性质，不是本方块想要的）。
+                    // 这里显式给出，等于"空手能挖、任何工具都有掉落"，挖掘手感对齐原木：
+                    // 硬度 2.0（原木同值）→ 空手约 3 秒；再靠 mineable/pickaxe 标签让镐子更快。
+                    // 抗爆沿用原值 6.0；音效与地图色沿用铁块那套，保持外观/手感不变。
+                    () -> new BlockWifi(BlockBehaviour.Properties.of()
+                            .mapColor(MapColor.METAL)
+                            .sound(SoundType.METAL)
                             .strength(2.0f, 6.0f)
                             // 非完整方块：相邻方块的面不剔除，底部草地方块能正常渲染
                             .noOcclusion()));

@@ -46,12 +46,18 @@ public class ClientCacheEvents {
         // 现在手机是**独立光标**，鼠标左右键完整留给游戏（攻击/放置照常），
         // 手机自己只吃玩家绑定的两个功能键。所以正确说法是：掏出手机 + 低头，然后用那两个键操作。
         // 键名**动态取当前绑定**：默认鼠标侧键 4/5，会显示成「鼠标按键4」「鼠标按键5」；
-        // 玩家在「按键设置」里改过之后这条提示也依然准确。
+        // 玩家在「按键设置」里改过之后这条提示也依然准确（绑成 W 就显示「W」）。
+        // 版式与开局礼包提示（PlayerStarterKit）对齐：前缀「【Huhutalk】」橙色、正文默认色；
+        // 两个键名单独标黄。原先跟在键名后的"（两个玩家绑定的功能键）"是自己写注解时不慎
+        // 写进字面量的产物，会把编辑备注推到玩家聊天框里，这里去掉。
         event.getPlayer().displayClientMessage(
-                Component.literal("[HuhuTalk] 掏出狐狐Talk手机后低头，按「"
-                        + keyName(ClientModEvents.PHONE_CLICK) + "」「"
-                        + keyName(ClientModEvents.PHONE_BACK)
-                        + "」（两个玩家绑定的功能键）即刻使用。"), false);
+                Component.empty()
+                        .append(Component.literal("【Huhutalk】").withColor(0xFFA500))
+                        .append(Component.literal("：掏出狐狐Talk手机后低头，按「"))
+                        .append(keyComponent(ClientModEvents.PHONE_CLICK))
+                        .append(Component.literal("」「"))
+                        .append(keyComponent(ClientModEvents.PHONE_BACK))
+                        .append(Component.literal("」即刻使用。")), false);
     }
 
     /** 取某个键位当前绑定的显示名（玩家可能改过；取不到就退化成占位符）。 */
@@ -61,6 +67,11 @@ public class ClientCacheEvents {
         } catch (Exception e) {
             return "?";
         }
+    }
+
+    /** 键名标黄：与正文、橙色前缀区分开（Minecraft 标准黄 0xFFFF55）。 */
+    private static Component keyComponent(net.minecraft.client.KeyMapping mapping) {
+        return Component.literal(keyName(mapping)).withColor(0xFFFF55);
     }
 
     /** 周期性重同步路径点（进世界后路径点才陆续加载，需补发） */

@@ -6,6 +6,7 @@ import com.huhutalk.api.phone.ui.PhoneShapes;
 import com.huhutalk.api.phone.ui.PhoneText;
 import com.huhutalk.client.PhotoLibrary;
 import com.huhutalk.client.theme.ColorScheme;
+import com.huhutalk.event.ClientModEvents;
 import com.huhutalk.phone.PhoneOverlay;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
@@ -198,6 +199,17 @@ public class ManualPage extends PhonePage {
     /** 一级大栏目：标题 + 其下二级条目列表 */
     public record ManualSection(String title, List<ManualEntry> entries) {}
 
+    /**
+     * 手机功能键当前绑定的显示名（玩家改绑后手册要立刻跟着变）。
+     * <p>
+     * 手册正文原来把「鼠标按键4/5」写死，玩家把功能键改绑到 W 之后这段就变成假文档。
+     * 与 {@code PhoneCameraPage#keyHint}、{@code ChatPage} 同一套做法：走
+     * {@code getTranslatedKeyMessage()} 取当前绑定，而不是硬编码字符串。
+     */
+    private static String keyDisplayName(net.minecraft.client.KeyMapping mapping) {
+        return mapping.getTranslatedKeyMessage().getString();
+    }
+
     private final List<ManualSection> sections;
     /** 当前打开的一级栏目；null = 一级列表 */
     private ManualSection currentSection = null;
@@ -243,9 +255,14 @@ public class ManualPage extends PhonePage {
                         + "如果你使用了大GUI却想要小字体/使用了小GUI却想要大字体 ，在huhutalk内部的设置页面可再次缩放字体，"
                         + "但可能会有一些字体渲染问题出现。"),
                 // 原来这条叫「辅助键（默认alt）」—— 那条"按住 Alt 释放鼠标"的通路早已拆除，
-                // 现在手机用独立光标，只吃玩家绑定的两个功能键（默认鼠标侧键 4/5）。
-                entry("操作键（默认鼠标按键4/5）", "手机需要用已绑定的功能键位来操作。左键=鼠标按键4，右键=鼠标侧键5，滚轮=按住按键4拖动。\n"
-                        + "默认左键确认、右键返回上一级（当然也可以点击左上角的返回按钮）。"),
+                // 现在手机用独立光标，只吃玩家绑定的两个功能键。键名一律动态取当前绑定
+                // （见 keyDisplayName）：玩家改绑到 W 之后这里就得写「W」，不能再印死默认值。
+                entry("操作键（" + keyDisplayName(ClientModEvents.PHONE_CLICK) + " / "
+                                + keyDisplayName(ClientModEvents.PHONE_BACK) + "）",
+                        "手机需要用已绑定的功能键位来操作。左键=" + keyDisplayName(ClientModEvents.PHONE_CLICK)
+                                + "，右键=" + keyDisplayName(ClientModEvents.PHONE_BACK)
+                                + "，滚轮=按住" + keyDisplayName(ClientModEvents.PHONE_CLICK) + "拖动。\n"
+                                + "默认左键确认、右键返回上一级（当然也可以点击左上角的返回按钮）。"),
                 // 「顶部导航栏」这条已按需求方要求并进「备用屏幕选项」（见下一节），从本节移走。
                 entry("紧急关闭", "顶部导航栏的右角有一个隐形的紧急关闭按钮（叉叉），用来应对某种特殊情况。（见图1）",
                         fig(1))));
@@ -290,7 +307,9 @@ public class ManualPage extends PhonePage {
                         + "注：借用了车万女仆的原生链路，目前仅开通了deepseek最新模型的识图功能，如果已经在原模组填入了ds API key，那么便可直接使用图片相关功能。\n"
                         + "注：识图延迟挺高，请耐心等待orz。",
                         fig(8)),
-                entry("拍照", "按鼠标按键4拍照，长按鼠标按键4保存，鼠标按键5退出。\n"
+                entry("拍照", "按" + keyDisplayName(ClientModEvents.PHONE_CLICK) + "拍照，长按"
+                                + keyDisplayName(ClientModEvents.PHONE_CLICK) + "保存，"
+                                + keyDisplayName(ClientModEvents.PHONE_BACK) + "退出。\n"
                         + "如果不点击保存，那么点击确认的图片仅会在此次发送中生效，不会存储到本地。（图9）",
                         fig(9)),
                 // 新增条目：玩家把物品随消息发给女仆（P→M 传文件）
