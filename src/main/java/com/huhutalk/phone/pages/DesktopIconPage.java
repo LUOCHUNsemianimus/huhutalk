@@ -26,6 +26,9 @@ import java.util.stream.IntStream;
  *   <li><b>移除</b>：点格子右上角的 ✕（也可以把图标拖进底部「已移除」横栏）。</li>
  *   <li><b>放回</b>：点底部「已移除」横栏里的图标。</li>
  *   <li><b>主应用 HuhuTalk 固定在第一排第一位</b>：不画 ✕、不接受拖动起点，也不接受别人落在它那格。</li>
+ *   <li><b>「设置」可拖动换位、但不可移除</b>：不画 ✕，拖进回收栏也不生效；
+ *       它的「不可移除」走 {@link MainPage#isDesktopRemovable}，与「不可拖动」的
+ *       {@link MainPage#isDesktopFixed} 是两回事。</li>
  * </ul>
  *
  * <h2>为什么用 {@link PhoneGrid} 而不是自己写格子循环</h2>
@@ -381,7 +384,10 @@ public class DesktopIconPage extends PhonePage {
             PhoneShapes.fillRoundedRect(g, x + w - d - 2, y + 2, d, d, d / 2, 0xCCFFFFFF);
             return;
         }
-        drawRemoveButton(g, x, y, w, hovered);
+        if (MainPage.isDesktopRemovable(s.key)) {
+            // 只有可移除的 App 才画 ✕。设置不可移除但可拖动，所以既不画 ✕ 也不画锁点。
+            drawRemoveButton(g, x, y, w, hovered);
+        }
     }
 
     /** 右上角 ✕：命中框比图形略大一圈，避免小格子上难点。 */
@@ -441,7 +447,7 @@ public class DesktopIconPage extends PhonePage {
         // ① 先判 ✕（它压在格子上，必须优先于"点格子"）
         int idx = slotGrid.indexAt(localX, localY);
         MainPage.DesktopSlot s = slotAt(idx);
-        if (s != null && s.key != null && !s.fixed) {
+        if (s != null && s.key != null && MainPage.isDesktopRemovable(s.key)) {
             int cx = slotGrid.cellX(idx);
             int cy = slotGrid.cellY(idx);
             int d = removeBtnSize(cell());
@@ -501,10 +507,13 @@ public class DesktopIconPage extends PhonePage {
         }
         // ⚠ 按在 ✕ 上不算拖动起点：接管了这次手势，松开时就<b>不会</b>再补普通点击，
         //    于是 ✕ 永远点不动（这条真的踩过）。把这一小块交还给点击通路。
-        int d = removeBtnSize(cell());
-        if (hit(removeBtnX(slotGrid.cellX(idx), cell()), removeBtnY(slotGrid.cellY(idx)),
-                d, d, localX, localY)) {
-            return false;
+        //    只有可移除的 App 才有 ✕；设置不可移除但可拖动，因此跳过这块检查。
+        if (MainPage.isDesktopRemovable(s.key)) {
+            int d = removeBtnSize(cell());
+            if (hit(removeBtnX(slotGrid.cellX(idx), cell()), removeBtnY(slotGrid.cellY(idx)),
+                    d, d, localX, localY)) {
+                return false;
+            }
         }
         dragging = true;
         dragFrom = idx;
@@ -543,7 +552,9 @@ public class DesktopIconPage extends PhonePage {
         String key = src.key;
 
         if (inRecycleArea(localY)) {
-            MainPage.removeDesktopApp(key); // 拖进回收栏 = 移除
+            if (MainPage.isDesktopRemovable(key)) {
+                MainPage.removeDesktopApp(key); // 拖进回收栏 = 移除（不可移除的 App 拖进去不生效）
+            }
             refresh();
             return;
         }

@@ -1,6 +1,7 @@
 package com.huhutalk.core.event;
 
 import com.huhutalk.HuhuTalk;
+import com.huhutalk.init.HuhuTalkBlocks;
 import com.huhutalk.init.HuhuTalkItems;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
@@ -19,7 +20,7 @@ import java.util.HashSet;
 import java.util.Set;
 
 /**
- * 开局礼包：<b>每个存档、每个玩家一次</b>，发两部手机（Pro 版 + 电话手表）。
+ * 开局礼包：<b>每个存档、每个玩家一次</b>，发 Pro 版手机、电话手表、WiFi 方块各一个。
  *
  * <h2>为什么用 SavedData 而不是玩家身上的标记</h2>
  * 需求是"每个新档开局发一次"。{@link Granted} 存进主世界维度的 {@code DataStorage}，
@@ -55,10 +56,13 @@ public final class PlayerStarterKit {
 
         give(player, new ItemStack(HuhuTalkItems.PHONE_SMART.get()));
         give(player, new ItemStack(HuhuTalkItems.PHONE_WATCH.get()));
+        give(player, new ItemStack(HuhuTalkBlocks.WIFI_BLOCK_ITEM.get()));
 
-        player.displayClientMessage(Component.literal(
-                "[HuhuTalk] 开局礼包：「Pro 版手机」与「电话手表」各一部，已放进你的背包。\n"
-                        + "把它们放进女仆的饰品栏，就能给女仆戴上手机，开始远程聊天。"), false);
+        // 父组件不带上色，前缀单独着色，正文用默认文字颜色（不继承橙色）
+        Component message = Component.empty()
+                .append(Component.literal("【Huhutalk】").withColor(0xFFA500))
+                .append(Component.literal("：新手礼包已下放！"));
+        player.displayClientMessage(message, false);
         HuhuTalk.LOGGER.info("[HuhuTalk] 已为 {} 发放开局手机（存档 {}）",
                 player.getGameProfile().getName(), player.level().dimension().location());
     }

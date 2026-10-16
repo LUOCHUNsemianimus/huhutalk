@@ -109,6 +109,15 @@ public class PhoneOverlay {
     private static boolean dragging = false;
     /** 拖拽抓取点：按下瞬间鼠标相对手机左上角的偏移 */
     private static float grabDX, grabDY;
+    /**
+     * 整窗拖动用的<b>虚拟屏幕指针</b>（GUI 缩放坐标，float）。
+     * <p>
+     * 悬浮窗拖动由手机侧键触发，而侧键按住期间真实鼠标照常转视角 —— 它的绝对位置与手机
+     * 没有任何几何关系，不能像原版 GUI 那样拿 {@code guiMouseX/Y} 当抓取点。所以拖动期间
+     * 只把鼠标增量累计到这个指针上：指针以 float 保存，逐帧取整发生在「指针 - 抓取偏移」
+     * 之后，小数不会被每帧舍入吞掉。
+     */
+    private static float dragPointerX, dragPointerY;
 
     /** 手机容器动画状态机：呼出/收起为整机 Overlay 动画（唯一需要鼠标逆矩阵矫正的动画） */
     private enum ContainerAnim { IDLE, ENTER, EXIT }
@@ -339,6 +348,7 @@ public class PhoneOverlay {
         cursorNX = 0.5f;
         cursorNY = defaultCursorNY();
         cursorPressing = false;
+        endWindowDrag(false);
         dragIsScroll = false;
         dragTotalX = 0f;
         dragTotalY = 0f;
@@ -356,6 +366,21 @@ public class PhoneOverlay {
         reorderOwner = null;
         if (owner != null) {
             owner.cancelDragReorder();
+        }
+    }
+
+    /**
+     * 结束整窗拖动（唯一收尾入口，避免各处重复 save/reset 分支）。
+     *
+     * @param commit true = 正常松手，把当前位置落盘；false = 被关闭/切屏/失焦等打断，只清状态不落盘
+     */
+    private static void endWindowDrag(boolean commit) {
+        if (!dragging) {
+            return;
+        }
+        dragging = false;
+        if (commit) {
+            HuhuTalkClientSettings.save();
         }
     }
 
@@ -400,25 +425,31 @@ public class PhoneOverlay {
     }
 
     /**
-     * 当前是否处于「操控屏幕」态。三个条件<b>同时</b>成立才算：
-     * <ol>
-     *   <li>手机 UI 已掏出（{@link #isVisible()}）；</li>
-     *   <li><b>主手确实拿着 Pro 手机</b>（{@link #isHoldingPhone()}）；</li>
-     *   <li>低头 ≥ {@link #LOOK_DOWN_DEG} 度。</li>
-     * </ol>
+     * 当前是否处于「操控屏幕」态（独立光标可动、侧键落到手机屏上）。两种渲染形式判据不同：
+     * <ul>
+     *   <li><b>FLOATING</b>：{@link #isFloatingScreen()} 为真即可 —— 悬浮窗是 O 显式召唤的
+     *       屏幕空间 UI，<b>不要求手持手机、也不要求低头</b>；鼠标移动照常转视角，
+     *       且<b>不降速</b>（降速守卫见 {@code ClientModEvents.onCalculatePlayerTurn}
+     *       对 FLOATING 的直接返回）。</li>
+     *   <li><b>MODEL</b>：三个条件<b>同时</b>成立才算 ——「UI 已掏出（{@link #isVisible()}）」
+     *       +「主手确实拿着 Pro 手机」（{@link #isHoldingPhone()}）
+     *       +「低头 ≥ {@link #LOOK_DOWN_DEG} 度」。</li>
+     * </ul>
      * 另外「光标停在顶栏」由调用方 {@code ClientModEvents.onCalculatePlayerTurn} 单独放行
      * （见 {@link #isCursorInTopBar()}）。
      * <p>
-     * <b>⚠ 第 2 条不能省</b>（实机 bug）：曾经只判前两条，于是"空手低头"也会进这个态 ——
-     * 视角被静默降到 0.25 倍速，玩家却找不到任何理由。
-     * 可见性那条<b>不够用</b>：{@link #isVisible()} 只管"UI 该不该画"，
-     * 而这里是"玩家此刻有没有在操控一台真机"。两条判据要一起查，别只留一条。
+     * <b>⚠ MODEL 第 2 条不能省</b>（实机 bug）：曾经只判前两条，于是"空手低头"也会进这个态 ——
+     * 视角被静默降到 0.25 倍速，玩家却找不到任何理由。FLOATING 之所以能免掉这两条，
+     * 是因为它由 O 显式开启、又不走降速那条通路，不存在"莫名变慢"的归因问题。
      * <p>
-     * 这是<b>纯函数</b>（除俯仰低通外无内部状态），所以随时抬头就能退出，
+     * 这是<b>纯函数</b>（除俯仰低通外无内部状态），MODEL 态随时抬头就能退出，
      * 不存在"进了出不来"的情况。
      */
     public static boolean isScreenControl() {
-        return isVisible() && isHoldingPhone() && filteredPitch >= LOOK_DOWN_DEG;
+        if (isFloatingScreen()) {
+            return true;
+        }
+        return isModelScreen() && isHoldingPhone() && filteredPitch >= LOOK_DOWN_DEG;
     }
 
     /**
@@ -458,6 +489,14 @@ public class PhoneOverlay {
         }
         double guiScale = Math.max(1.0, Minecraft.getInstance().getWindow().getGuiScale());
         float sensitivity = HuhuTalkClientSettings.getPhoneCursorSensitivity();
+        // 整窗拖动：增量只累计进虚拟屏幕指针（float），**不动局部光标** ——
+        // 光标贴在抓取点上，会随手机一起移动，手感与"抓住状态栏拖窗口"一致。
+        if (dragging) {
+            dragPointerX += (float) (rawDx / guiScale * sensitivity);
+            dragPointerY += (float) (rawDy / guiScale * sensitivity);
+            PhoneScreenTarget.markDirty();
+            return;
+        }
         moveCursor((float) (rawDx / guiScale * sensitivity), (float) (rawDy / guiScale * sensitivity));
     }
 
@@ -572,6 +611,13 @@ public class PhoneOverlay {
         }
         if (action == GLFW.GLFW_PRESS) {
             if (clickButton) {
+                // 悬浮窗顶栏：确认侧键按下即转发 handleMouseClicked 开始整窗拖动。
+                // 关闭 X 区域由它自己处理；MODEL 没有窗口拖动语义，不转发（见 handleMouseClicked）。
+                if (isFloatingScreen() && !isCameraInputExclusive() && isCursorInTopBar()) {
+                    handleMouseClicked(cursorLocalX() + phoneX, cursorLocalY() + renderedPhoneY,
+                            GLFW.GLFW_MOUSE_BUTTON_LEFT, GLFW.GLFW_PRESS);
+                    return;
+                }
                 cursorPressing = true;
                 dragIsScroll = false;
                 dragTotalX = 0f;
@@ -592,7 +638,17 @@ public class PhoneOverlay {
             }
             return;
         }
-        if (action == GLFW.GLFW_RELEASE && clickButton && cursorPressing) {
+        if (action != GLFW.GLFW_RELEASE) {
+            return;
+        }
+        // 整窗拖动松手优先：直接收尾落盘，不经过页面点击补发、长按或滚动/图标重排。
+        // 只有启动拖动的确认侧键松开才结束拖动；另一颗侧键（返回）不会中断拖动。
+        // 屏幕外松手同样会到达这里，所以窗口不会卡在按住态。
+        if (clickButton && dragging) {
+            endWindowDrag(true);
+            return;
+        }
+        if (clickButton && cursorPressing) {
             cursorPressing = false;
             if (reorderOwner != null) {
                 // 拖放落点：页面自己判坐标（它才知道网格在哪），这里只负责"松手了"
@@ -844,18 +900,6 @@ public class PhoneOverlay {
         return Math.max(0, Math.min(screenH - PhoneText.px(STATUSBAR_H), y));
     }
 
-    /** 当前鼠标在 GUI 缩放坐标下的 X */
-    private static int guiMouseX(Minecraft mc) {
-        return (int) Math.round(mc.mouseHandler.xpos()
-                * mc.getWindow().getGuiScaledWidth() / mc.getWindow().getScreenWidth());
-    }
-
-    /** 当前鼠标在 GUI 缩放坐标下的 Y */
-    private static int guiMouseY(Minecraft mc) {
-        return (int) Math.round(mc.mouseHandler.ypos()
-                * mc.getWindow().getGuiScaledHeight() / mc.getWindow().getScreenHeight());
-    }
-
     // ==================== 状态控制 ====================
 
     /**
@@ -873,12 +917,23 @@ public class PhoneOverlay {
      * 刻意不管"举着手机但正在开 Screen"的情形：那属于输入屏（打字）场景，
      * 手机本来就该保持可见，不需要在这里做任何事。
      * <p>
-     * <b>手机离手 = 整台 UI 收起</b>（下面那个分支）：这是让
-     * 「{@code phoneOpen} ⇒ {@link #isHoldingPhone()}」这条不变式在每个 tick 都成立的关键。
-     * 它<b>不是</b>简单的"下降沿"判断 —— 按 O 空手开悬浮窗时压根没有下降沿（一直是 false→false），
-     * 所以必须查状态而不是查边沿。
+     * <b>MODEL 手机离手 = 整台 UI 收起</b>（下面那个分支）：只有「贴在手里那台手机上」的 MODEL 屏
+     * 才有这个必要 —— 手机不在手里它就无处可贴，可见性却会撒谎。
+     * FLOATING 是屏幕空间的独立窗口，换手物品与它无关，<b>不在这里收起</b>
+     * （对应「FLOATING 换手物品不关闭」）。
+     * 它<b>不是</b>简单的"下降沿"判断 —— 手机一早就不在手里时也是 false→false，
+     * 所以必须查当前 renderMode 与持有状态，而不是查边沿。
      */
     public static void onHolderTick() {
+        // 打开任何 Screen（含打字输入屏）或窗口失焦（鼠标不再被抓取）时，侧键事件与鼠标增量都会
+        // 中断：必须清掉拖窗/按住态，否则回到游戏时会残留一个"还在按住"的卡住手势。
+        Minecraft mc = Minecraft.getInstance();
+        if (mc.screen != null || !mc.mouseHandler.isMouseGrabbed()) {
+            endWindowDrag(false);
+            cursorPressing = false;
+            dragIsScroll = false;
+            cancelReorderOwner();
+        }
         boolean active = ProPhoneHandRenderer.isActive();
         boolean held = isHoldingPhone();
         boolean rising = active && !holderWasActive;
@@ -896,13 +951,11 @@ public class PhoneOverlay {
             containerTween = null;
             // 掏出手机 = 光标重新出生：回到顶栏正中（见 defaultCursorNY 的取舍说明）
             resetCursorToSpawn();
-        } else if (!held && phoneOpen) {
-            // 手机离手（换物品 / 丢掉 / 被别的逻辑抽走）⇒ 整台 UI 收起。**这是必要的**：
-            //   ① MODEL 屏是"贴在手里那台手机上"的，手机不在手里它就无处可贴
-            //      —— hasModelScreen() 为假、离屏靶都不再出图，可 renderMode 与可见性却还留着，
-            //      于是 isVisible() 撒谎：低头照样进「操控屏幕」态、视角被无故降到 0.25 倍速；
-            //   ② 按 O 空手开悬浮窗同理：那颗光标根本动不了（isScreenControl 要求手持），
-            //      开出来只会是一块点不动的假屏幕。
+        } else if (phoneOpen && renderMode == RenderMode.MODEL && !held) {
+            // MODEL 屏是"贴在手里那台手机上"的：手机离手（换物品 / 丢掉 / 被别的逻辑抽走）⇒ 整台 UI 收起。
+            //   必须收：此时 hasModelScreen() 为假、离屏靶不再出图，可 renderMode 与可见性却还留着，
+            //   于是 isVisible() 撒谎、低头还会误进「操控屏幕」态、视角被无故降到 0.25 倍速。
+            // FLOATING 不走这条：它不依赖手机，换手物品照常开着，O 才能成为稳定的显式通道。
             // 用 doHideNow 而不是 hide()：退场动画是给"手里那台手机"看的，手机都没了没人看它。
             doHideNow();
         }
@@ -1074,24 +1127,30 @@ public class PhoneOverlay {
     /**
      * 「贴到模型上」这件事此刻是否成立。
      * <p>
-     * 委托给 {@link ProPhoneHandRenderer#isActive()} —— 即「主手真的是 Pro 手机 + 第一人称」。
+     * 先要求 {@link #isModelScreen()}（当前渲染形式确实是 MODEL，且 UI 可见），再委托给
+     * {@link ProPhoneHandRenderer#isActive()} —— 即「主手真的是 Pro 手机 + 第一人称」。
      * 刻意<b>不</b>包含低头阈值：掏出来就该亮屏，阈值只管操控（见 {@link #isScreenControl()}）。
+     * <p>
+     * <b>⚠ 为什么必须含 {@code isModelScreen()} 这一步</b>：O 切到 FLOATING、或 UI 停在 MODEL
+     * 而手没举机（第三人称 / 换走物品）时，只查 {@code isActive()} 会让离屏靶继续出图并被采样 ——
+     * 既违背「两种屏幕互斥」，也是白烧一张 FBO。要求 MODEL 后 FLOATING 天然不更新离屏靶。
      * <p>
      * 之所以必须复用这一个判据：离屏出图（{@link PhoneScreenTarget#update}）与贴图
      * （{@link ProPhoneHandRenderer}）只要有一边判据不一致，就会出现
      * "FBO 每帧出图却没人采样"或"采样到一张没人更新的纹理"这两类哑故障。
      */
     public static boolean hasModelScreen() {
-        return phoneOpen && ProPhoneHandRenderer.isActive();
+        return isModelScreen() && ProPhoneHandRenderer.isActive();
     }
 
     /**
-     * O 键：唯一的显式通道。
+     * O 键：唯一的显式通道，<b>始终以悬浮窗为目标</b>。
      * <ul>
-     *   <li>没掏出手机 → 掏出。主手有 Pro 手机则直接贴模型屏，否则退回悬浮窗（特殊手段）；</li>
+     *   <li>没掏出手机 → 掏出悬浮窗（不要求持有手机 / 第一人称）；</li>
      *   <li>已掏出且<b>正在模型屏</b> → 切到悬浮窗（"O = 我就是要那块悬浮窗"）；</li>
      *   <li>已掏出且正在悬浮窗 → 收起。</li>
      * </ul>
+     * 手持 Pro 的「掏出即渲染」直接进 MODEL，走 {@link #onHolderTick()} 的上升沿，与本通道分离。
      */
     public static void toggle() {
         if (!phoneOpen) {
@@ -1114,6 +1173,8 @@ public class PhoneOverlay {
         if (uiAnimEnabled() && containerAnim == ContainerAnim.EXIT) {
             return;
         }
+        // 关闭即中断整窗拖动：位置不落盘（玩家没松手，按的是关闭）
+        endWindowDrag(false);
         // 切屏动画开启：走整机下滑退场（EXIT），播完才真正隐藏
         if (uiAnimEnabled()) {
             containerAnim = ContainerAnim.EXIT;
@@ -1127,7 +1188,7 @@ public class PhoneOverlay {
     private static void doHideNow() {
         phoneOpen = false;
         renderMode = RenderMode.NONE;
-        dragging = false;
+        endWindowDrag(false);
         // 收屏时清掉侧键按住状态，避免下次打开残留「按住中」
         cursorPressing = false;
         // 相机长按同理：若在"按住侧键4"期间手机被收起，不能让状态悬挂到下次打开
@@ -1146,21 +1207,22 @@ public class PhoneOverlay {
     }
 
     /**
-     * 掏出手机：保留上次关闭时的页面（页面栈不重置）。
+     * 掏出手机（O 键的打开入口）：保留上次关闭时的页面（页面栈不重置）。
      * 仅当栈为空（首次打开 / 新世界重置后）才进入手机桌面 MainPage；
      * 否则回到关闭前所在的页面（含 HuhuTalk 内容区顶层页与内部页）。
      * <p>
-     * 显示形式按「手里有没有手机」自动选：主手 Pro 手机 + 第一人称 → 模型屏（即掏即用，
-     * 不需要按 O）；否则退回悬浮窗 —— 这就是 O 作为特殊手段的价值所在。
+     * <b>O 一律给悬浮窗</b>：不要求手持有手机、不要求第一人称。模型屏是另一条通路 ——
+     * {@link #onHolderTick()} 的「掏出即渲染」上升沿；两条分离之后，
+     * 「关着 UI 时按 O」永远直接进 FLOATING，而「手持 Pro 自动 MODEL」照旧。
      * 切屏动画（整机自屏幕底部上滑）只属于悬浮窗：模型屏是贴在手里那台模型上的，
      * 走整机位移动画会连模型一起推走，没有意义。
      */
     private static void show() {
         phoneOpen = true;
-        renderMode = ProPhoneHandRenderer.isActive() ? RenderMode.MODEL : RenderMode.FLOATING;
+        renderMode = RenderMode.FLOATING;
         // 掏出手机 = 光标重新出生：回到顶栏正中（见 defaultCursorNY 的取舍说明）
         resetCursorToSpawn();
-        if (renderMode == RenderMode.FLOATING && uiAnimEnabled()) {
+        if (uiAnimEnabled()) {
             containerAnim = ContainerAnim.ENTER;
             containerTween = new AnimTween();
         } else {
@@ -1557,13 +1619,11 @@ public class PhoneOverlay {
         int defX = external ? 0 : screenW - phoneWidth - 10;
         int defY = external ? 0 : screenH - totalHeight - 10;
 
-        // 拖动时：手机实时跟随鼠标，并把约束后的位置折算为偏移量落盘（呼出/收起动画期间禁止拖动）。
-        // 模型屏没有拖动概念，跳过。
+        // 拖动时：手机实时跟随虚拟屏幕指针（侧键按住期间真实鼠标在转视角，不能作为抓取点），
+        // 并把约束后的位置折算为偏移量落盘（呼出/收起动画期间禁止拖动）。模型屏没有拖动概念，跳过。
         if (!external && dragging && containerAnim == ContainerAnim.IDLE) {
-            int mx = guiMouseX(mc);
-            int my = guiMouseY(mc);
-            int targetX = (int)Math.round(mx - grabDX);
-            int targetY = (int)Math.round(my - grabDY);
+            int targetX = (int)Math.round(dragPointerX - grabDX);
+            int targetY = (int)Math.round(dragPointerY - grabDY);
             int clampedX = clampPhoneX(targetX, screenW);
             int clampedY = clampPhoneY(targetY, screenH);
             HuhuTalkClientSettings.setPhoneOffsetRaw(clampedX - defX, clampedY - defY);
@@ -2038,8 +2098,7 @@ public class PhoneOverlay {
 
         // 拖拽释放：无论鼠标此刻是否还在手机内都要结束拖拽并落盘
         if (action == GLFW.GLFW_RELEASE && button == GLFW.GLFW_MOUSE_BUTTON_LEFT && dragging) {
-            dragging = false;
-            HuhuTalkClientSettings.save();
+            endWindowDrag(true);
             return true;
         }
 
@@ -2052,14 +2111,19 @@ public class PhoneOverlay {
 
         // 状态栏 / 底部导航 / 水印栏 / 右键返回：仅在按下时处理
         if (action == GLFW.GLFW_PRESS) {
-            // 状态栏区域：关闭按钮 / 其余按住左键拖动手机
+            // 状态栏区域：关闭按钮 / 其余按住左键拖动手机。
+            // 拖动只授权给悬浮窗（见 {@link #isFloatingScreen()}）：模型屏贴在 3D 手机上，
+            // 改全局窗口偏移对它没有意义，点击顶栏不得移动任何东西。
             if (relY < PhoneText.px(STATUSBAR_H)) {
                 if (relX >= phoneWidth - 14 && relX <= phoneWidth) {
                     hide();
-                } else if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
+                } else if (button == GLFW.GLFW_MOUSE_BUTTON_LEFT && isFloatingScreen()) {
                     dragging = true;
                     grabDX = (float) (screenX - phoneX);
                     grabDY = (float) (screenY - phoneY);
+                    // 虚拟屏幕指针从当前独立光标的屏幕坐标出发（见 dragPointerX 的说明）
+                    dragPointerX = (float) screenX;
+                    dragPointerY = (float) screenY;
                 }
                 return true;
             }
@@ -2145,7 +2209,7 @@ public class PhoneOverlay {
         phoneOpen = false;
         renderMode = RenderMode.NONE;
         armHolderAutoOpen();
-        dragging = false;
+        endWindowDrag(false);
         // 切世界/退出：释放前摄取景离屏资源，兑现未完成的抓图请求（绝不悬着）
         SelfieCameraTarget.release();
         cameraHoldButton = 0;

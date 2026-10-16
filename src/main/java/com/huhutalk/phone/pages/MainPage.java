@@ -75,6 +75,15 @@ public class MainPage implements IPhonePage {
      * 万一玩家的配置文件里被人手改出"把 HuhuTalk 挪走"的记录，照样会被这里挡掉。
      */
     public static final String KEY_TALK = "huhutalk";
+    /**
+     * 「设置」App 在持久化布局里的稳定 key。
+     * <p>
+     * 设置是桌面设置的唯一入口（「桌面图标管理」自己就长在设置里），所以它
+     * <b>允许拖动换位，但不允许移除</b>：删掉就再也找不回来了。
+     * 「不可移除」由 {@link #isDesktopRemovable} 单独判定，<b>刻意不并入</b>
+     * {@link #isDesktopFixed} —— 后者会连拖动一起禁掉，设置就动不了了。
+     */
+    public static final String KEY_SETTINGS = "settings";
     /** 图标下方名称的灰字颜色 */
     private static final int LABEL_COLOR = 0xFF7A7A7A;
     /** 桌面中央表情边长 = 手机内容宽度 × 该比例 */
@@ -184,6 +193,7 @@ public class MainPage implements IPhonePage {
      * <h2>优先级（从高到低）</h2>
      * <ol>
      *   <li><b>HuhuTalk 恒定槽位 0</b> —— 玩家的布局数据也改不了它（配置文件被手改也挡得住）；</li>
+     *   <li><b>「设置」</b> —— 唯一入口，优先于任何可移除 App；它仍可拖动，只是永不被挤掉/被隐藏；</li>
      *   <li><b>玩家在「桌面图标管理」里指定的位置</b>（{@code HuhuTalkClientSettings#getDesktopSlot}）；</li>
      *   <li><b>App 自己声明的位置</b>：内置 App 的槽位、外部 App 的 {@code PhoneApp#slot()}；</li>
      *   <li>都没声明 → <b>最小空槽</b>（即过去的"追加在后面"）。</li>
@@ -204,8 +214,8 @@ public class MainPage implements IPhonePage {
             if (a.hidden) {
                 continue; // 内置的"逻辑保留但暂不显示"，与玩家移除无关
             }
-            if (!KEY_TALK.equals(a.key) && HuhuTalkClientSettings.isDesktopHidden(a.key)) {
-                continue; // 玩家移除的
+            if (isDesktopRemovable(a.key) && HuhuTalkClientSettings.isDesktopHidden(a.key)) {
+                continue; // 玩家移除的；不可移除的 App 即使旧配置标了 hidden 也照常显示
             }
             queue.add(a);
         }
@@ -246,8 +256,13 @@ public class MainPage implements IPhonePage {
         if (KEY_TALK.equals(a.key)) {
             return 0;
         }
+        if (KEY_SETTINGS.equals(a.key)) {
+            // 设置优先于所有可移除 App：桌面被填满时也必须给它留出入口
+            // （尤其是旧配置把它标成 hidden、桌面又已满的情况）。
+            return 1;
+        }
         int user = HuhuTalkClientSettings.getDesktopSlot(a.key);
-        return user >= 0 && user < SLOT_COUNT ? 1 : 3;
+        return user >= 0 && user < SLOT_COUNT ? 2 : 3;
     }
 
     /** 该 App 期望落在哪个槽位；-1 = 没有期望（自动落位）。 */
@@ -314,7 +329,7 @@ public class MainPage implements IPhonePage {
         //   目前只有「识图模型」一栏（见 SettingsAppPage）；底部导航那个老设置页不受影响。
         //   图标用 256×256 贴图（assets/huhutalk/textures/icon/settings.png）；
         //   中心的 ⚙ 与底色保留 —— 底色是启动动画色块色，文字是贴图缺失时的兜底。
-        list.add(new AppInfo(5, "settings", AppBehavior.PLAIN, false,
+        list.add(new AppInfo(5, KEY_SETTINGS, AppBehavior.PLAIN, false,
                 "设置", 0xFF727377, "⚙", true, 2.0f, 0xFFF5F5F5, true, false, false,
                 SettingsAppPage::new,
                 ResourceLocation.fromNamespaceAndPath("huhutalk", "textures/icon/settings.png"),
@@ -675,7 +690,7 @@ public class MainPage implements IPhonePage {
     public static List<DesktopSlot> desktopRemoved() {
         List<DesktopSlot> out = new ArrayList<>();
         for (AppInfo a : allByKey().values()) {
-            if (a.hidden || isDesktopFixed(a.key)) {
+            if (a.hidden || !isDesktopRemovable(a.key)) {
                 continue;
             }
             if (HuhuTalkClientSettings.isDesktopHidden(a.key)) {
@@ -688,6 +703,16 @@ public class MainPage implements IPhonePage {
     /** 该 key 是否是「固定不可动」的主应用（HuhuTalk）。 */
     public static boolean isDesktopFixed(String key) {
         return KEY_TALK.equals(key);
+    }
+
+    /**
+     * 该 key 的 App 能否从桌面移除（画 ✕ / 点击移除 / 拖进回收栏都看它）。
+     * <p>
+     * <b>「不可移除」不等于「不可拖动」</b>：「设置」允许换位，所以它<b>不是</b>
+     * {@link #isDesktopFixed}。两个判据刻意分开，避免为了挡住删除叉号而把拖动一起禁掉。
+     */
+    public static boolean isDesktopRemovable(String key) {
+        return !isDesktopFixed(key) && !KEY_SETTINGS.equals(key);
     }
 
     /**
@@ -727,9 +752,9 @@ public class MainPage implements IPhonePage {
         return true;
     }
 
-    /** 从桌面移除某 App（只是不画，随时能从管理页底部放回）。主应用拒绝。 */
+    /** 从桌面移除某 App（只是不画，随时能从管理页底部放回）。主应用与「设置」拒绝。 */
     public static boolean removeDesktopApp(String key) {
-        if (key == null || isDesktopFixed(key)) {
+        if (key == null || !isDesktopRemovable(key)) {
             return false;
         }
         return HuhuTalkClientSettings.setDesktopHidden(key, true);
@@ -737,7 +762,7 @@ public class MainPage implements IPhonePage {
 
     /** 把移除过的 App 放回桌面（回到默认位置；被占则按既有纪律退让到最小空槽）。 */
     public static boolean restoreDesktopApp(String key) {
-        if (key == null || isDesktopFixed(key)) {
+        if (key == null || !isDesktopRemovable(key)) {
             return false;
         }
         return HuhuTalkClientSettings.setDesktopHidden(key, false);

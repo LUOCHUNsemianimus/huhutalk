@@ -139,9 +139,13 @@ public class ClientModEvents {
      * 在「操控屏幕」态下压低视角转速。
      * <p>
      * <b>硬约束</b>：不处于该状态时<b>完全不碰</b>这个事件 —— 既保持原版行为，也不覆盖其他模组的修改。
-     * 而该状态本身（{@link PhoneOverlay#isScreenControl()}）要求<b>三件事同时成立</b>：
-     * 「UI 已掏出 + 主手举着 Pro 手机 + 低头 ≥ 阈值」（见 §5.7-35）。这里再额外放行一次"光标在顶栏"。
+     * MODEL 态要求<b>三件事同时成立</b>：「UI 已掏出 + 主手举着 Pro 手机 + 低头 ≥ 阈值」
+     * （见 §5.7-35）。这里再额外放行一次"光标在顶栏"。
      * 可见性与"手里到底有没有手机"两关一起查 ⇒ 绝不可能污染徒手 / 拿着别的物品 / 第三人称 / 开着界面等任何其他状态。
+     * <p>
+     * <b>FLOATING 直接放行</b>：悬浮窗的独立光标与侧键不要求低头或持有手机
+     * （{@link PhoneOverlay#isScreenControl()} 对 FLOATING 恒真），但<b>视角照常转、不降速</b> ——
+     * 降速只保留给 MODEL（手持 Pro + 低头的那一路）。所以这里先对 FLOATING 早退。
      * <p>
      * <b>顶栏放行</b>：光标被推到顶部状态栏时<b>也</b>不降速 —— 给玩家一条快速松手的出路
      * （低头 90° 掏出手机时，靠 0.25 倍速抬头爬回阈值以上太难受）。此时光标仍可动，
@@ -152,7 +156,10 @@ public class ClientModEvents {
      */
     @SubscribeEvent
     public static void onCalculatePlayerTurn(CalculatePlayerTurnEvent event) {
-        if (!PhoneOverlay.isScreenControl() || PhoneOverlay.isCursorInTopBar()) {
+        // FLOATING：O 显式召唤的屏幕空间窗口，光标/侧键照用，但视角不因它降速
+        if (PhoneOverlay.isFloatingScreen()
+                || !PhoneOverlay.isScreenControl()
+                || PhoneOverlay.isCursorInTopBar()) {
             return;
         }
         double d2 = event.getMouseSensitivity() * 0.6 + 0.2;

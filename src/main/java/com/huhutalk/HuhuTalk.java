@@ -83,7 +83,8 @@ public class HuhuTalk {
         // 避免上一存档的路径点残留、被 move_to 工具误用（跨存档污染）
         NeoForge.EVENT_BUS.addListener(PlayerEvent.PlayerLoggedInEvent.class,
                 e -> com.huhutalk.core.waypoint.WaypointCache.clearPlayer(e.getEntity().getUUID()));
-        // 开局礼包：每个存档、每个玩家一次，发两部手机（标记写在 SavedData 里 → 随存档走）
+        // 开局礼包：每个存档、每个玩家一次，发 Pro 版手机、电话手表、WiFi 方块各一个
+        // （标记写在 SavedData 里 → 随存档走）
         NeoForge.EVENT_BUS.addListener(PlayerEvent.PlayerLoggedInEvent.class, PlayerStarterKit::onPlayerLoggedIn);
         NeoForge.EVENT_BUS.addListener(PlayerEvent.PlayerLoggedOutEvent.class, e -> ImmersiveBubbleController.restoreAll());
         NeoForge.EVENT_BUS.addListener(PlayerEvent.PlayerLoggedOutEvent.class, e -> ChatBannerMuteController.restoreAll());
