@@ -41,7 +41,7 @@ public class PhoneTextCaptureScreen extends Screen {
     private EditBox box;
 
     public PhoneTextCaptureScreen(PhoneTextEditable target) {
-        super(Component.literal("输入"));
+        super(Component.translatable("gui.huhutalk.screen.text_input"));
         this.target = target;
     }
 

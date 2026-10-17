@@ -58,10 +58,11 @@ public final class PlayerStarterKit {
         give(player, new ItemStack(HuhuTalkItems.PHONE_WATCH.get()));
         give(player, new ItemStack(HuhuTalkBlocks.WIFI_BLOCK_ITEM.get()));
 
-        // 父组件不带上色，前缀单独着色，正文用默认文字颜色（不继承橙色）
+        // 父组件不带上色，前缀单独着色，正文用默认文字颜色（不继承橙色）。
+        // 正文用原生 translatable：服务端只发键，接收玩家按自己的语言显示；橙色品牌前缀保持原样。
         Component message = Component.empty()
                 .append(Component.literal("【Huhutalk】").withColor(0xFFA500))
-                .append(Component.literal("：新手礼包已下放！"));
+                .append(Component.translatable("message.huhutalk.starter_kit"));
         player.displayClientMessage(message, false);
         HuhuTalk.LOGGER.info("[HuhuTalk] 已为 {} 发放开局手机（存档 {}）",
                 player.getGameProfile().getName(), player.level().dimension().location());

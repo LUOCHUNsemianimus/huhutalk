@@ -3,7 +3,8 @@ package com.huhutalk.core.move;
 import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
 import com.google.common.collect.ImmutableMap;
 import com.huhutalk.common.MaidStableIdHelper;
-import com.huhutalk.network.S2CMaidChatResponsePacket;
+import com.huhutalk.common.SystemText;
+import com.huhutalk.network.S2CMaidChatInfoPacket;
 import net.minecraft.core.BlockPos;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -92,7 +93,7 @@ public class MaidMoveToTask extends Behavior<EntityMaid> {
             }
             if (arrival == MoveArrival.HOME || arrival == MoveArrival.PROTECT) {
                 // 呆着/守家/守家防御：通知 + 到达收尾（保持 home 在新地点）
-                notifyOnce(maid, "我到了,在这里守着。");
+                notifyOnce(maid, SystemText.of("message.huhutalk.move.arrived_guard"));
                 MaidMoveData.applyArrival(maid);
                 this.doStop(level, maid, gameTime);
                 return;
@@ -122,16 +123,18 @@ public class MaidMoveToTask extends Behavior<EntityMaid> {
         maid.getBrain().eraseMemory(MemoryModuleType.WALK_TARGET);
         maid.getBrain().eraseMemory(MemoryModuleType.LOOK_TARGET);
         // 只通知一次（标记持久化，避免大脑重复触发导致刷屏）
-        notifyOnce(maid, "我到了,在这里等你。");
+        notifyOnce(maid, SystemText.of("message.huhutalk.move.arrived_wait"));
     }
 
-    /** 只通知一次（标记持久化），发到手机，不触发 LLM，不烧 token */
-    private void notifyOnce(EntityMaid maid, String text) {
+    /** 只通知一次（标记持久化），发到手机，不触发 LLM，不烧 token。
+     *  <p>走 {@link S2CMaidChatInfoPacket}：客户端按系统文案解析后仍使用女仆消息气泡通路，
+     *  与服务端 AI 回复的 {@code S2CMaidChatResponsePacket} 分开，避免原文被误当系统文案解析。 */
+    private void notifyOnce(EntityMaid maid, String encodedText) {
         if (!MaidMoveData.wasArrivedNotified(maid)) {
             MaidMoveData.markArrivedNotified(maid);
             if (maid.getOwner() instanceof ServerPlayer owner && owner.isAlive()) {
                 String stableId = MaidStableIdHelper.getOrCreateStableId(maid);
-                PacketDistributor.sendToPlayer(owner, new S2CMaidChatResponsePacket(stableId, text, ""));
+                PacketDistributor.sendToPlayer(owner, new S2CMaidChatInfoPacket(stableId, encodedText, false));
             }
         }
     }

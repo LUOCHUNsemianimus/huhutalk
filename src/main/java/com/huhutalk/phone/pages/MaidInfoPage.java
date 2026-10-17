@@ -28,6 +28,7 @@ import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.util.FormattedCharSequence;
 import net.neoforged.neoforge.network.PacketDistributor;
 import org.lwjgl.glfw.GLFW;
 
@@ -164,9 +165,9 @@ public class MaidInfoPage extends PhonePage {
      * <p>
      * 同一套做法已经用在设置 App 的「API Key / 模型名 / 接口地址」三个输入框上
      * （{@code VisionModelSettingsPage}），本页只是把它搬到联系人设置页。
+     * <p>占位符在 {@link #renderNewGroupRow} 每帧用当前语言刷新，切语言立刻生效；不在构造期缓存译文。
      */
     private final PhoneTextInput groupNewInput = new PhoneTextInput()
-            .placeholder("＋ 输入新分组名，回车确定")
             .maxLength(16)
             .onCommit(this::commitNewGroup);
     /** 短暂提示（toast）：文本 + 到期时间戳 */
@@ -186,7 +187,6 @@ public class MaidInfoPage extends PhonePage {
         this.maidName = maidName;
         this.appearanceInput = new PhoneTextArea()
                 .maxLength(VisionAppearance.MAX_CHARS)
-                .placeholder("描述她的外貌，例如：银色长发、红色眼睛、黑色女仆装…")
                 .value(HuhuTalkClientSettings.getMaidAppearance(stableId))
                 .onCommit(v -> HuhuTalkClientSettings.setMaidAppearance(stableId, v));
         PacketDistributor.sendToServer(new C2SRequestMaidStatusPacket(List.of(stableId)));
@@ -252,15 +252,15 @@ public class MaidInfoPage extends PhonePage {
     private void updateAvatar() {
         int result = MaidAvatarManager.captureIfLoaded(stableId);
         switch (result) {
-            case 1 -> showFlash("📷 头像已更新");
-            case 2 -> showFlash("⚠ 拍照失败，请查看日志");
-            default -> showFlash("⚠ 女仆不在场，无法拍照");
+            case 1 -> showFlash(PhoneText.tr("gui.huhutalk.maid_info.avatar.updated"));
+            case 2 -> showFlash(PhoneText.tr("gui.huhutalk.maid_info.avatar.fail"));
+            default -> showFlash(PhoneText.tr("gui.huhutalk.maid_info.avatar.absent"));
         }
     }
 
     /** 新建分组成功后回调：提示（页面随下一帧重渲染即同步到分组列表） */
     public void onGroupCreated() {
-        showFlash("✅ 已新建分组");
+        showFlash(PhoneText.tr("gui.huhutalk.maid_info.group.created"));
     }
 
     /**
@@ -282,11 +282,11 @@ public class MaidInfoPage extends PhonePage {
     private void commitNewGroup(String raw) {
         String name = raw == null ? "" : raw.trim();
         if (name.isEmpty()) {
-            showFlash("⚠ 分组名不能为空");
+            showFlash(PhoneText.tr("gui.huhutalk.maid_info.group.name_empty"));
             return;
         }
         if (!HuhuTalkClientSettings.addCustomGroup(name)) {
-            showFlash("⚠ 分组已存在或与默认分组重名");
+            showFlash(PhoneText.tr("gui.huhutalk.maid_info.group.duplicate"));
             return;
         }
         // 把当前女仆分到新分组 → 联系人页据此同步展示（含空组）
@@ -479,26 +479,23 @@ public class MaidInfoPage extends PhonePage {
 
         // 短暂提示（旧实现在自己的裁剪之外绘制；骨架的裁剪区就是内容区，绘制范围一致）
         if (System.currentTimeMillis() < flashUntil && !flashText.isEmpty()) {
-            int lineH = Math.max(1, PhoneText.height(font, PhoneText.scale(1.0f)));
-            int msgW = PhoneText.width(font, flashText, PhoneText.scale(1.0f));
+            float fs = PhoneText.scale(1.0f);
+            int lineH = Math.max(1, PhoneText.height(font, fs));
+            // 英文 toast 更长：先按气泡可用宽度截断，再量/画这份实际译文，绝不溢出气泡
+            String flashShown = PhoneText.truncate(font, flashText, Math.max(0, w - PhoneText.px(16)), fs);
+            int msgW = PhoneText.width(font, flashShown, fs);
             int msgY = originY + h - PhoneText.px(30);
             int boxTop = msgY - PhoneText.px(3);
             int boxH = lineH + PhoneText.px(6);
             PhoneShapes.fillRoundedRect(g, originX + PhoneText.px(4), boxTop, w - PhoneText.px(8), boxH, 8, 0xCC000000);
-            PhoneText.draw(g, font, flashText, originX + (w - msgW) / 2f, boxTop + (boxH - lineH) / 2f + 1,
-                    0xFFFFFFFF, PhoneText.scale(1.0f));
+            PhoneText.draw(g, font, flashShown, originX + (w - msgW) / 2f, boxTop + (boxH - lineH) / 2f + 1,
+                    0xFFFFFFFF, fs);
         }
 
         if (isConfirming()) {
-            if (confirm == Confirm.DELETE_GROUP) {
-                renderConfirmDialog(g, font, c, originX, originY, w, h,
-                        "删除分组「" + confirmGroup + "」？",
-                        "组里的女仆会回到「按状态分组」");
-            } else {
-                renderConfirmDialog(g, font, c, originX, originY, w, h,
-                        "确认删除？此操作无法恢复",
-                        "将同时清除聊天记录与联系人");
-            }
+            // 文案由 confirmText(...) 按当前 Confirm/confirmGroup 集中生成，
+            // 渲染与命中都只走 confirmLayout(...) 这一份几何（含真实行数）。
+            renderConfirmDialog(g, font, c, originX, originY, w, h);
         }
     }
 
@@ -530,11 +527,17 @@ public class MaidInfoPage extends PhonePage {
         int lineH = Math.max(1, PhoneText.height(font, s));
         int rectX = originX + PhoneText.px(10);
         int rectW = width() - PhoneText.px(20);
-        PhoneText.draw(g, font, "管理", originX + PhoneText.px(12),
+        PhoneText.draw(g, font, PhoneText.tr("gui.huhutalk.maid_info.manage"), originX + PhoneText.px(12),
                 originY + scrollY(L.manageTitleY) - PhoneText.px(4), c.textMuted(), s);
         // 大矩形（含 5 行，灰色横线分隔；展开外貌输入框时会自动包住它）
         PhoneShapes.fillRoundedRect(g, rectX, originY + scrollY(L.manageRectY), rectW, L.manageRectH, CARD_R, c.cardBg());
-        String[] labels = {"💬 发消息", "🗑 删除记录", "☠ 删除联系人", "📷 更新头像", "👗 女仆的样貌"};
+        String[] labels = {
+                PhoneText.tr("gui.huhutalk.maid_info.action.message"),
+                PhoneText.tr("gui.huhutalk.maid_info.action.delete_history"),
+                PhoneText.tr("gui.huhutalk.maid_info.action.delete_contact"),
+                PhoneText.tr("gui.huhutalk.maid_info.action.update_avatar"),
+                PhoneText.tr("gui.huhutalk.maid_info.action.appearance"),
+        };
         int[] labelColors = {c.textPrimary(), c.textPrimary(), c.dangerBg(), 0xFF2E7D32, c.textPrimary()};
         for (int i = 0; i < labels.length; i++) {
             int y = originY + scrollY(L.cardY[i]);
@@ -544,9 +547,16 @@ public class MaidInfoPage extends PhonePage {
                 // 最后一行不画「›」（它不跳转，只展开下面的输入框），改画展开箭头 + 填写状态
                 PhoneText.draw(g, font, maidAppearanceOpen ? "▲" : "▼",
                         rectX + rectW - PhoneText.px(16), textY, 0xFFB9AAB0, s);
-                String state = HuhuTalkClientSettings.getMaidAppearance(stableId).isEmpty() ? "未填写" : "已填写";
-                PhoneText.draw(g, font, state,
-                        rectX + rectW - PhoneText.px(22) - PhoneText.width(font, state, s),
+                String state = HuhuTalkClientSettings.getMaidAppearance(stableId).isEmpty()
+                        ? PhoneText.tr("gui.huhutalk.maid_info.appearance.unfilled")
+                        : PhoneText.tr("gui.huhutalk.maid_info.appearance.filled");
+                // 英文状态更长：量/画都用同一份截断后的实际译文，避免压到左侧标题
+                int stateRight = rectX + rectW - PhoneText.px(22);
+                int stateMaxW = Math.max(0, stateRight
+                        - (rectX + PhoneText.px(12) + PhoneText.width(font, labels[i], s)) - PhoneText.px(6));
+                String stateShown = PhoneText.truncate(font, state, stateMaxW, s);
+                PhoneText.draw(g, font, stateShown,
+                        stateRight - PhoneText.width(font, stateShown, s),
                         textY, c.textMuted(), s);
             } else {
                 PhoneText.draw(g, font, "›", rectX + rectW - PhoneText.px(16), textY, 0xFFB9AAB0, s);
@@ -571,6 +581,8 @@ public class MaidInfoPage extends PhonePage {
             appearanceInput.bounds(0, 0, 0, 0);
             return;
         }
+        // 占位符每帧按当前语言刷新（构造期不缓存译文）；只改提示，不动已有内容与焦点
+        appearanceInput.placeholder(PhoneText.tr("gui.huhutalk.maid_info.appearance.placeholder"));
         int cardX = PhoneText.px(10);
         int cardW = width() - PhoneText.px(20);
         int inX = cardX + PhoneText.px(8);
@@ -591,7 +603,7 @@ public class MaidInfoPage extends PhonePage {
         int lineH = Math.max(1, PhoneText.height(font, s));
         int rectX = originX + PhoneText.px(10);
         int rectW = width() - PhoneText.px(20);
-        PhoneText.draw(g, font, "SOS 呼叫", originX + PhoneText.px(12),
+        PhoneText.draw(g, font, PhoneText.tr("gui.huhutalk.maid_info.section.sos"), originX + PhoneText.px(12),
                 originY + scrollY(L.sosTitleY) - PhoneText.px(4), c.textMuted(), s);
         // 大矩形（含 SOS呼叫 / 工作模式 2 行 + 展开时的工作模式列表）
         PhoneShapes.fillRoundedRect(g, rectX, originY + scrollY(L.sosRectY), rectW, L.sosRectH, CARD_R, c.cardBg());
@@ -601,10 +613,19 @@ public class MaidInfoPage extends PhonePage {
         // SOS 呼叫（绑定开关）
         int bindY = originY + scrollY(L.bindCardY);
         int bindTextY = bindY + (cardH() - lineH) / 2 + 1;
-        PhoneText.draw(g, font, "SOS 呼叫", rectX + PhoneText.px(12), bindTextY,
+        PhoneText.draw(g, font, PhoneText.tr("gui.huhutalk.maid_info.sos.bind"), rectX + PhoneText.px(12), bindTextY,
                 bound ? danger : c.textPrimary(), s);
-        String bindState = bound ? "已绑定" : "未绑定";
-        PhoneText.draw(g, font, bindState, rectX + rectW - PhoneText.width(font, bindState, s) - PhoneText.px(12),
+        String bindState = bound
+                ? PhoneText.tr("gui.huhutalk.maid_info.sos.bound")
+                : PhoneText.tr("gui.huhutalk.maid_info.sos.unbound");
+        // 右侧状态列：英文更长时截断，量/画共用截断结果，不越过左侧标题
+        int bindRight = rectX + rectW - PhoneText.px(12);
+        int bindMaxW = Math.max(0, bindRight
+                - (rectX + PhoneText.px(12)
+                        + PhoneText.width(font, PhoneText.tr("gui.huhutalk.maid_info.sos.bind"), s))
+                - PhoneText.px(6));
+        String bindShown = PhoneText.truncate(font, bindState, bindMaxW, s);
+        PhoneText.draw(g, font, bindShown, bindRight - PhoneText.width(font, bindShown, s),
                 bindTextY, bound ? danger : c.textSecondary(), s);
         drawDivider(g, c, rectX, rectW, bindY + cardH());
 
@@ -612,9 +633,18 @@ public class MaidInfoPage extends PhonePage {
         int modeY = originY + scrollY(L.modeCardY);
         int modeTextY = modeY + (cardH() - lineH) / 2 + 1;
         int modeColor = bound ? c.textPrimary() : c.textSecondary();
-        PhoneText.draw(g, font, "工作模式", rectX + PhoneText.px(12), modeTextY, modeColor, s);
-        String modeName = bound ? formatTaskName(SosBindCache.getTaskUid(stableId)) : "需先绑定";
-        PhoneText.draw(g, font, modeName, rectX + rectW - PhoneText.width(font, modeName, s) - PhoneText.px(26),
+        PhoneText.draw(g, font, PhoneText.tr("gui.huhutalk.maid_info.sos.mode"), rectX + PhoneText.px(12), modeTextY, modeColor, s);
+        String modeName = bound
+                ? formatTaskName(SosBindCache.getTaskUid(stableId))
+                : PhoneText.tr("gui.huhutalk.maid_info.sos.need_bind");
+        // 右侧模式名：为 ▼ 箭头留出 px(26)，再按剩余宽度截断（英文任务名可能很长）
+        int modeRight = rectX + rectW - PhoneText.px(26);
+        int modeMaxW = Math.max(0, modeRight
+                - (rectX + PhoneText.px(12)
+                        + PhoneText.width(font, PhoneText.tr("gui.huhutalk.maid_info.sos.mode"), s))
+                - PhoneText.px(6));
+        String modeShown = PhoneText.truncate(font, modeName, modeMaxW, s);
+        PhoneText.draw(g, font, modeShown, modeRight - PhoneText.width(font, modeShown, s),
                 modeTextY, modeColor, s);
         PhoneText.draw(g, font, modeDropdownOpen ? "▲" : "▼",
                 rectX + rectW - PhoneText.px(16), modeTextY, 0xFFB9AAB0, s);
@@ -649,15 +679,20 @@ public class MaidInfoPage extends PhonePage {
         int lineH = Math.max(1, PhoneText.height(font, s));
         int rectX = originX + PhoneText.px(10);
         int rectW = width() - PhoneText.px(20);
-        PhoneText.draw(g, font, "分组设置", originX + PhoneText.px(12),
+        PhoneText.draw(g, font, PhoneText.tr("gui.huhutalk.maid_info.section.groups"), originX + PhoneText.px(12),
                 originY + scrollY(L.groupTitleY) - PhoneText.px(4), c.textMuted(), s);
         // 大矩形（含当前分组折叠栏 + 展开时的选项/新建分组）
         PhoneShapes.fillRoundedRect(g, rectX, originY + scrollY(L.groupRectY), rectW, L.groupRectH, CARD_R, c.cardBg());
 
-        String current = currentGroup();
+        String current = currentGroup(); // 稳定分组标识：比较与落盘都用它
         int boxY = originY + scrollY(L.groupBoxY);
         int boxTextY = boxY + (cardH() - lineH) / 2 + 1;
-        PhoneText.draw(g, font, "当前分组：" + current, rectX + PhoneText.px(12), boxTextY, c.textPrimary(), s);
+        // 右侧留出 ▼ 箭头，当前分组名（含英文）超宽时截断；量/画共用同一份译文
+        String currentLine = PhoneText.tr("gui.huhutalk.maid_info.group.current",
+                MaidGroupHelper.displayGroup(current));
+        int currentMaxW = Math.max(0, rectW - PhoneText.px(34));
+        PhoneText.draw(g, font, PhoneText.truncate(font, currentLine, currentMaxW, s),
+                rectX + PhoneText.px(12), boxTextY, c.textPrimary(), s);
         PhoneText.draw(g, font, groupDropdownOpen ? "▲" : "▼", rectX + rectW - PhoneText.px(16),
                 boxTextY, 0xFFB9AAB0, s);
 
@@ -667,9 +702,9 @@ public class MaidInfoPage extends PhonePage {
             for (GroupSlot slot : L.groupSlots) {
                 int y = originY + scrollY(slot.y());
                 int textY = y + (slot.h() - lineH) / 2 + 1;
-                boolean isCurrent = slot.label().equals(current);
+                boolean isCurrent = slot.label().equals(current); // 稳定标识比较
                 int col = isCurrent ? 0xFFB06A6A : c.textPrimary();
-                PhoneText.draw(g, font, slot.label(), rectX + PhoneText.px(12), textY, col, s);
+                PhoneText.draw(g, font, MaidGroupHelper.displayGroup(slot.label()), rectX + PhoneText.px(12), textY, col, s);
                 if (isCurrent) {
                     PhoneText.draw(g, font, "✓", rectX + rectW - PhoneText.px(40), textY, 0xFFB06A6A, s);
                 }
@@ -727,7 +762,7 @@ public class MaidInfoPage extends PhonePage {
                 HuhuTalkClientSettings.setMaidGroup(e.getKey(), "");
             }
         }
-        showFlash("🗑 已删除分组「" + name + "」");
+        showFlash(PhoneText.tr("gui.huhutalk.maid_info.group.deleted", MaidGroupHelper.displayGroup(name)));
     }
 
     /**
@@ -757,6 +792,8 @@ public class MaidInfoPage extends PhonePage {
             groupNewInput.bounds(0, 0, 0, 0);
             return;
         }
+        // 占位符每帧按当前语言刷新（构造期不缓存译文）；只改提示，不动已有内容与焦点
+        groupNewInput.placeholder(PhoneText.tr("gui.huhutalk.maid_info.group.placeholder"));
         int cardX = PhoneText.px(10);
         int cardW = width() - PhoneText.px(20);
         int inX = cardX + PhoneText.px(8);
@@ -782,40 +819,87 @@ public class MaidInfoPage extends PhonePage {
     // ==================== 删除确认弹窗 ====================
 
     /**
-     * 弹窗几何（<b>内容坐标</b>）：{@code x/y/w/h} 是外框，其余是按钮矩形。
-     * <p>渲染与命中<b>共用这一份</b>（旧实现在 {@code renderConfirmDialog} 与
-     * {@code handleConfirmClick} 里各算了一遍同样的 7 个值）。
+     * 弹窗几何（<b>内容坐标</b>）：{@code x/y/w/h} 是外框，其余是按钮矩形与折行后的文字。
+     * <p>渲染与命中<b>共用这一份</b>；文字行数决定外框高度，所以两边拿到的按钮位置完全一致。
      */
     private record ConfirmLayout(int x, int y, int w, int h,
-                                 int btnW, int btnH, int btnY, int cancelX, int delX) {
+                                 int btnW, int btnH, int btnY, int cancelX, int delX,
+                                 int textX, int textTop, int lineH, int detailGap,
+                                 List<FormattedCharSequence> titleLines,
+                                 List<FormattedCharSequence> detailLines) {
+    }
+
+    /** 确认弹窗的文案：按当前 {@link #confirm}/{@link #confirmGroup} 生成，语义与旧实现逐字相同。 */
+    private record ConfirmText(String title, String detail,
+                               List<FormattedCharSequence> titleLines,
+                               List<FormattedCharSequence> detailLines) {
+    }
+
+    /**
+     * 按当前确认对象生成标题/正文，并用 {@code Font.split} 在给定宽度下<b>按词折行</b>
+     * （{@code wrapWidth} 已是未乘缩放的字体像素）。两种确认共用这一处，不再各写一套标题判断。
+     */
+    private ConfirmText confirmText(Font font, int wrapWidth) {
+        String title;
+        String detail;
+        if (confirm == Confirm.DELETE_GROUP) {
+            title = PhoneText.tr("gui.huhutalk.maid_info.confirm.delete_group_title",
+                    MaidGroupHelper.displayGroup(confirmGroup));
+            detail = PhoneText.tr("gui.huhutalk.maid_info.confirm.delete_group_detail");
+        } else {
+            title = PhoneText.tr("gui.huhutalk.maid_info.confirm.delete_contact_title");
+            detail = PhoneText.tr("gui.huhutalk.maid_info.confirm.delete_contact_detail");
+        }
+        int wrap = Math.max(1, wrapWidth);
+        return new ConfirmText(title, detail,
+                font.split(Component.literal(title), wrap),
+                font.split(Component.literal(detail), wrap));
     }
 
     /** @param viewH 内容区可视高度（渲染时用渲染回调给的 h，命中时用 {@link #contentViewHeight()}，两者相等） */
     private ConfirmLayout confirmLayout(int viewH) {
-        int dlgW = width() - PhoneText.px(40);
-        int dlgH = PhoneText.px(80);
+        Font font = font();
+        float s = PhoneText.scale(1.0f);
+        int lineH = Math.max(1, PhoneText.height(font, s));
+
+        // 宽度兜底：极窄时不让外框/按钮出现负宽；上限夹到手机可用宽度，普通尺寸数值不变
+        int dlgW = Math.max(PhoneText.px(60), width() - PhoneText.px(40));
+        dlgW = Math.min(dlgW, Math.max(1, width()));
+        int textX = PhoneText.px(10);
+        int textMaxW = Math.max(1, dlgW - textX * 2);
+        ConfirmText text = confirmText(font, Math.max(1, (int) (textMaxW / s)));
+
+        int padTop = PhoneText.px(12);
+        int padBottom = PhoneText.px(8);
+        int detailGap = PhoneText.px(2);
+        int gapTextBtn = PhoneText.px(8);
+        int btnH = PhoneText.px(22);
+        int titleH = text.titleLines().size() * lineH;
+        int detailH = text.detailLines().size() * lineH;
+        int naturalH = padTop + titleH + detailGap + detailH + gapTextBtn + btnH + padBottom;
+        // 高度按真实行数增长；只有可视区比它更矮时才压回，文字随后裁剪到按钮上方，正文不会压住按钮。
+        int dlgH = Math.max(PhoneText.px(1), Math.min(naturalH, Math.max(PhoneText.px(1), viewH)));
+
         int dlgX = (width() - dlgW) / 2;
         int dlgY = viewH / 2 - dlgH / 2;
-        int btnW = (dlgW - PhoneText.px(30)) / 2;
-        int btnH = PhoneText.px(22);
-        int btnY = dlgY + dlgH - btnH - PhoneText.px(8);
+        int btnW = Math.max(PhoneText.px(10), (dlgW - PhoneText.px(30)) / 2);
+        int btnY = dlgY + dlgH - btnH - padBottom;
         int cancelX = dlgX + PhoneText.px(10);
         int delX = dlgX + dlgW - PhoneText.px(10) - btnW;
-        return new ConfirmLayout(dlgX, dlgY, dlgW, dlgH, btnW, btnH, btnY, cancelX, delX);
+        return new ConfirmLayout(dlgX, dlgY, dlgW, dlgH, btnW, btnH, btnY, cancelX, delX,
+                dlgX + textX, dlgY + padTop, lineH, detailGap,
+                text.titleLines(), text.detailLines());
     }
 
     /**
      * 二次确认弹窗（渲染与命中共用 {@link #confirmLayout} 那一份几何）。
      * <p>
-     * 两行文字由调用方给：删除联系人与删除分组共用同一个框，
-     * 只有"确认的是什么"不同 —— 这样两处确认的观感与操作方式完全一致（同一个位置、
-     * 同样大小的取消/确认按钮），玩家只需要学一次。
+     * 删除联系人与删除分组共用同一个框，只有"确认的是什么"不同（见 {@link #confirmText}）；
+     * 标题与正文按词折行后<b>完整绘制</b>，不再用省略号丢弃警告。
      */
     private void renderConfirmDialog(GuiGraphics g, Font font, ColorScheme c,
-                                     int originX, int originY, int w, int h,
-                                     String title, String detail) {
+                                     int originX, int originY, int w, int h) {
         float s = PhoneText.scale(1.0f);
-        int lineH = Math.max(1, PhoneText.height(font, s));
         g.fill(originX, originY, originX + w, originY + h, 0x66000000);
 
         ConfirmLayout d = confirmLayout(h);
@@ -823,20 +907,39 @@ public class MaidInfoPage extends PhonePage {
         int dlgY = originY + d.y();
         PhoneShapes.fillRoundedRect(g, dlgX, dlgY, d.w(), d.h(), 8, 0xFFFAFAFA);
 
-        int textY = dlgY + PhoneText.px(12);
-        PhoneText.draw(g, font, title, dlgX + PhoneText.px(10), textY, c.textPrimary(), s);
-        textY += lineH + PhoneText.px(2);
-        PhoneText.draw(g, font, detail, dlgX + PhoneText.px(10), textY, c.textSecondary(), s);
+        int textX = originX + d.textX();
+        int textRight = dlgX + d.w() - (d.textX() - d.x());
+        int textTop = originY + d.textTop();
+        int textBottom = originY + d.btnY() - PhoneText.px(4);
+        // 只有存在正的文字空间才裁剪并绘制；区域无效则不画正文，绝不能越过按钮区
+        if (textBottom > textTop && textRight > textX) {
+            g.enableScissor(textX, textTop, textRight, textBottom);
+            int ty = textTop;
+            for (FormattedCharSequence line : d.titleLines()) {
+                PhoneText.draw(g, font, line, textX, ty, c.textPrimary(), s);
+                ty += d.lineH();
+            }
+            ty += d.detailGap();
+            for (FormattedCharSequence line : d.detailLines()) {
+                PhoneText.draw(g, font, line, textX, ty, c.textSecondary(), s);
+                ty += d.lineH();
+            }
+            g.disableScissor();
+        }
 
         int btnY = originY + d.btnY();
+        int lineH = d.lineH();
         int btnTextY = btnY + (d.btnH() - lineH) / 2 + 1;
         PhoneShapes.fillRoundedRect(g, originX + d.cancelX(), btnY, d.btnW(), d.btnH(), d.btnH() / 2, 0xFFE0E0E0);
-        PhoneText.draw(g, font, "取消",
-                originX + d.cancelX() + (d.btnW() - PhoneText.width(font, "取消", s)) / 2f,
+        int labelMaxW = Math.max(0, d.btnW() - PhoneText.px(8));
+        String cancel = PhoneText.truncate(font, PhoneText.tr("gui.huhutalk.maid_info.confirm.cancel"), labelMaxW, s);
+        PhoneText.draw(g, font, cancel,
+                originX + d.cancelX() + (d.btnW() - PhoneText.width(font, cancel, s)) / 2f,
                 btnTextY, c.textPrimary(), s);
         PhoneShapes.fillRoundedRect(g, originX + d.delX(), btnY, d.btnW(), d.btnH(), d.btnH() / 2, 0xFFE53935);
-        PhoneText.draw(g, font, "确认",
-                originX + d.delX() + (d.btnW() - PhoneText.width(font, "确认", s)) / 2f,
+        String confirmLabel = PhoneText.truncate(font, PhoneText.tr("gui.huhutalk.maid_info.confirm.confirm"), labelMaxW, s);
+        PhoneText.draw(g, font, confirmLabel,
+                originX + d.delX() + (d.btnW() - PhoneText.width(font, confirmLabel, s)) / 2f,
                 btnTextY, 0xFFFFFFFF, s);
     }
 
@@ -879,9 +982,9 @@ public class MaidInfoPage extends PhonePage {
                 ChatHistoryStorage.deleteConversation(stableId);
                 // 删除聊天记录时，把该会话收件箱里尚未领取的文件一股脑掉到玩家脚下
                 PacketDistributor.sendToServer(new com.huhutalk.network.C2SDropTransferInboxPacket(stableId));
-                showFlash("🗑 已删除聊天记录");
+                showFlash(PhoneText.tr("gui.huhutalk.maid_info.history.deleted"));
             } else {
-                showFlash("暂无聊天记录");
+                showFlash(PhoneText.tr("gui.huhutalk.maid_info.history.empty"));
             }
             return true;
         }
@@ -934,7 +1037,7 @@ public class MaidInfoPage extends PhonePage {
                     modeCursor = Math.max(0, SosTaskCache.getAll().indexOf(SosBindCache.getTaskUid(stableId)));
                 }
             } else {
-                showFlash("请先绑定 SOS 呼叫");
+                showFlash(PhoneText.tr("gui.huhutalk.maid_info.sos.bind_first_toast"));
             }
             return true;
         }
@@ -961,7 +1064,7 @@ public class MaidInfoPage extends PhonePage {
             }
             HuhuTalkClientSettings.setMaidGroup(stableId, slot.label());
             groupDropdownOpen = false;
-            showFlash("已分到「" + slot.label() + "」");
+            showFlash(PhoneText.tr("gui.huhutalk.maid_info.group.assigned", MaidGroupHelper.displayGroup(slot.label())));
             return true;
         }
         // 「新建分组」那一行：**整行都是热区** —— 输入框比行矮，点在行内空白处也该算点在它上面。
@@ -1000,7 +1103,7 @@ public class MaidInfoPage extends PhonePage {
             PacketDistributor.sendToServer(new com.huhutalk.network.C2SDropTransferInboxPacket(stableId));
             HuhuTalkClientSettings.setMaidGroup(stableId, "");
             clearConfirm();
-            showFlash("☠ 已删除联系人");
+            showFlash(PhoneText.tr("gui.huhutalk.maid_info.contact.deleted"));
             return;
         }
         boolean onCancel = PhoneLayout.hit(x, y, d.cancelX(), d.btnY(), d.btnW(), d.btnH());

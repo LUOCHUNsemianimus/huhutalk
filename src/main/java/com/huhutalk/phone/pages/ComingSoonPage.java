@@ -20,7 +20,7 @@ import org.lwjgl.glfw.GLFW;
  */
 public class ComingSoonPage extends PhonePage {
 
-    private static final String TEXT = "🚧 敬请期待";
+    private static final String TEXT_KEY = "gui.huhutalk.coming_soon";
 
     /** 文案相对倍率（大一点才像占位页，而不是一行普通正文）。 */
     private static final float TEXT_SCALE = 1.5f;
@@ -37,7 +37,7 @@ public class ComingSoonPage extends PhonePage {
     @Override
     protected void renderContent(GuiGraphics g, int originX, int originY, int w, int h, float partialTick) {
         Font font = font();
-        PhoneText.drawCenteredIn(g, font, TEXT, originX, originY, w, h,
+        PhoneText.drawCenteredIn(g, font, PhoneText.tr(TEXT_KEY), originX, originY, w, h,
                 colors().textPrimary(), PhoneText.scale(TEXT_SCALE));
     }
 

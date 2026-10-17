@@ -26,7 +26,7 @@ public class PhoneInputScreen extends Screen {
     private EditBox hiddenBox;
 
     public PhoneInputScreen(ChatPage chatPage) {
-        super(Component.literal("手机输入"));
+        super(Component.translatable("gui.huhutalk.screen.phone_input"));
         this.chatPage = chatPage;
     }
 

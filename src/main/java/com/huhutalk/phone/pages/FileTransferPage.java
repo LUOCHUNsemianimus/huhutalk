@@ -240,7 +240,7 @@ public class FileTransferPage extends PhonePage {
 
     @Override
     protected String title() {
-        return "传文件";
+        return PhoneText.tr("gui.huhutalk.file_transfer.title");
     }
 
     @Override
@@ -255,7 +255,8 @@ public class FileTransferPage extends PhonePage {
     @Override
     protected void renderContent(GuiGraphics g, int originX, int originY, int w, int h, float partialTick) {
         // 顶部横栏：我的背包
-        drawHeaderBar(g, originX, originY + sectionBarTop(), w, "我的背包", null, 1.0f);
+        drawHeaderBar(g, originX, originY + sectionBarTop(), w,
+                PhoneText.tr("gui.huhutalk.file_transfer.backpack"), null, 1.0f);
 
         backpackGrid.setViewport(0, backpackGridTop(), w,
                 Math.max(0, queueBarTop() - backpackGridTop()));
@@ -263,7 +264,8 @@ public class FileTransferPage extends PhonePage {
 
         // 底部横栏：发送给女仆 + 右侧计数
         drawHeaderBar(g, originX, originY + queueBarTop(), w,
-                "发送给女仆", owner.transferCount() + "个文件待发送", 0.75f);
+                PhoneText.tr("gui.huhutalk.file_transfer.to_maid"),
+                PhoneText.tr("gui.huhutalk.file_transfer.pending", owner.transferCount()), 0.75f);
 
         queueGrid.setViewport(0, queueGridTop(), w, 2 * cell() + gap());
         queueGrid.render(g, originX, originY);
@@ -278,15 +280,21 @@ public class FileTransferPage extends PhonePage {
         g.fill(originX, barY, originX + w, barY + barH, SECTION_BAR_BG);
 
         float scale = PhoneText.scale(1.0f);
-        PhoneText.draw(g, font, left, originX + 4,
+        // 右侧计数先按上限截断，再把左侧标题收紧到不与它重叠（英文比中文长，直接画会压字）
+        float rs = right != null ? PhoneText.scale(rightScale) : 0f;
+        String rightShown = right != null
+                ? PhoneText.truncate(font, right, Math.max(0, w - PhoneText.px(8) - PhoneText.px(40)), rs)
+                : null;
+        int rw = rightShown != null ? PhoneText.width(font, rightShown, rs) : 0;
+        int leftMax = Math.max(0, w - PhoneText.px(8) - (rightShown != null ? rw + PhoneText.px(6) : 0));
+        String leftShown = PhoneText.truncate(font, left, leftMax, scale);
+        PhoneText.draw(g, font, leftShown, originX + 4,
                 barY + (barH - PhoneText.height(font, scale)) / 2f, SECTION_TITLE, scale);
 
-        if (right != null) {
-            float rs = PhoneText.scale(rightScale);
-            int leftW = PhoneText.width(font, left, scale) + 4;
-            int avail = w - leftW - 4;
-            int rw = PhoneText.width(font, right, rs);
-            PhoneText.draw(g, font, right, originX + leftW + (avail - rw) / 2f,
+        if (rightShown != null) {
+            int leftW = PhoneText.width(font, leftShown, scale) + 4;
+            int avail = Math.max(0, w - leftW - 4);
+            PhoneText.draw(g, font, rightShown, originX + leftW + (avail - rw) / 2f,
                     barY + (barH - PhoneText.height(font, rs)) / 2f, SECTION_COUNT, rs);
         }
         g.fill(originX, barY + barH, originX + w, barY + barH + 1, SECTION_LINE);

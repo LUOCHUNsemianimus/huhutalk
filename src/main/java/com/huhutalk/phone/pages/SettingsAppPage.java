@@ -62,29 +62,29 @@ public class SettingsAppPage extends PhonePage {
     private static final int BOTTOM_PAD = 12;
 
     /**
-     * 一行设置项：标题、右侧摘要值、点开去哪里。
+     * 一行设置项：标题键、右侧摘要值、点开去哪里。
      *
-     * @param label 标题
-     * @param value 右侧的当前值摘要（动态取，例如"识图模型：阿里云百炼"）
-     * @param open  点击时执行（通常是 {@code PhoneOverlay.pushPage(new XxxPage())}）
+     * @param labelKey 标题的<b>语言键</b>（存键而不是翻译结果：SECTIONS 是 static，存结果会冻住语言）
+     * @param value    右侧的当前值摘要（动态取，例如"识图模型：阿里云百炼"）
+     * @param open     点击时执行（通常是 {@code PhoneOverlay.pushPage(new XxxPage())}）
      */
-    private record Entry(String label, Supplier<String> value, Runnable open) {
+    private record Entry(String labelKey, Supplier<String> value, Runnable open) {
     }
 
-    /** 一个分组：一个标题 + 一张卡片（若干行）。 */
-    private record Section(String title, List<Entry> entries) {
+    /** 一个分组：一个标题键 + 一张卡片（若干行）。 */
+    private record Section(String titleKey, List<Entry> entries) {
     }
 
     /**
      * 全部分组。<b>扩展点</b>：要加条目就在这里加一行。
      */
     private static final List<Section> SECTIONS = List.of(
-            new Section("AI", List.of(
-                    new Entry("识图模型",
+            new Section("gui.huhutalk.settings.section.ai", List.of(
+                    new Entry("gui.huhutalk.settings.vision_model",
                             SettingsAppPage::visionSummary,
                             () -> PhoneOverlay.pushPage(new VisionModelSettingsPage())))),
-            new Section("桌面", List.of(
-                    new Entry("桌面图标管理",
+            new Section("gui.huhutalk.settings.section.desktop", List.of(
+                    new Entry("gui.huhutalk.settings.desktop_icons",
                             SettingsAppPage::desktopSummary,
                             () -> PhoneOverlay.pushPage(new DesktopIconPage()))))
     );
@@ -96,19 +96,21 @@ public class SettingsAppPage extends PhonePage {
     private static String visionSummary() {
         String siteId = HuhuTalkClientSettings.getVisionSiteId();
         VisionProvider p = VisionProviders.byId(siteId);
-        String name = p != null ? p.displayName() : siteId;
+        String name = PhoneText.visionProviderName(siteId,
+                p != null ? p.displayName() : siteId);
         String model = HuhuTalkClientSettings.getEffectiveVisionModel();
         return model.isBlank() ? name : name + " · " + model;
     }
 
     /** 右侧摘要：桌面已占用几格（9 是槽位总数，与手机长宽比无关）。 */
     private static String desktopSummary() {
-        return MainPage.desktopUsedCount() + "/" + MainPage.desktopSlotCount() + " 格";
+        return PhoneText.tr("gui.huhutalk.settings.desktop.summary",
+                MainPage.desktopUsedCount(), MainPage.desktopSlotCount());
     }
 
     @Override
     protected String title() {
-        return "设置";
+        return PhoneText.tr("gui.huhutalk.settings.title");
     }
 
     /**
@@ -194,7 +196,7 @@ public class SettingsAppPage extends PhonePage {
 
         for (int si = 0; si < SECTIONS.size(); si++) {
             Section s = SECTIONS.get(si);
-            PhoneText.draw(g, font, s.title(), originX + PhoneText.px(CARD_PAD + 2),
+            PhoneText.draw(g, font, PhoneText.tr(s.titleKey()), originX + PhoneText.px(CARD_PAD + 2),
                     originY + scrollY(L.titleYs.get(si)), c.textMuted(), PhoneText.scale(GROUP_SCALE));
 
             int[] card = L.cards.get(si);
@@ -207,21 +209,30 @@ public class SettingsAppPage extends PhonePage {
                 if (i > 0) {
                     g.fill(cardX + PhoneText.px(8), ry, cardX + cardW - PhoneText.px(8), ry + 1, c.divider());
                 }
-                PhoneText.drawLeftIn(g, font, e.label(), cardX, ry, cardW, rowH,
-                        PhoneText.px(12), c.textPrimary(), PhoneText.scale(1.0f));
-                // 右侧：当前值 + 一个「›」表示可点进去。值过长时截断，保证「›」永远可见
-                int chevronW = PhoneText.width(font, "›", PhoneText.scale(1.0f));
-                int valueRight = cardW - PhoneText.px(12) - chevronW - PhoneText.px(4);
-                String value = PhoneText.truncate(font, e.value().get(),
-                        Math.max(0, valueRight - PhoneText.px(60)), PhoneText.scale(1.0f));
-                int vw = PhoneText.width(font, value, PhoneText.scale(1.0f));
-                PhoneText.draw(g, font, value,
-                        cardX + valueRight - vw, ry + (rowH - PhoneText.height(font, PhoneText.scale(1.0f))) / 2f,
-                        c.textSecondary(), PhoneText.scale(1.0f));
-                PhoneText.draw(g, font, "›",
-                        cardX + cardW - PhoneText.px(12) - chevronW,
-                        ry + (rowH - PhoneText.height(font, PhoneText.scale(1.0f))) / 2f,
-                        c.textMuted(), PhoneText.scale(1.0f));
+                // 左标题 / 右当前值 + 「›」。这里一次算清两列宽度：
+                // 先用当前语言的**实际**译文量出各自需要多宽，再按"值优先、标题让位"分配，
+                // 保证英文长标题与值不会互相压字。渲染与测量用的是同一份译文（同一次 tr()）。
+                float ts = PhoneText.scale(1.0f);
+                String label = PhoneText.tr(e.labelKey());
+                String value = e.value().get();
+                int labelPad = PhoneText.px(12);
+                int rightPad = PhoneText.px(12);
+                int colGap = PhoneText.px(6);
+                int chevronW = PhoneText.width(font, "›", ts);
+                int valueRight = cardW - rightPad - chevronW - PhoneText.px(4);
+                int columns = Math.max(0, valueRight - labelPad);
+                // 值最多占 45% 宽度；若值本身很短，就只预留它实际需要的宽度，把空间让给标题
+                int valueWant = Math.min(PhoneText.width(font, value, ts), columns * 45 / 100);
+                int labelMax = Math.min(Math.max(0, columns - colGap - valueWant),
+                        PhoneText.width(font, label, ts));
+                int valueMax = Math.max(0, columns - colGap - labelMax);
+                PhoneText.drawLeftIn(g, font, label, cardX, ry, labelPad + labelMax + PhoneText.px(4), rowH,
+                        labelPad, c.textPrimary(), ts);
+                String shown = PhoneText.truncate(font, value, valueMax, ts);
+                int vw = PhoneText.width(font, shown, ts);
+                int textY = ry + (rowH - PhoneText.height(font, ts)) / 2;
+                PhoneText.draw(g, font, shown, cardX + valueRight - vw, textY, c.textSecondary(), ts);
+                PhoneText.draw(g, font, "›", cardX + cardW - rightPad - chevronW, textY, c.textMuted(), ts);
             }
         }
     }

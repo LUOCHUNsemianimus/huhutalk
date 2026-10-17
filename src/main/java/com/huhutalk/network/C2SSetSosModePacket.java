@@ -49,8 +49,8 @@ public record C2SSetSosModePacket(String stableId, String taskUid) implements Cu
             // 回推最新绑定列表（含工作模式），客户端据此刷新 UI
             context.reply(new S2CSosBindPacket(data.toEntries(playerUuid)));
             if (ok) {
-                serverPlayer.sendSystemMessage(Component.literal(
-                        "[HuhuTalk] 🎯 已把该女仆 SOS 工作模式设为：" + uid));
+                serverPlayer.sendSystemMessage(Component.translatable(
+                        "message.huhutalk.sos.mode_set", uid));
             }
         });
     }

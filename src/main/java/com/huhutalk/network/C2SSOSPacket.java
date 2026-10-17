@@ -59,7 +59,8 @@ public record C2SSOSPacket() implements CustomPacketPayload {
             long now = System.currentTimeMillis();
             Long last = LAST_CALL.get(ownerId);
             if (last != null && now - last < SOS_COOLDOWN_MS) {
-                serverPlayer.sendSystemMessage(Component.literal("[HuhuTalk] SOS 呼叫太频繁，请稍候再试"));
+                serverPlayer.sendSystemMessage(
+                        Component.translatable("message.huhutalk.sos.too_frequent"));
                 return;
             }
             LAST_CALL.put(ownerId, now);
@@ -87,7 +88,7 @@ public record C2SSOSPacket() implements CustomPacketPayload {
                 summoned++;
             }
             serverPlayer.sendSystemMessage(
-                    Component.literal("[HuhuTalk] 🚨 紧急呼叫：" + summoned + " 位女仆已赶来保护你"));
+                    Component.translatable("message.huhutalk.sos.summoned", summoned));
         });
     }
 }

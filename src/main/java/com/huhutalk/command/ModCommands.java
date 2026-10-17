@@ -52,7 +52,7 @@ public final class ModCommands {
                                                     int z = IntegerArgumentType.getInteger(ctx, "z");
                                                     int n = apply(entities, new BlockPos(x, y, z), MoveArrival.MEET);
                                                     ctx.getSource().sendSuccess(() ->
-                                                            Component.literal("Moved " + n + " maids to " + x + "," + y + "," + z), true);
+                                                            Component.translatable("message.huhutalk.command.moved", n, x, y, z), true);
                                                     return 1;
                                                 })))));
     }
@@ -64,7 +64,7 @@ public final class ModCommands {
                             Collection<? extends Entity> entities = EntityArgument.getEntities(ctx, "targets");
                             int n = apply(entities, null, MoveArrival.BACK);
                             ctx.getSource().sendSuccess(() ->
-                                    Component.literal("Summoning " + n + " maids to your side"), true);
+                                    Component.translatable("message.huhutalk.command.summoning", n), true);
                             return 1;
                         }));
     }
@@ -82,7 +82,7 @@ public final class ModCommands {
                                                     int z = IntegerArgumentType.getInteger(ctx, "z");
                                                     int n = apply(entities, new BlockPos(x, y, z), MoveArrival.HOME);
                                                     ctx.getSource().sendSuccess(() ->
-                                                            Component.literal("Staying " + n + " maids at " + x + "," + y + "," + z), true);
+                                                            Component.translatable("message.huhutalk.command.staying", n, x, y, z), true);
                                                     return 1;
                                                 })))));
     }

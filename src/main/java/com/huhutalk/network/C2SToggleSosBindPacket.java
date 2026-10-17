@@ -45,7 +45,8 @@ public record C2SToggleSosBindPacket(String stableId) implements CustomPacketPay
             var maid = com.huhutalk.common.MaidStableIdHelper.findMaid(
                     serverPlayer.getServer(), stableId);
             if (maid == null || !maid.isAlive() || !maid.isOwnedBy(serverPlayer)) {
-                serverPlayer.sendSystemMessage(Component.literal("[HuhuTalk] 找不到可绑定的女仆"));
+                serverPlayer.sendSystemMessage(
+                        Component.translatable("message.huhutalk.sos.bind_not_found"));
                 return;
             }
             String playerUuid = serverPlayer.getUUID().toString();
@@ -54,9 +55,11 @@ public record C2SToggleSosBindPacket(String stableId) implements CustomPacketPay
             // 回推最新绑定列表（含工作模式），客户端据此刷新 UI
             context.reply(new S2CSosBindPacket(data.toEntries(playerUuid)));
             if (bound) {
-                serverPlayer.sendSystemMessage(Component.literal("[HuhuTalk] ✅ 已把该女仆加入 SOS 呼叫"));
+                serverPlayer.sendSystemMessage(
+                        Component.translatable("message.huhutalk.sos.bind_added"));
             } else {
-                serverPlayer.sendSystemMessage(Component.literal("[HuhuTalk] ➖ 已将该女仆移出 SOS 呼叫"));
+                serverPlayer.sendSystemMessage(
+                        Component.translatable("message.huhutalk.sos.bind_removed"));
             }
         });
     }

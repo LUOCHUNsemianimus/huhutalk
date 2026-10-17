@@ -7,6 +7,7 @@ import com.github.tartaricacid.touhoulittlemaid.init.InitItems;
 import com.github.tartaricacid.touhoulittlemaid.item.ItemWirelessIO;
 import com.huhutalk.common.MaidStableIdHelper;
 import com.huhutalk.common.PhoneHelper;
+import com.huhutalk.common.SystemText;
 import com.huhutalk.core.chat.MaidChatHandler;
 import com.huhutalk.core.chat.PendingSystemMessageBus;
 import net.minecraft.core.BlockPos;
@@ -270,10 +271,10 @@ public final class MaidTransferService {
                                             List<PlayerSendEntry> entries) {
         EntityMaid maid = findOwnedAliveMaid(player.server, stableId, player);
         if (maid == null) {
-            return new SendResult(SendResult.NO_MAID, "女仆不在线或不在你名下");
+            return new SendResult(SendResult.NO_MAID, SystemText.of("message.huhutalk.transfer.maid_offline"));
         }
         if (entries == null || entries.isEmpty()) {
-            return new SendResult(SendResult.ITEM_MISSING, "没有要发送的物品");
+            return new SendResult(SendResult.ITEM_MISSING, SystemText.of("message.huhutalk.transfer.nothing_to_send"));
         }
 
         // 1) 校验玩家背包里确实还有这些物品，并组装要转移的栈
@@ -282,11 +283,11 @@ public final class MaidTransferService {
         for (PlayerSendEntry e : entries) {
             int slot = e.playerSlot();
             if (slot < 0 || slot >= player.getInventory().items.size()) {
-                return new SendResult(SendResult.ITEM_MISSING, "背包槽位无效");
+                return new SendResult(SendResult.ITEM_MISSING, SystemText.of("message.huhutalk.transfer.invalid_slot"));
             }
             ItemStack in = player.getInventory().getItem(slot);
             if (in.isEmpty() || !in.is(e.item()) || in.getCount() < e.count()) {
-                return new SendResult(SendResult.ITEM_MISSING, "背包物品与所选不符");
+                return new SendResult(SendResult.ITEM_MISSING, SystemText.of("message.huhutalk.transfer.item_mismatch"));
             }
             ItemStack part = in.copy();
             part.setCount(e.count());
@@ -297,12 +298,12 @@ public final class MaidTransferService {
         // 2) 模拟整批放入女仆可用背包：只有整批都能放得下才成功
         IItemHandler maidInv = toHandlerOrNull(maid.getAvailableBackpackInv());
         if (maidInv == null) {
-            return new SendResult(SendResult.NO_SPACE, "女仆没有可用背包");
+            return new SendResult(SendResult.NO_SPACE, SystemText.of("message.huhutalk.transfer.no_backpack"));
         }
         for (ItemStack stack : toSend) {
             ItemStack left = ItemHandlerHelper.insertItemStacked(maidInv, stack.copy(), true);
             if (!left.isEmpty()) {
-                return new SendResult(SendResult.NO_SPACE, "女仆背包空间不足");
+                return new SendResult(SendResult.NO_SPACE, SystemText.of("message.huhutalk.transfer.no_space"));
             }
         }
 
@@ -466,18 +467,18 @@ public final class MaidTransferService {
                                                            List<Integer> slots, boolean bubbleMute, boolean immersive) {
         EntityMaid maid = findOwnedAliveMaid(player.server, stableId, player);
         if (maid == null) {
-            return ChatWithItemsResult.failed("女仆不在线或不在你名下，本次未发送");
+            return ChatWithItemsResult.failed(SystemText.of("message.huhutalk.transfer.maid_offline_not_sent"));
         }
         if (!PhoneHelper.hasPhone(maid)) {
-            return ChatWithItemsResult.failed("该女仆没有佩戴手机，无法接收");
+            return ChatWithItemsResult.failed(SystemText.of("message.huhutalk.transfer.no_phone"));
         }
         MaidAIChatManager mgr = maid.getAiChatManager();
         LLMSite site = mgr.getLLMSite();
         if (site == null || !site.enabled()) {
-            return ChatWithItemsResult.failed("女仆未配置或未启用 AI");
+            return ChatWithItemsResult.failed(SystemText.of("message.huhutalk.transfer.ai_disabled"));
         }
         if (text != null && text.length() > 2000) {
-            return ChatWithItemsResult.failed("消息过长");
+            return ChatWithItemsResult.failed(SystemText.of("message.huhutalk.transfer.message_too_long"));
         }
 
         // 组装要发的整格物品 + 给女仆看的收到物品摘要
@@ -506,14 +507,15 @@ public final class MaidTransferService {
             sum.append(st.getHoverName().getString()).append('x').append(st.getCount());
         }
         if (entries.isEmpty()) {
-            return ChatWithItemsResult.failed("没有可发送的物品");
+            return ChatWithItemsResult.failed(SystemText.of("message.huhutalk.transfer.nothing_to_send"));
         }
 
         // 只有女仆可用背包整批放得下才真正转移；否则不扣玩家物品
         SendResult r = sendFromPlayer(player, stableId, entries);
         if (r.code != SendResult.OK) {
             return ChatWithItemsResult.failed(
-                    (r.message == null || r.message.isBlank()) ? "女仆背包放不下，本次未发送" : r.message);
+                    (r.message == null || r.message.isBlank())
+                            ? SystemText.of("message.huhutalk.transfer.no_space_not_sent") : r.message);
         }
 
         // 已成功转移：让女仆在回复里感知并回应收到的物品

@@ -1,5 +1,6 @@
 package com.huhutalk.client.theme;
 
+import com.huhutalk.api.phone.ui.PhoneText;
 import com.huhutalk.client.settings.HuhuTalkClientSettings;
 
 import java.util.ArrayList;
@@ -27,6 +28,19 @@ public final class ThemeManager {
     /** 当前生效的配色方案 */
     public static ColorScheme getActive() {
         return active;
+    }
+
+    /**
+     * 配色方案在界面上的显示名：按<b>稳定 id</b> 解析当前语言的译文，
+     * 未知主题（或该语言没有译文）保留 {@link ColorScheme#displayName()} 原名。
+     * <p>
+     * 只翻译显示文案，不改 {@link ColorScheme} 的原始数据，也不改存档里的主题 id。
+     */
+    public static String displayNameOf(ColorScheme scheme) {
+        if (scheme == null) {
+            return "";
+        }
+        return PhoneText.trOr("gui.huhutalk.theme." + scheme.id(), scheme.displayName());
     }
 
     /** 按 id 切换配色方案；未知 id 回退默认 */

@@ -151,7 +151,7 @@ public class PhoneCasePickerPage extends PhonePage {
 
     @Override
     protected String title() {
-        return "选择手机壳方块";
+        return PhoneText.tr("gui.huhutalk.case_picker.title");
     }
 
     // contentHeight() 保持默认的 0：滚动交给 PhoneGrid，页面自己再滚一次会变成双重滚动。
@@ -164,9 +164,9 @@ public class PhoneCasePickerPage extends PhonePage {
         ColorScheme scheme = colors();
         int topLine = PhoneText.px(TOP_LINE_H);
 
-        PhoneText.draw(g, font(), "当前：" + currentDisplay(),
-                originX + PhoneText.px(4), originY + PhoneText.px(4),
-                scheme.textPrimary(), PhoneText.scale(1.0f));
+        PhoneText.drawLeftIn(g, font(), PhoneText.tr("gui.huhutalk.case_picker.current", currentDisplay()),
+                originX, originY + PhoneText.px(4), w, PhoneText.px(TOP_LINE_H),
+                PhoneText.px(4), scheme.textPrimary(), PhoneText.scale(1.0f));
 
         grid.setViewport(0, topLine, w, Math.max(0, h - topLine));
         grid.render(g, originX, originY);
@@ -196,7 +196,7 @@ public class PhoneCasePickerPage extends PhonePage {
 
     private String currentDisplay() {
         String id = HuhuTalkClientSettings.getPhoneCaseBlock();
-        return id.isBlank() ? "默认" : shortName(id);
+        return id.isBlank() ? PhoneText.tr("gui.huhutalk.case_picker.default") : shortName(id);
     }
 
     private static String shortName(String id) {

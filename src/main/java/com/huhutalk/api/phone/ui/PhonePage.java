@@ -62,8 +62,8 @@ public abstract class PhonePage implements IPhonePage {
     private static final int TOP_BAR_PAD_PX = 8;
     /** 返回键命中区域宽度（自左边缘算起） */
     private static final int BACK_HIT_WIDTH = 60;
-    /** 返回键文案 */
-    private static final String BACK_LABEL = "< 返回";
+    /** 返回键文案键（在渲染时解析，切语言下一帧生效，不缓存翻译结果） */
+    private static final String BACK_LABEL_KEY = "gui.huhutalk.page.back";
     /** 默认滚动速度：1 单位滚轮 = 多少逻辑像素 */
     private static final int DEFAULT_SCROLL_SPEED = 10;
 
@@ -343,13 +343,31 @@ public abstract class PhonePage implements IPhonePage {
         // 若还按 1 倍行高居中，标题会明显偏下
         int lineH = topBarLineHeight();
         int textY = baseY + (barH - lineH) / 2;
+        float s = PhoneText.scale(1.0f);
+        // 顶栏左右各留的固定边距；返回文案与标题之间的最小间隙
+        int pad = 4;
+        int gap = 4;
+        // 标题可占用区间（手机内容区坐标，含边界）。默认整条顶栏；
+        // 只有 showBackButton() 为 true 才为返回文案让出左界。
+        float titleLeft = pad;
+        float titleRight = w - pad;
         if (showBackButton()) {
-            PhoneText.draw(graphics, font, BACK_LABEL, baseX + 4, textY, c.topBarText(), PhoneText.scale(1.0f));
+            // 返回文案自身也按可用宽度截断：最多占半条顶栏，保证标题仍有空间。
+            // 点击命中仍用 BACK_HIT_WIDTH，与这里显示的文案宽度无关。
+            int backAvail = Math.max(0, w / 2 - pad - gap);
+            String back = PhoneText.truncate(font, PhoneText.tr(BACK_LABEL_KEY), backAvail, s);
+            PhoneText.draw(graphics, font, back, baseX + pad, textY, c.topBarText(), s);
+            titleLeft = pad + PhoneText.width(font, back, s) + gap;
         }
         String t = title();
-        if (!t.isEmpty()) {
-            PhoneText.draw(graphics, font, t, baseX + (w - PhoneText.width(font, t, PhoneText.scale(1.0f))) / 2f,
-                    textY, c.topBarText(), PhoneText.scale(1.0f));
+        if (!t.isEmpty() && titleRight > titleLeft) {
+            // 在返回文案右侧的剩余宽度内截断，字号保持同倍率
+            String shown = PhoneText.truncate(font, t, (int) (titleRight - titleLeft), s);
+            int shownW = PhoneText.width(font, shown, s);
+            // 原居中位置钳制到 [titleLeft, titleRight - shownW]；正常宽度下仍在正中
+            float centerLeft = (w - shownW) / 2f;
+            float left = Math.max(titleLeft, Math.min(centerLeft, titleRight - shownW));
+            PhoneText.draw(graphics, font, shown, baseX + left, textY, c.topBarText(), s);
         }
         renderTopBarExtras(graphics, baseX, baseY, w, barH, textY);
     }

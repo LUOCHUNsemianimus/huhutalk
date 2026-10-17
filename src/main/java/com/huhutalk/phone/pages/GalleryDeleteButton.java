@@ -22,12 +22,17 @@ import org.lwjgl.glfw.GLFW;
  */
 final class GalleryDeleteButton {
 
-    /** 文案 */
-    static final String LABEL = "删除";
+    /** 文案键（渲染/命中/测量都在调用时解析，切语言下一帧生效） */
+    private static final String LABEL_KEY = "gui.huhutalk.gallery.delete";
     /** 文字色：白（压在暗红胶囊上） */
     private static final int TEXT_COLOR = 0xFFFFFFFF;
 
     private GalleryDeleteButton() {
+    }
+
+    /** 当前语言的按钮文案。{@link #rect} / {@link #render} / {@link #hit} 共用它。 */
+    private static String label() {
+        return PhoneText.tr(LABEL_KEY);
     }
 
     /** 文字相对倍率：小一号，不抢标题 */
@@ -46,7 +51,7 @@ final class GalleryDeleteButton {
      * @return {x, y, w, h, textInsetX, textInsetY}
      */
     private static int[] rect(Font font, int barW, int barH) {
-        int tw = PhoneText.width(font, LABEL, scale());
+        int tw = PhoneText.width(font, label(), scale());
         int th = PhoneText.height(font, scale());
         int padX = PhoneText.px(5);
         int padY = PhoneText.px(3);
@@ -61,7 +66,7 @@ final class GalleryDeleteButton {
     static void render(GuiGraphics g, Font font, int baseX, int baseY, int barW, int barH) {
         int[] r = rect(font, barW, barH);
         PhoneShapes.fillRoundedRect(g, baseX + r[0], baseY + r[1], r[2], r[3], r[3] / 2, bg());
-        PhoneText.draw(g, font, LABEL,
+        PhoneText.draw(g, font, label(),
                 baseX + r[0] + r[4], baseY + r[1] + r[5], TEXT_COLOR, scale());
     }
 

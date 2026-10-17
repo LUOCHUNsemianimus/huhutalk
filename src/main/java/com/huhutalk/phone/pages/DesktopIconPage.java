@@ -193,7 +193,7 @@ public class DesktopIconPage extends PhonePage {
 
     @Override
     protected String title() {
-        return "桌面图标管理";
+        return PhoneText.tr("gui.huhutalk.desktop.title");
     }
 
     /** 与图库/手册/传文件页一致：顶栏锁成品牌色，不随以后新增的配色方案漂移。 */
@@ -325,11 +325,13 @@ public class DesktopIconPage extends PhonePage {
     protected void renderContent(GuiGraphics g, int ox, int oy, int w, int h, float partialTick) {
         refresh();
 
-        drawBar(g, ox, oy + hintTop(), w, "按住图标拖动换位 · 点 ✕ 移除");
+        drawBar(g, ox, oy + hintTop(), w, PhoneText.tr("gui.huhutalk.desktop.hint"));
         prepareGrids();
         slotGrid.render(g, ox, oy);
 
-        String right = removed.isEmpty() ? "已移除（空）" : "已移除（点一下放回）";
+        String right = removed.isEmpty()
+                ? PhoneText.tr("gui.huhutalk.desktop.removed_empty")
+                : PhoneText.tr("gui.huhutalk.desktop.removed_hint");
         drawBar(g, ox, oy + recycleBarTop(), w, right);
         if (!removed.isEmpty()) {
             recycleGrid.render(g, ox, oy);

@@ -62,7 +62,7 @@ public class GalleryPage extends PhonePage {
 
     @Override
     protected String title() {
-        return "图库";
+        return PhoneText.tr("gui.huhutalk.gallery.title");
     }
 
     /** 列表页底色用略深一档，与设置类页面一致 */
@@ -143,7 +143,7 @@ public class GalleryPage extends PhonePage {
     @Override
     protected void renderContent(GuiGraphics g, int ox, int oy, int w, int h, float partialTick) {
         if (items.isEmpty()) {
-            PhoneText.drawLeftIn(g, font(), "暂无照片，先用 📷 拍一张吧",
+            PhoneText.drawLeftIn(g, font(), PhoneText.tr("gui.huhutalk.gallery.empty"),
                     ox, oy + PhoneText.px(10), w, PhoneText.px(16), PhoneText.px(10),
                     0xFF8A7C82, PhoneText.scale(0.9f));
             return;
@@ -284,7 +284,7 @@ public class GalleryPage extends PhonePage {
         selected.clear();
         selecting = false;
         refresh();
-        PhoneOverlay.showBubble("已删除 " + n + " 张");
+        PhoneOverlay.showBubble(PhoneText.tr("gui.huhutalk.gallery.deleted", n));
     }
 
     /** 内容坐标 → 第几格（视口外返回 -1） */

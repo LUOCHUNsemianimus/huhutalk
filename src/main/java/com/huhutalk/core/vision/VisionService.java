@@ -5,6 +5,7 @@ import com.github.tartaricacid.touhoulittlemaid.ai.service.llm.openai.LLMOpenAIS
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import com.huhutalk.common.SystemText;
 import com.huhutalk.common.vision.VisionAppearance;
 import com.huhutalk.common.vision.VisionProviders;
 import com.mojang.logging.LogUtils;
@@ -135,15 +136,20 @@ public final class VisionService {
     public static CompletableFuture<String> describe(byte[] imagePng, String prompt,
                                                      @Nullable String siteId, @Nullable String modelId) {
         if (imagePng == null || imagePng.length == 0) {
-            return CompletableFuture.failedFuture(new IllegalStateException("图片数据为空"));
+            return CompletableFuture.failedFuture(
+                    new IllegalStateException(SystemText.of("message.huhutalk.vision.image_empty")));
         }
 
         VisionSites.Resolved site = VisionSites.resolve(siteId);
         if (!site.hasKey()) {
             LOGGER.error("[HuhuTalk] 识图失败：平台未配置 api key siteId={}", site.siteId());
+            // 预设平台：按稳定 siteId 嵌套既有显示 name 键（显示端复用 PhoneText 翻译）；
+            // 玩家自建站点没有 name 键，保留 siteId，绝不把服务端中文 displayName 塞进英文提示。
+            String siteName = VisionProviders.byId(site.siteId()) != null
+                    ? SystemText.of("gui.huhutalk.vision." + site.siteId() + ".name")
+                    : site.siteId();
             return CompletableFuture.failedFuture(new IllegalStateException(
-                    "「%s」还没配置 API Key，请到手机设置 → 识图模型里填一下。"
-                            .formatted(VisionProviders.displayNameOf(site.siteId()))));
+                    SystemText.of("message.huhutalk.vision.no_api_key", siteName)));
         }
 
         String useModel = resolveModel(site.siteId(), modelId);
@@ -238,7 +244,9 @@ public final class VisionService {
             return content == null ? "" : content.trim();
         } catch (Exception e) {
             LOGGER.error("[HuhuTalk] 解析识图响应失败: {}", truncate(response.body()), e);
-            throw new IllegalStateException("解析识图响应失败: " + truncate(response.body()), e);
+            // 固定说明本地化，外部 HTTP body 技术详情原样带出；保留 cause，日志不变
+            throw new IllegalStateException(
+                    SystemText.of("message.huhutalk.vision.parse_failed", truncate(response.body())), e);
         }
     }
 

@@ -3,6 +3,7 @@ package com.huhutalk.client;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonParseException;
+import com.huhutalk.api.phone.ui.PhoneText;
 import com.mojang.logging.LogUtils;
 import net.minecraft.client.Minecraft;
 import org.slf4j.Logger;
@@ -155,7 +156,10 @@ public class ChatHistoryStorage {
 
     /**
      * 某会话最后一条消息的<b>预览文本</b>（消息列表用）。
-     * 普通消息返回文本本身；若最后一条是表情消息，则返回其映射词，如 "（干杯）"。
+     * <p>
+     * 普通消息返回文本本身（用户/历史内容<b>原样</b>，不翻译）；若最后一条是
+     * 内置生成的文件/图片/表情占位或表情预览，则按当前语言生成显示文案。
+     * 这些译文<b>只用于本次显示</b>，不写回历史 {@code message} 字段。
      */
     public static String getLastMessagePreview(String stableId) {
         List<ChatMessageEntry> list = currentHistory().get(stableId);
@@ -166,18 +170,39 @@ public class ChatHistoryStorage {
         if (last.item() != null) {
             // 玩家发出去的：没有"领取"概念，只有"已发送"
             if (last.isPlayer()) {
-                return "（文件·已发送）";
+                return PhoneText.tr("gui.huhutalk.chat.preview.file_sent");
             }
-            return last.item().claimed() ? "（文件·已接收）" : "（文件·待领取）";
+            return PhoneText.tr(last.item().claimed()
+                    ? "gui.huhutalk.chat.preview.file_received"
+                    : "gui.huhutalk.chat.preview.file_pending");
         }
         if (last.image() != null && !last.image().isEmpty()) {
-            return "（图片）";
+            return PhoneText.tr("gui.huhutalk.chat.preview.image");
         }
         if (last.emote() != null && !last.emote().isEmpty()) {
-            String preview = com.huhutalk.core.chat.SendEmoteTool.previewText(last.emote());
-            return preview != null ? preview : "（表情）";
+            return emotePreview(last.emote());
         }
         return last.text();
+    }
+
+    /**
+     * 内置表情的本地化预览（带括号模板）。
+     * <p>
+     * 只按 emote <b>文件名</b>这个稳定标识解析 {@code gui.huhutalk.emote.*}，
+     * 绝不拿译文去匹配表情；未知文件名回退到通用表情占位符。
+     * {@code SendEmoteTool} 的 {@code EMOJI_LABEL} / AI 接口保持原样，此处不改变历史结构。
+     */
+    private static String emotePreview(String emotePath) {
+        int slash = emotePath.lastIndexOf('/');
+        String file = slash >= 0 ? emotePath.substring(slash + 1) : emotePath;
+        int dot = file.lastIndexOf('.');
+        if (dot > 0) {
+            file = file.substring(0, dot);
+        }
+        String label = PhoneText.trOr("gui.huhutalk.emote." + file, null);
+        return label == null
+                ? PhoneText.tr("gui.huhutalk.chat.preview.emote")
+                : PhoneText.tr("gui.huhutalk.chat.preview.emote_named", label);
     }
 
     /** 某会话的消息条数（无会话返回 0） */

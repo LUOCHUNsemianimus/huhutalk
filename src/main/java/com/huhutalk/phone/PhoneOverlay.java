@@ -2037,11 +2037,14 @@ public class PhoneOverlay {
         fillRoundedRect(graphics, cx, baseY, cw, h, r, r, 0xB3D9C3D4);                          // #d9c3d4 70%
 
         String[] emojis = {"✉", "🦊", "⚙"};
-        String[] labels = {"消息", "联系人", "设置"};
+        // 语言键在渲染时解析，切语言下一帧即生效；绝不缓存静态译文
+        String[] labels = {"gui.huhutalk.nav.messages", "gui.huhutalk.contacts.title", "gui.huhutalk.settings.title"};
         int slotW = cw / 3;
         int activeIdx = activeTab.ordinal();
         float ts = PhoneText.scale(0.75f); // 文字/图标缩放（随全局倍率）
         int lineH = (int)(font.lineHeight * ts);
+        // 每个槽位内文字可用的水平宽度（两侧各留一点边距），超出即截断，文字不会跨槽
+        int labelAvail = Math.max(0, slotW - PhoneText.px(2) * 2);
 
         for (int i = 0; i < 3; i++) {
             int itemX = cx + i * slotW;
@@ -2053,8 +2056,9 @@ public class PhoneOverlay {
             // emoji（上）
             FormattedCharSequence emoji = Component.literal(emojis[i]).getVisualOrderText();
             PhoneText.draw(graphics, font, emoji, centerX - font.width(emoji) * ts / 2f, baseY + 1, 0xFFFFFFFF, ts);
-            // 文字（下，0.75 倍×全局倍率）
-            FormattedCharSequence label = Component.literal(labels[i]).getVisualOrderText();
+            // 文字（下，0.75 倍×全局倍率）；先在槽位可用宽度内截断，再形成视觉序文本
+            String labelText = PhoneText.truncate(font, PhoneText.tr(labels[i]), labelAvail, ts);
+            FormattedCharSequence label = Component.literal(labelText).getVisualOrderText();
             PhoneText.draw(graphics, font, label, centerX - font.width(label) * ts / 2f, baseY + 1 + lineH, 0xFFFFFFFF, ts);
         }
 

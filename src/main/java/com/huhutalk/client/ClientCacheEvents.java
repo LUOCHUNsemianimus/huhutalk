@@ -48,16 +48,13 @@ public class ClientCacheEvents {
         // 键名**动态取当前绑定**：默认鼠标侧键 4/5，会显示成「鼠标按键4」「鼠标按键5」；
         // 玩家在「按键设置」里改过之后这条提示也依然准确（绑成 W 就显示「W」）。
         // 版式与开局礼包提示（PlayerStarterKit）对齐：前缀「【Huhutalk】」橙色、正文默认色；
-        // 两个键名单独标黄。原先跟在键名后的"（两个玩家绑定的功能键）"是自己写注解时不慎
-        // 写进字面量的产物，会把编辑备注推到玩家聊天框里，这里去掉。
+        // 两个键名单独标黄，作为 translatable 参数保留自己的颜色与真实绑定。
         event.getPlayer().displayClientMessage(
                 Component.empty()
                         .append(Component.literal("【Huhutalk】").withColor(0xFFA500))
-                        .append(Component.literal("：掏出狐狐Talk手机后低头，按「"))
-                        .append(keyComponent(ClientModEvents.PHONE_CLICK))
-                        .append(Component.literal("」「"))
-                        .append(keyComponent(ClientModEvents.PHONE_BACK))
-                        .append(Component.literal("」即刻使用。")), false);
+                        .append(Component.translatable("message.huhutalk.enter_world",
+                                keyComponent(ClientModEvents.PHONE_CLICK),
+                                keyComponent(ClientModEvents.PHONE_BACK))), false);
     }
 
     /** 取某个键位当前绑定的显示名（玩家可能改过；取不到就退化成占位符）。 */

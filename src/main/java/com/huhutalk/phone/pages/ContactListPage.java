@@ -204,7 +204,8 @@ public class ContactListPage extends PhonePage {
     protected void renderTopBarExtras(GuiGraphics g, int baseX, int baseY, int w, int barH, int textY) {
         int color = colors().topBarText();
         int x = PlayerHeader.render(g, baseX, baseY, barH, textY, color);
-        PhoneText.draw(g, font(), "联系人", x + PhoneText.px(6), textY, color, PhoneText.scale(1.0f));
+        PhoneText.draw(g, font(), PhoneText.tr("gui.huhutalk.contacts.title"),
+                x + PhoneText.px(6), textY, color, PhoneText.scale(1.0f));
     }
 
     // ==================== 列表 ====================
@@ -214,7 +215,7 @@ public class ContactListPage extends PhonePage {
         refreshRows();
 
         if (rows.isEmpty()) {
-            PhoneText.drawCenteredIn(g, font(), "暂无联系人", originX, originY, w, h,
+            PhoneText.drawCenteredIn(g, font(), PhoneText.tr("gui.huhutalk.contacts.empty"), originX, originY, w, h,
                     colors().textSecondary(), PhoneText.scale(1.0f));
             return;
         }
@@ -249,7 +250,9 @@ public class ContactListPage extends PhonePage {
         Font font = font();
         int headerH = PhoneText.px(GROUP_HEADER_H);
         float groupScale = PhoneText.scale(GROUP_SCALE);
-        PhoneText.draw(g, font, group,
+        // ⚠ 显示用译文；group 本身是稳定分组标识，收起状态与排序都用它
+        String shown = MaidGroupHelper.displayGroup(group);
+        PhoneText.draw(g, font, shown,
                 x + PhoneText.px(10),
                 y + (headerH - PhoneText.height(font, groupScale)) / 2f,
                 GROUP_TITLE_COLOR, groupScale);
@@ -364,14 +367,14 @@ public class ContactListPage extends PhonePage {
 
     private static String statusText(MaidStatus status) {
         if (status == null) {
-            return "离线";
+            return PhoneText.tr("gui.huhutalk.maid_status.offline");
         }
         return switch (status) {
-            case ONLINE -> "在线";
-            case OFFLINE -> "离线";
-            case DEAD -> "死亡";
-            case SHUTDOWN -> "已关机";
-            case IN_CHARM -> "魂符内";
+            case ONLINE -> PhoneText.tr("gui.huhutalk.maid_status.online");
+            case OFFLINE -> PhoneText.tr("gui.huhutalk.maid_status.offline");
+            case DEAD -> PhoneText.tr("gui.huhutalk.maid_status.dead");
+            case SHUTDOWN -> PhoneText.tr("gui.huhutalk.maid_status.shutdown");
+            case IN_CHARM -> PhoneText.tr("gui.huhutalk.maid_status.in_charm");
         };
     }
 }

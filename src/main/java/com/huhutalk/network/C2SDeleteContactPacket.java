@@ -43,10 +43,11 @@ public record C2SDeleteContactPacket(String stableId) implements CustomPacketPay
             // 只允许删除自己名下的联系人
             if (entry != null && entry.getOwnerUuid().equals(serverPlayer.getUUID().toString())) {
                 book.remove(packet.stableId());
-                serverPlayer.sendSystemMessage(Component.literal(
-                        "[HuhuTalk] 🗑 已删除联系人（若女仆再次上线会被重新录入）"));
+                serverPlayer.sendSystemMessage(
+                        Component.translatable("message.huhutalk.contact.deleted"));
             } else {
-                serverPlayer.sendSystemMessage(Component.literal("[HuhuTalk] 找不到该联系人"));
+                serverPlayer.sendSystemMessage(
+                        Component.translatable("message.huhutalk.contact.not_found"));
             }
         });
     }

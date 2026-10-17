@@ -525,7 +525,7 @@ public class ChatPage implements PhoneCameraHost {
             Minecraft mc = Minecraft.getInstance();
             if (mc.player != null) {
                 mc.player.sendSystemMessage(Component.literal(
-                        "[HuhuTalk] 未配置语音识别，请先在车万女仆的 AI 设置中配置并启用 STT 站点。"));
+                        PhoneText.tr("gui.huhutalk.chat.voice_not_configured")));
             }
         }
     }
@@ -918,6 +918,9 @@ public class ChatPage implements PhoneCameraHost {
 
     /**
      * 服务端确认失败（放不下/不在线等）：整条未发送。还原文字到输入框、保留物品队列、提示原因。
+     *
+     * @param message 未加提示前缀的原因（模组自有系统字段，已由调用方 {@code PhoneText.system} 解析）。
+     *                本方法内部补本地化「提示」前缀与空值默认，保持原公开方法调用约定；调用者无需改变。
      */
     public void onItemSendRejected(String message) {
         String text = pendingItemText;
@@ -930,8 +933,10 @@ public class ChatPage implements PhoneCameraHost {
             ChatHistoryStorage.setDraft(stableId, text);
         }
         // 队列保留（粉点还在，可稍后再发）
-        String notice = message == null || message.isEmpty() ? "发送失败，物品已保留" : message;
-        messages.add(new ChatMessage("[提示] " + notice, false, true, false, currentGameTime(), null, null));
+        String notice = message == null || message.isEmpty()
+                ? PhoneText.tr("gui.huhutalk.chat.item_send_failed") : message;
+        messages.add(new ChatMessage(PhoneText.tr("gui.huhutalk.chat.notice", notice),
+                false, true, false, currentGameTime(), null, null));
     }
 
     private void sendCurrentMessage() {
@@ -977,9 +982,9 @@ public class ChatPage implements PhoneCameraHost {
         if (diff < 0) return "";
         long days = diff / 24000L;
         long hours = (diff % 24000L) / 1000L;
-        if (days > 0) return days + "天前";
-        if (hours > 0) return hours + "小时前";
-        return "刚刚";
+        if (days > 0) return PhoneText.tr("gui.huhutalk.chat.time.days_ago", days);
+        if (hours > 0) return PhoneText.tr("gui.huhutalk.chat.time.hours_ago", hours);
+        return PhoneText.tr("gui.huhutalk.chat.time.just_now");
     }
 
     /** 气泡上方时间标签的高度（0.5 倍字号 + 间距） */
@@ -1177,7 +1182,7 @@ public class ChatPage implements PhoneCameraHost {
         // 返回按钮：仅保留白色箭头图标，删除"返回"文字
         PhoneText.draw(g, font, "←", baseX + PhoneText.px(6), navCenterY - lh() / 2, 0xFFFFFFFF, PhoneText.scale(1.0f));
         // 返回按钮右侧靠左放置女仆名称 + 状态（保留字号比例，垂直居中；超宽截断避免压住设置钮）
-        String titleText = waitingResponse ? "对方正在输入…" : maidName;
+        String titleText = waitingResponse ? PhoneText.tr("gui.huhutalk.chat.typing") : maidName;
         int nameX = baseX + PhoneText.px(22);
         int gearX = baseX + w - PhoneText.px(16);
         int titleMaxW = gearX - nameX - PhoneText.px(8);
@@ -1243,7 +1248,7 @@ public class ChatPage implements PhoneCameraHost {
                 renderToolsPanel(g, font, baseX, pTop, pBottom, w);
             } else {
                 int panelMidY = (pTop + pBottom) / 2;
-                String panelText = "🚧 面板开发中";
+                String panelText = PhoneText.tr("gui.huhutalk.chat.panel_wip");
                 PhoneText.draw(g, font, panelText,
                         baseX + (w - font.width(panelText) * PhoneText.scale(1.0f)) / 2,
                         panelMidY - lh() / 2, 0xFF8A6A6A, PhoneText.scale(1.0f));
@@ -1260,11 +1265,12 @@ public class ChatPage implements PhoneCameraHost {
         int lineH = lh() + 1;
 
         if (currentInput.isEmpty()) {
-            // 占位符（垂直居中）：灰色，75% 不透明度，无阴影
+            // 占位符（垂直居中）：灰色，75% 不透明度，无阴影；量与画共用同一份当前语言译文
+            String placeholder = PhoneText.tr("gui.huhutalk.chat.input_placeholder");
             int phY = iTop + (iH - lh()) / 2;
-            PhoneText.draw(g, font, "输入消息...", textX, phY, 0xBF9E9E9E, PhoneText.scale(1.0f));
+            PhoneText.draw(g, font, placeholder, textX, phY, 0xBF9E9E9E, PhoneText.scale(1.0f));
             if (inputActive && isCursorVisible()) {
-                int cx = textX + (int) (font.width("输入消息...") * PhoneText.scale(1.0f));
+                int cx = textX + (int) (font.width(placeholder) * PhoneText.scale(1.0f));
                 g.fill(cx, phY - 1, cx + 1, phY + lh(), 0xFF8A6A6A);
             }
         } else {
@@ -1298,7 +1304,7 @@ public class ChatPage implements PhoneCameraHost {
         int sX = sendX(baseX);
         int sY = sendY(baseY);
         PhoneShapes.fillRoundedRect(g, sX, sY, sW, sH, sH / 2, 0xFFB1CEDE);
-        String sendLabel = "发送";
+        String sendLabel = PhoneText.tr("gui.huhutalk.chat.send");
         PhoneText.draw(g, font, sendLabel,
                 sX + (sW - font.width(sendLabel) * PhoneText.scale(1.0f)) / 2,
                 sY + (sH - lh()) / 2, 0xFFFFFFFF, PhoneText.scale(1.0f));
@@ -1568,18 +1574,24 @@ public class ChatPage implements PhoneCameraHost {
 
         // 说明行（第二行 / 第三行），长度决定气泡在图标行之外还需多宽
         int hidden = Math.max(0, payload.total - shown);
-        String lineA = hidden > 0 ? "和剩余 " + hidden + " 个文件" : "";
+        String lineA = hidden > 0 ? PhoneText.tr("gui.huhutalk.chat.and_more_files", hidden) : "";
         // used=true 的「特殊发送」（远程救援）：物品已被直接用掉，只展示效果文案，没有领取状态
         String lineB;
         if (isPlayer) {
             // 玩家侧（P→M）：这是"我发出去的文件"，没有领取概念 —— 只有"已发送"
             // （m.isPlayer() 为真的物品消息一律走这里，见 ChatPage 构造期的历史恢复）
-            lineB = payload.total > 0 ? "✓ 已发送 " + payload.total + " 个文件" : "✓ 已发送";
+            lineB = payload.total > 0
+                    ? PhoneText.tr("gui.huhutalk.chat.sent_files", payload.total)
+                    : PhoneText.tr("gui.huhutalk.chat.sent");
         } else if (payload.used) {
-            lineB = (payload.effectText == null || payload.effectText.isEmpty()) ? "已使用" : payload.effectText;
+            // 效果文案是模组自有系统字段：每次显示按当前语言解析（新 SystemText 随语言切换，旧纯文本原样）。
+            // 只动 effectText，不解析用户 message 或其它 payload 字段。
+            lineB = (payload.effectText == null || payload.effectText.isEmpty())
+                    ? PhoneText.tr("gui.huhutalk.chat.used") : PhoneText.system(payload.effectText);
         } else {
-            lineB = payload.claimed() ? "✓ 已接收"
-                    : (payload.pending > 0 ? "待领取 " + payload.pending + " 个文件" : "");
+            lineB = payload.claimed() ? PhoneText.tr("gui.huhutalk.chat.received")
+                    : (payload.pending > 0
+                            ? PhoneText.tr("gui.huhutalk.chat.pending_files", payload.pending) : "");
         }
         float capTs = 0.7f;
         // 气泡宽度贴合内容：图标行宽 与 说明最长一行 取大，封顶到 maxW（不再堆满整屏）
@@ -1743,8 +1755,11 @@ public class ChatPage implements PhoneCameraHost {
 
     // ==================== 附加栏工具（第5个"+"，传文件等） ====================
 
-    /** 附加栏内的工具（图标 emoji + 名称）。目前第一个工具是"传文件"，后续可继续追加。 */
-    private static final String[][] EXTRA_TOOLS = {{"📃", "传文件"}};
+    /**
+     * 附加栏内的工具（图标 emoji + <b>语言键</b>）。目前第一个工具是"传文件"，后续可继续追加。
+     * <p>名称在显示时用 {@link PhoneText#tr} 解析，绝不缓存静态译文：切语言下一帧即生效。
+     */
+    private static final String[][] EXTRA_TOOLS = {{"📃", "gui.huhutalk.file_transfer.title"}};
 
     /** 附加栏工具的圆角方框边长：跟随默认字体行高变化（约两倍行高），不写死像素。 */
     private static int toolTile() {
@@ -1773,8 +1788,9 @@ public class ChatPage implements PhoneCameraHost {
             PhoneText.draw(g, font, icon,
                     x + (tileS - font.width(icon) * ts) / 2f,
                     y + (tileS - lh() * ts) / 2f, 0xFFDE6F8D, ts);
-            PhoneText.draw(g, font, EXTRA_TOOLS[i][1],
-                    x + (tileS - font.width(EXTRA_TOOLS[i][1]) * PhoneText.scale(0.8f)) / 2f,
+            String toolName = PhoneText.tr(EXTRA_TOOLS[i][1]);
+            PhoneText.draw(g, font, toolName,
+                    x + (tileS - font.width(toolName) * PhoneText.scale(0.8f)) / 2f,
                     y + tileS + 1, 0xFF6A5A5A, PhoneText.scale(0.8f));
         }
     }
@@ -1827,7 +1843,8 @@ public class ChatPage implements PhoneCameraHost {
         // 录音中高亮为更深的强调色
         int color = voiceActive ? 0xFFC2605A : 0xFFDE7E7E;
         PhoneShapes.fillRoundedRect(g, cx - d / 2, cy - d / 2, d, d, d / 2, color);
-        String label = voiceActive ? "松开发送" : "按住说话";
+        String label = voiceActive ? PhoneText.tr("gui.huhutalk.chat.voice_release")
+                : PhoneText.tr("gui.huhutalk.chat.voice_hold");
         float ts = PhoneText.scale(0.9f);
         PhoneText.draw(g, font, label, cx - font.width(label) * ts / 2f,
                 cy - Minecraft.getInstance().font.lineHeight * ts / 2f, 0xFFFFFFFF, ts);
@@ -2024,12 +2041,12 @@ public class ChatPage implements PhoneCameraHost {
         // **已拍成时右段改成「长按<确认键名>保存」**（保存只有长按这一个入口，
         // 所以只能把这条手势写在标题位上）。
         // 键名是玩家绑定的、可能很长，所以两段**共用同一个缩放**：宁可一起缩，也不让它们撞在一起。
-        String backHint = "< 返回 " + cameraKeyHint(false);
+        String backHint = PhoneText.tr("gui.huhutalk.camera.back_hint", cameraKeyHint(false));
         // 右段：已拍成 → 长按保存提示；取景中 → 后摄「拍照」/ 前摄「自拍」。
         // 前/后摄的切换键位提示由底部那颗切换按钮负责，标题不重复。
         String title = shot
-                ? ("长按" + cameraKeyHint(true) + "保存")
-                : (frontCamera ? "自拍" : "拍照");
+                ? PhoneText.tr("gui.huhutalk.chat.camera.hold_save", cameraKeyHint(true))
+                : PhoneText.tr(frontCamera ? "gui.huhutalk.camera.selfie" : "gui.huhutalk.camera.photo");
         float barTs = PhoneText.scale(0.85f);
         int barAvail = w - PhoneText.px(10) - PhoneText.px(6);      // 左右边距 + 两段之间的间隔
         int barRaw = font.width(backHint) + font.width(title);
@@ -2144,7 +2161,9 @@ public class ChatPage implements PhoneCameraHost {
             SelfieCameraTarget.renderPreviewFit(g, x, y, w, h);
             return;
         }
-        String hint = SelfieCameraTarget.isFailed() ? "前置相机不可用" : "前置相机准备中…";
+        String hint = PhoneText.tr(SelfieCameraTarget.isFailed()
+                ? "gui.huhutalk.camera.front_unavailable"
+                : "gui.huhutalk.camera.front_preparing");
         float ts = Math.min(PhoneText.scale(0.8f), (w - PhoneText.px(8)) / Math.max(1f, (float) font.width(hint)));
         ts = Math.max(0.25f, ts);
         PhoneText.draw(g, font, hint, x + (w - font.width(hint) * ts) / 2f,
@@ -2171,7 +2190,8 @@ public class ChatPage implements PhoneCameraHost {
         }
         PhoneShapes.fillRoundedRect(g, tx, ty, tw, th, th / 2, 0xCC000000);
         // 简短状态 + 切换键名，单行自适应：极窄 GUI 下按宽度缩小，不换行、不溢出、更不撞中央快门
-        String label = (frontCamera ? "前摄 " : "后摄 ") + cameraFacingKeyHint();
+        String label = PhoneText.tr(frontCamera ? "gui.huhutalk.camera.front" : "gui.huhutalk.camera.back",
+                cameraFacingKeyHint());
         float ts = Math.min(PhoneText.scale(0.8f),
                 (tw - PhoneText.px(6)) / Math.max(1f, (float) font.width(label)));
         ts = Math.max(0.20f, ts);
@@ -2216,9 +2236,9 @@ public class ChatPage implements PhoneCameraHost {
 
         // 左「重拍」（次要：白底红字） / 右「发送」（主操作：红底白字）
         drawActionPill(g, font, baseX + L[0], baseY + L[1], L[2], L[3],
-                0xECFFFFFF, 0xFFDE7E7E, "重拍 " + cameraKeyHint(false));
+                0xECFFFFFF, 0xFFDE7E7E, PhoneText.tr("gui.huhutalk.camera.retake", cameraKeyHint(false)));
         drawActionPill(g, font, baseX + L[4], baseY + L[5], L[6], L[7],
-                0xFFDE7E7E, 0xFFFFFFFF, "发送 " + cameraKeyHint(true));
+                0xFFDE7E7E, 0xFFFFFFFF, PhoneText.tr("gui.huhutalk.chat.camera.send", cameraKeyHint(true)));
     }
 
     /** 画一颗动作胶囊：底色 + 居中文字；文字字号自适应胶囊宽度（键名可能很长）。 */
@@ -2405,7 +2425,7 @@ public class ChatPage implements PhoneCameraHost {
      */
     private void savePhoto() {
         if (cameraShot != null && PhotoLibrary.saveToGallery(cameraShot) != null) {
-            PhoneOverlay.showBubble("保存成功");
+            PhoneOverlay.showBubble(PhoneText.tr("gui.huhutalk.chat.photo_saved"));
         }
     }
 
@@ -2454,8 +2474,9 @@ public class ChatPage implements PhoneCameraHost {
 
         g.enableScissor(baseX, pTop, baseX + w, pBottom);
         if (items.isEmpty()) {
-            PhoneText.draw(g, font, "暂无照片，先用📷拍一张吧",
-                    baseX + (w - font.width("暂无照片，先用📷拍一张吧") * PhoneText.scale(1.0f)) / 2,
+            String emptyText = PhoneText.tr("gui.huhutalk.chat.gallery_empty");
+            PhoneText.draw(g, font, emptyText,
+                    baseX + (w - font.width(emptyText) * PhoneText.scale(1.0f)) / 2,
                     itemY, 0xFF8A6A6A, PhoneText.scale(1.0f));
             g.disableScissor();
             return;
@@ -2748,8 +2769,9 @@ public class ChatPage implements PhoneCameraHost {
     private void renderEmotePanel(GuiGraphics g, Font font, int baseX, int pTop, int pBottom, int w) {
         List<EmoteEntry> emotes = getAllEmotes();
         if (emotes.isEmpty()) {
-            PhoneText.draw(g, font, "暂无表情包",
-                    baseX + (w - font.width("暂无表情包") * PhoneText.scale(1.0f)) / 2,
+            String emptyText = PhoneText.tr("gui.huhutalk.chat.emote_empty");
+            PhoneText.draw(g, font, emptyText,
+                    baseX + (w - font.width(emptyText) * PhoneText.scale(1.0f)) / 2,
                     pTop + PhoneText.px(8), 0xFF8A6A6A, PhoneText.scale(1.0f));
             return;
         }
@@ -2924,8 +2946,9 @@ public class ChatPage implements PhoneCameraHost {
                 g.fill(bubbleLeft + pad, yTop + pad, bubbleLeft + pad + IMAGE_DRAW_SIZE,
                         yTop + pad + IMAGE_DRAW_SIZE, 0x4D808080);
                 float ts = PhoneText.scale(0.5f);
-                PhoneText.draw(g, font, "图片压缩中…",
-                        bubbleLeft + pad + (IMAGE_DRAW_SIZE - font.width("图片压缩中…") * ts) / 2f,
+                String compressing = PhoneText.tr("gui.huhutalk.chat.image_compressing");
+                PhoneText.draw(g, font, compressing,
+                        bubbleLeft + pad + (IMAGE_DRAW_SIZE - font.width(compressing) * ts) / 2f,
                         yTop + pad + (IMAGE_DRAW_SIZE - font.lineHeight * ts) / 2f,
                         0xFFFFFFFF, ts);
             }

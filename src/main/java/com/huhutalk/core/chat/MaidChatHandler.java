@@ -7,6 +7,7 @@ import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
 import com.huhutalk.common.MaidStatus;
 import com.huhutalk.common.PhoneHelper;
 import com.huhutalk.common.StableIdProvider;
+import com.huhutalk.common.SystemText;
 import com.huhutalk.common.vision.VisionAppearance;
 import com.huhutalk.core.contact.MaidContactBook;
 import com.huhutalk.core.contact.MaidContactEntry;
@@ -40,13 +41,13 @@ public class MaidChatHandler {
         }
         if (!maid.isOwnedBy(player)) {
             PacketDistributor.sendToPlayer(player,
-                    new S2CMaidChatErrorPacket(stableId, "这不是你的女仆"));
+                    new S2CMaidChatErrorPacket(stableId, SystemText.of("message.huhutalk.chat.not_your_maid")));
             return;
         }
         // 女仆已加载但未佩戴手机 → 已关机，无法远程联系
         if (!PhoneHelper.hasPhone(maid)) {
             PacketDistributor.sendToPlayer(player,
-                    new S2CMaidChatInfoPacket(stableId, "该女仆没有佩戴手机，暂时无法联系。", false));
+                    new S2CMaidChatInfoPacket(stableId, SystemText.of("message.huhutalk.chat.no_phone"), false));
             return;
         }
 
@@ -56,7 +57,7 @@ public class MaidChatHandler {
         }
         if (message.length() > MAX_MESSAGE_LEN) {
             PacketDistributor.sendToPlayer(player,
-                    new S2CMaidChatErrorPacket(stableId, "消息过长（上限 " + MAX_MESSAGE_LEN + " 字符）"));
+                    new S2CMaidChatErrorPacket(stableId, SystemText.of("message.huhutalk.chat.message_too_long", MAX_MESSAGE_LEN)));
             return;
         }
 
@@ -64,7 +65,7 @@ public class MaidChatHandler {
         LLMSite site = manager.getLLMSite();
         if (site == null || !site.enabled()) {
             PacketDistributor.sendToPlayer(player,
-                    new S2CMaidChatErrorPacket(stableId, "女仆未配置 AI 或 AI 不可用"));
+                    new S2CMaidChatErrorPacket(stableId, SystemText.of("message.huhutalk.chat.ai_unavailable")));
             return;
         }
 
@@ -174,17 +175,17 @@ public class MaidChatHandler {
         if (maid == null) {
             LOGGER.error("[HuhuTalk] 图片聊天失败：找不到女仆 stableId={}", stableId);
             PacketDistributor.sendToPlayer(player,
-                    new S2CMaidChatErrorPacket(stableId, "找不到该女仆或女仆不在线"));
+                    new S2CMaidChatErrorPacket(stableId, SystemText.of("message.huhutalk.chat.maid_offline")));
             return;
         }
         if (!maid.isOwnedBy(player)) {
             PacketDistributor.sendToPlayer(player,
-                    new S2CMaidChatErrorPacket(stableId, "这不是你的女仆"));
+                    new S2CMaidChatErrorPacket(stableId, SystemText.of("message.huhutalk.chat.not_your_maid")));
             return;
         }
         if (!PhoneHelper.hasPhone(maid)) {
             PacketDistributor.sendToPlayer(player,
-                    new S2CMaidChatInfoPacket(stableId, "该女仆没有佩戴手机，暂时无法联系。", false));
+                    new S2CMaidChatInfoPacket(stableId, SystemText.of("message.huhutalk.chat.no_phone"), false));
             return;
         }
         MaidAIChatManager manager = maid.getAiChatManager();
@@ -192,19 +193,19 @@ public class MaidChatHandler {
         if (site == null || !site.enabled()) {
             LOGGER.error("[HuhuTalk] 图片聊天失败：女仆 AI 不可用 stableId={}", stableId);
             PacketDistributor.sendToPlayer(player,
-                    new S2CMaidChatErrorPacket(stableId, "女仆未配置 AI 或 AI 不可用"));
+                    new S2CMaidChatErrorPacket(stableId, SystemText.of("message.huhutalk.chat.ai_unavailable")));
             return;
         }
 
         // 图片字节已在客户端降采样并内联进包：这里只做空值/长度防御，不再依赖共享临时目录
         if (imageData == null || imageData.length == 0) {
             PacketDistributor.sendToPlayer(player,
-                    new S2CMaidChatErrorPacket(stableId, "图片数据为空，请重试"));
+                    new S2CMaidChatErrorPacket(stableId, SystemText.of("message.huhutalk.chat.image_empty")));
             return;
         }
         if (imageData.length > C2SMaidImageChatPacket.MAX_IMAGE_BYTES) {
             PacketDistributor.sendToPlayer(player,
-                    new S2CMaidChatErrorPacket(stableId, "图片过大，请换小一点的图"));
+                    new S2CMaidChatErrorPacket(stableId, SystemText.of("message.huhutalk.chat.image_too_large")));
             return;
         }
         LOGGER.info("[HuhuTalk] 收到图片聊天: stableId={}, imgBytes={}", stableId, imageData.length);
@@ -229,7 +230,9 @@ public class MaidChatHandler {
                     if (throwable != null) {
                         LOGGER.error("[HuhuTalk] 识图失败 stableId={}", stableIdIn, throwable);
                         PacketDistributor.sendToPlayer(playerIn,
-                                new S2CMaidChatErrorPacket(stableIdIn, "识图失败：" + throwable.getMessage()));
+                                new S2CMaidChatErrorPacket(stableIdIn,
+                                        SystemText.of("message.huhutalk.chat.vision_failed",
+                                                SystemText.errorDetail(throwable))));
                         return;
                     }
                     if (!maidIn.isAlive()) {
@@ -326,7 +329,7 @@ public class MaidChatHandler {
 
         if (entry == null || !entry.getOwnerUuid().equals(player.getUUID().toString())) {
             PacketDistributor.sendToPlayer(player,
-                    new S2CMaidChatErrorPacket(stableId, "找不到该女仆或不是你的女仆"));
+                    new S2CMaidChatErrorPacket(stableId, SystemText.of("message.huhutalk.chat.maid_not_found")));
             return;
         }
 
@@ -335,8 +338,8 @@ public class MaidChatHandler {
                 message, player.serverLevel().getGameTime());
 
         String infoText = entry.getStatus() == MaidStatus.DEAD
-                ? "女仆已死亡，消息会等她复活后代为转达。"
-                : "女仆暂不在线，消息已离线保存。";
+                ? SystemText.of("message.huhutalk.chat.offline_dead")
+                : SystemText.of("message.huhutalk.chat.offline_saved");
         PacketDistributor.sendToPlayer(player, new S2CMaidChatInfoPacket(stableId, infoText, true));
     }
 

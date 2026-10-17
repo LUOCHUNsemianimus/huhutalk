@@ -5,6 +5,7 @@ import com.huhutalk.HuhuTalk;
 import com.huhutalk.common.MaidStableIdHelper;
 import com.huhutalk.common.PlayerPhoneHelper;
 import com.huhutalk.common.StableIdProvider;
+import com.huhutalk.common.SystemText;
 import com.huhutalk.core.transfer.MaidTransferService;
 import com.huhutalk.core.transfer.UsedItemNotifier;
 import net.minecraft.core.particles.ColorParticleOption;
@@ -171,11 +172,15 @@ public final class MaidRescueService {
 
         // 7) 聊天页留痕：每位参与救援的女仆各一条「已使用」气泡
         int restored = Math.max(1, (int) targetHealth);
+        String healEffect = firePotion.isEmpty()
+                ? SystemText.of("message.huhutalk.rescue.heal", restored)
+                : SystemText.of("message.huhutalk.rescue.heal_fire", restored);
         pushUsedBubble(revived, buildRecord(healer, healPotion, restored, revived.serverLevel().getGameTime(),
-                "已使用 · 恢复 " + restored + " ❤" + (firePotion.isEmpty() ? "" : " · 附抗火")), healPotion);
+                healEffect), healPotion);
         if (firefighter != null && !firePotion.isEmpty() && firefighter != healer) {
             pushUsedBubble(revived, buildRecord(firefighter, firePotion, 0,
-                    revived.serverLevel().getGameTime(), "已使用 · 抗火"), firePotion);
+                    revived.serverLevel().getGameTime(),
+                    SystemText.of("message.huhutalk.rescue.fire")), firePotion);
         }
 
         LOGGER.info("[HuhuTalk][救援] 完成：player={} 回血={} 抗火={} 治疗方={} 抗火方={}",

@@ -1,5 +1,6 @@
 package com.huhutalk.client;
 
+import com.huhutalk.api.phone.ui.PhoneText;
 import com.huhutalk.common.MaidStatus;
 import com.huhutalk.client.settings.HuhuTalkClientSettings;
 
@@ -55,6 +56,26 @@ public final class MaidGroupHelper {
     public static boolean hasManualGroup(String stableId) {
         String g = HuhuTalkClientSettings.getMaidGroup(stableId);
         return g != null && !g.isBlank();
+    }
+
+    /**
+     * 分组名的<b>显示</b>文本：只解析四个内置分组标识（在线/离线/已关机/死亡），
+     * 玩家自定义分组名原样返回。
+     * <p>
+     * ⚠ {@link #GROUP_ONLINE} 等常量是持久化与比较用的<b>稳定标识</b>，
+     * 绝不能把本方法的翻译结果拿去比较、排序或落盘；渲染分组标题/分组选项时调用它即可。
+     */
+    public static String displayGroup(String stableGroup) {
+        if (stableGroup == null) {
+            return "";
+        }
+        return switch (stableGroup) {
+            case GROUP_ONLINE -> PhoneText.tr("gui.huhutalk.group.online");
+            case GROUP_OFFLINE -> PhoneText.tr("gui.huhutalk.group.offline");
+            case GROUP_SHUTDOWN -> PhoneText.tr("gui.huhutalk.group.shutdown");
+            case GROUP_DEAD -> PhoneText.tr("gui.huhutalk.group.dead");
+            default -> stableGroup;
+        };
     }
 
     /** 分组名的排序权重（用于固定显示顺序：在线/离线/已关机/死亡/自定义） */

@@ -215,7 +215,7 @@ public class MessageListPage extends PhonePage {
 
         if (conversationIds.isEmpty()) {
             // 空列表：内容区居中提示
-            PhoneText.drawCenteredIn(g, font(), "暂无消息会话", originX, originY, w, h,
+            PhoneText.drawCenteredIn(g, font(), PhoneText.tr("gui.huhutalk.messages.empty"), originX, originY, w, h,
                     colors().textSecondary(), PhoneText.scale(1.0f));
             return;
         }
@@ -291,7 +291,7 @@ public class MessageListPage extends PhonePage {
         // 下行：最后一条消息预览（0.75 倍）
         String last = ChatHistoryStorage.getLastMessagePreview(stableId);
         if (last == null || last.isEmpty()) {
-            last = "（无消息内容）";
+            last = PhoneText.tr("gui.huhutalk.messages.no_content");
         }
         String preview = PhoneText.truncate(font, last, textMaxW, PhoneText.scale(SUMMARY_SCALE));
         int previewY = top + nameH;

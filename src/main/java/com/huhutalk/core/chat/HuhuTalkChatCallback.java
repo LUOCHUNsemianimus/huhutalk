@@ -5,6 +5,7 @@ import com.github.tartaricacid.touhoulittlemaid.ai.manager.entity.MaidAIChatMana
 import com.github.tartaricacid.touhoulittlemaid.ai.manager.response.ResponseChat;
 import com.github.tartaricacid.touhoulittlemaid.ai.service.llm.LLMMessage;
 import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
+import com.huhutalk.common.SystemText;
 import com.huhutalk.network.S2CMaidChatErrorPacket;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
@@ -84,8 +85,11 @@ public class HuhuTalkChatCallback extends LLMCallback {
         if (sender != null && sender.isAlive()) {
             if (getMaid().level() instanceof ServerLevel serverLevel) {
                 serverLevel.getServer().submit(() -> {
+                    // 通用「聊天失败」模板 + 解包后的原异常详情；不吞详情、不改异常处理
                     PacketDistributor.sendToPlayer(sender,
-                            new S2CMaidChatErrorPacket(stableId, throwable.getMessage()));
+                            new S2CMaidChatErrorPacket(stableId,
+                                    SystemText.of("message.huhutalk.chat.chat_failed",
+                                            SystemText.errorDetail(throwable))));
                 });
             }
         }

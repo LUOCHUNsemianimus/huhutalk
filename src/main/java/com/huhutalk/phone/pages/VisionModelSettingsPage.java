@@ -71,8 +71,8 @@ public class VisionModelSettingsPage extends PhonePage {
     private static final int SUMMARY_TO_LIST = 10;
     /** 卡片之间的间距 */
     private static final int CARD_GAP = 6;
-    /** 「自定义…」下拉项文案 */
-    private static final String CUSTOM_OPTION = "自定义…";
+    /** 「自定义…」下拉项文案键（控件选项数组会按当前语言刷新） */
+    private static final String CUSTOM_OPTION_KEY = "gui.huhutalk.vision.custom_option";
     /** 一次性提示的存活时长（毫秒） */
     private static final long TOAST_MS = 2200L;
 
@@ -120,7 +120,6 @@ public class VisionModelSettingsPage extends PhonePage {
     private final PhoneTextArea appearanceInput = new PhoneTextArea()
             .maxLength(VisionAppearance.MAX_CHARS)
             .visibleLines(4)
-            .placeholder("描述你的外貌，例如：黑色短发、蓝眼睛、白色衬衫…")
             .value(HuhuTalkClientSettings.getPlayerAppearance())
             .onCommit(v -> {
                 HuhuTalkClientSettings.setPlayerAppearance(v);
@@ -148,7 +147,7 @@ public class VisionModelSettingsPage extends PhonePage {
 
     @Override
     protected String title() {
-        return "识图模型";
+        return PhoneText.tr("gui.huhutalk.settings.vision_model");
     }
 
     @Override
@@ -217,7 +216,7 @@ public class VisionModelSettingsPage extends PhonePage {
         for (int i = 0; i < ms.size(); i++) {
             out[i] = ms.get(i);
         }
-        out[ms.size()] = CUSTOM_OPTION;
+        out[ms.size()] = PhoneText.tr(CUSTOM_OPTION_KEY);
         return out;
     }
 
@@ -283,6 +282,8 @@ public class VisionModelSettingsPage extends PhonePage {
         // 把它压到外貌卡下面会削弱页面的识别度。
         appearanceTop = y;
         appearanceLabelY = appearanceTop + scaled(10);
+        // 占位提示每帧按当前语言刷新（控件实例仍是同一个，实际输入内容不受影响）
+        appearanceInput.placeholder(PhoneText.tr("gui.huhutalk.vision.placeholder.appearance"));
         int appearanceBoxY = appearanceLabelY + scaled(LABEL_H) + scaled(2);
         appearanceHeight = (appearanceBoxY - appearanceTop)
                 + appearanceInput.preferredHeight(font) + scaled(10);
@@ -298,7 +299,8 @@ public class VisionModelSettingsPage extends PhonePage {
             Card c = new Card();
             c.entry = e;
             c.preset = p;
-            c.displayName = p != null ? p.displayName() : e.siteId();
+            c.displayName = PhoneText.visionProviderName(e.siteId(),
+                    p != null ? p.displayName() : e.siteId());
             c.customIdx = presetModels(p).size();
             c.expanded = expanded.contains(e.siteId());
             c.top = y;
@@ -309,6 +311,9 @@ public class VisionModelSettingsPage extends PhonePage {
             // 控件一律先建出来：未展开的会被 hideControls 收成零尺寸，
             // 但下拉的"展开高度"是布局的输入，必须在这一帧就能问到。
             PhoneDropdown dd = dropdown(e.siteId(), p);
+            // 选项数组里最后一项「自定义…」是 UI 文案：每帧按当前语言刷新，
+            // 控件实例与选中下标都保持不变。模型名本身是数据，不翻译。
+            dd.options(dropdownOptions(p));
             ensureKeyInput(e.siteId());
             if (urlEditable(p)) {
                 ensureUrlInput(e.siteId());
@@ -453,38 +458,38 @@ public class VisionModelSettingsPage extends PhonePage {
      * 此时实际发出去的模型名与摘要显示的不一致。
      */
     private void ensureModelInput(String siteId) {
-        modelInputs.computeIfAbsent(siteId, id -> new PhoneTextInput()
+        PhoneTextInput in = modelInputs.computeIfAbsent(siteId, id -> new PhoneTextInput()
                 .value(HuhuTalkClientSettings.isVisionCustomModel(id)
                         ? HuhuTalkClientSettings.getVisionModel(id) : "")
-                .placeholder("输入模型名，回车保存")
                 .onCommit(v -> {
                     HuhuTalkClientSettings.setVisionCustomModel(id, true);
                     HuhuTalkClientSettings.setVisionModel(id, v);
                     pushIfActive(id);
                 }));
+        in.placeholder(PhoneText.tr("gui.huhutalk.vision.placeholder.custom_model"));
     }
 
     private void ensureKeyInput(String siteId) {
-        keyInputs.computeIfAbsent(siteId, id -> new PhoneTextInput()
-                .placeholder("粘贴 API Key，回车保存")
+        PhoneTextInput in = keyInputs.computeIfAbsent(siteId, id -> new PhoneTextInput()
                 .masked(true)
                 .onCommit(v -> onKeyCommitted(id, v)));
+        in.placeholder(PhoneText.tr("gui.huhutalk.vision.placeholder.key"));
     }
 
     private void ensureUrlInput(String siteId) {
-        urlInputs.computeIfAbsent(siteId, id -> new PhoneTextInput()
-                .placeholder("https://…/v1/chat/completions")
+        PhoneTextInput in = urlInputs.computeIfAbsent(siteId, id -> new PhoneTextInput()
                 .onCommit(v -> {
                     if (v.isBlank()) {
-                        showToast("接口地址不能为空");
+                        showToast(PhoneText.tr("gui.huhutalk.vision.toast.url_empty"));
                         return;
                     }
                     if (!VisionSiteCache.canEdit()) {
-                        showToast("当前环境无权修改服务器 AI 配置");
+                        showToast(PhoneText.tr("gui.huhutalk.vision.toast.no_permission"));
                         return;
                     }
                     PacketDistributor.sendToServer(new C2SVisionSiteEditPacket(id, null, v));
                 }));
+        in.placeholder(PhoneText.tr("gui.huhutalk.vision.placeholder.url"));
     }
 
     // ==================== 渲染 ====================
@@ -510,10 +515,17 @@ public class VisionModelSettingsPage extends PhonePage {
 
             // ---- 头部 ----
             int hY = originY + scrollY(c.headerTop);
-            PhoneText.drawLeftIn(g, font, c.displayName, cardX, hY, cardW, c.headerH,
-                    scaled(INNER_PAD), active ? col.accent() : col.textPrimary(), ts);
-            String badge = active ? "使用中" : (c.entry.hasKey() ? "已配置密钥" : "未配置密钥");
+            String badge = active
+                    ? PhoneText.tr("gui.huhutalk.vision.badge.in_use")
+                    : PhoneText.tr(c.entry.hasKey()
+                            ? "gui.huhutalk.vision.badge.has_key" : "gui.huhutalk.vision.badge.no_key");
             int bw = PhoneText.width(font, badge, ts);
+            // 名称截断要预留右侧角标的位置，否则英文长平台名会压到角标上
+            int nameMax = cardW - scaled(INNER_PAD) * 2 - bw - scaled(16);
+            PhoneText.drawLeftIn(g, font,
+                    PhoneText.truncate(font, c.displayName, Math.max(0, nameMax), ts),
+                    cardX, hY, cardW, c.headerH,
+                    scaled(INNER_PAD), active ? col.accent() : col.textPrimary(), ts);
             PhoneText.draw(g, font, badge,
                     cardX + cardW - scaled(INNER_PAD) - bw - scaled(16),
                     hY + (c.headerH - PhoneText.height(font, ts)) / 2f,
@@ -531,28 +543,37 @@ public class VisionModelSettingsPage extends PhonePage {
             int innerW = cardW - scaled(INNER_PAD) * 2;
 
             if (c.taglineY >= 0) {
-                PhoneText.drawLeftIn(g, font, c.preset.tagline(), cardX,
+                PhoneText.drawLeftIn(g, font,
+                        PhoneText.visionProviderTagline(c.entry.siteId(), c.preset.tagline()), cardX,
                         originY + scrollY(c.taglineY), cardW,
                         PhoneText.height(font, ts) + scaled(2), scaled(INNER_PAD), col.textSecondary(), ts);
             }
             if (c.noteY >= 0) {
-                PhoneText.drawLeftIn(g, font, "⚠ " + c.preset.note(), cardX,
+                PhoneText.drawLeftIn(g, font,
+                        "⚠ " + PhoneText.visionProviderNote(c.entry.siteId(), c.preset.note()), cardX,
                         originY + scrollY(c.noteY), cardW,
                         PhoneText.height(font, ts) + scaled(2), scaled(INNER_PAD), col.textMuted(), ts);
             }
 
-            PhoneText.draw(g, font, "可用模型", innerX, originY + scrollY(c.modelLabelY),
+            PhoneText.draw(g, font, PhoneText.tr("gui.huhutalk.vision.label.models"),
+                    innerX, originY + scrollY(c.modelLabelY),
                     col.textSecondary(), PhoneText.scale(0.8f));
 
-            String keyState = c.entry.hasKey() ? "已配置（留空不改动）" : "未配置";
-            PhoneText.draw(g, font, "API Key", innerX, originY + scrollY(c.keyLabelY),
+            String apiKeyLabel = PhoneText.tr("gui.huhutalk.vision.label.api_key");
+            int apiKeyLabelW = PhoneText.width(font, apiKeyLabel, PhoneText.scale(0.8f));
+            String keyState = PhoneText.truncate(font,
+                    PhoneText.tr(c.entry.hasKey()
+                            ? "gui.huhutalk.vision.key.configured_keep" : "gui.huhutalk.vision.key.not_configured"),
+                    Math.max(0, innerW - apiKeyLabelW - scaled(6)), PhoneText.scale(0.8f));
+            PhoneText.draw(g, font, apiKeyLabel, innerX, originY + scrollY(c.keyLabelY),
                     col.textSecondary(), PhoneText.scale(0.8f));
             PhoneText.draw(g, font, keyState,
-                    innerX + PhoneText.width(font, "API Key", PhoneText.scale(0.8f)) + scaled(6),
+                    innerX + apiKeyLabelW + scaled(6),
                     originY + scrollY(c.keyLabelY), col.textMuted(), PhoneText.scale(0.8f));
 
             if (c.urlLabelY >= 0) {
-                PhoneText.draw(g, font, "接口地址", innerX, originY + scrollY(c.urlLabelY),
+                PhoneText.draw(g, font, PhoneText.tr("gui.huhutalk.vision.label.url"),
+                        innerX, originY + scrollY(c.urlLabelY),
                         col.textSecondary(), PhoneText.scale(0.8f));
             }
 
@@ -599,19 +620,23 @@ public class VisionModelSettingsPage extends PhonePage {
         int y = top + scaled(10);
 
         String siteId = HuhuTalkClientSettings.getVisionSiteId();
-        String name = VisionProviders.displayNameOf(siteId);
+        VisionProvider preset = VisionProviders.byId(siteId);
+        String name = PhoneText.visionProviderName(siteId,
+                preset != null ? preset.displayName() : siteId);
         String model = HuhuTalkClientSettings.getEffectiveVisionModel();
-        PhoneText.drawLeftIn(g, font, "当前： " + name + (model.isBlank() ? "" : " · " + model),
+        PhoneText.drawLeftIn(g, font,
+                PhoneText.tr("gui.huhutalk.vision.summary.current",
+                        name + (model.isBlank() ? "" : " · " + model)),
                 cardX, y, cardW, lineH, scaled(INNER_PAD), col.textPrimary(), ts);
         y += lineH;
 
         if (VisionSiteCache.isEmpty()) {
-            PhoneText.drawLeftIn(g, font, "正在读取服务器上的平台列表…", cardX, y, cardW, lineH,
-                    scaled(INNER_PAD), col.textMuted(), ts);
+            PhoneText.drawLeftIn(g, font, PhoneText.tr("gui.huhutalk.vision.summary.loading"),
+                    cardX, y, cardW, lineH, scaled(INNER_PAD), col.textMuted(), ts);
             y += lineH;
         }
         if (!VisionSiteCache.canEdit()) {
-            PhoneText.drawLeftIn(g, font, "⚠ 当前环境无权修改服务器 AI 配置，只能查看与切换",
+            PhoneText.drawLeftIn(g, font, PhoneText.tr("gui.huhutalk.vision.summary.no_permission"),
                     cardX, y, cardW, lineH, scaled(INNER_PAD), col.dangerBg(), ts);
         }
     }
@@ -632,14 +657,24 @@ public class VisionModelSettingsPage extends PhonePage {
         int top = originY + scrollY(appearanceTop);
         PhoneShapes.fillRoundedRect(g, cardX, top, cardW, appearanceHeight, scaled(CARD_R), col.cardBg());
 
-        PhoneText.drawLeftIn(g, font, "你的样貌", cardX, originY + scrollY(appearanceLabelY), cardW,
-                scaled(LABEL_H), scaled(INNER_PAD), col.textPrimary(), PhoneText.scale(0.9f));
-        String hint = "让女仆在照片里认出你";
+        // 标题与右侧提示共享一行：给提示封顶 55% 宽，标题拿剩下的，两者都按实际译文截断，
+        // 避免英文提示比中文长得多时压到标题上
+        float titleScale = PhoneText.scale(0.9f);
+        float hintScale = PhoneText.scale(0.75f);
+        int innerAvail = Math.max(0, cardW - scaled(INNER_PAD) * 2);
+        String hint = PhoneText.truncate(font, PhoneText.tr("gui.huhutalk.vision.appearance.hint"),
+                innerAvail * 55 / 100, hintScale);
+        int hintW = PhoneText.width(font, hint, hintScale);
+        String appearanceTitle = PhoneText.truncate(font, PhoneText.tr("gui.huhutalk.vision.appearance.title"),
+                Math.max(0, innerAvail - hintW - scaled(4)), titleScale);
+        PhoneText.drawLeftIn(g, font, appearanceTitle, cardX,
+                originY + scrollY(appearanceLabelY), cardW,
+                scaled(LABEL_H), scaled(INNER_PAD), col.textPrimary(), titleScale);
         PhoneText.draw(g, font, hint,
-                cardX + cardW - scaled(INNER_PAD) - PhoneText.width(font, hint, PhoneText.scale(0.75f)),
+                cardX + cardW - scaled(INNER_PAD) - hintW,
                 originY + scrollY(appearanceLabelY)
-                        + (scaled(LABEL_H) - PhoneText.height(font, PhoneText.scale(0.75f))) / 2f,
-                col.textMuted(), PhoneText.scale(0.75f));
+                        + (scaled(LABEL_H) - PhoneText.height(font, hintScale)) / 2f,
+                col.textMuted(), hintScale);
 
         appearanceInput.render(g, originX, originY);
     }
@@ -654,7 +689,10 @@ public class VisionModelSettingsPage extends PhonePage {
         int bg = active ? col.accent() : (usable ? col.accentSoft() : col.neutralBg());
         int fg = active ? 0xFFFFFFFF : (usable ? col.textPrimary() : col.textMuted());
         PhoneShapes.fillRoundedRect(g, innerX, y, innerW, h, h / 2, bg);
-        String label = active ? "✓ 识图正在使用此平台" : (usable ? "使用此平台" : "接口地址为空，无法使用");
+        String label = active
+                ? PhoneText.tr("gui.huhutalk.vision.button.in_use")
+                : PhoneText.tr(usable
+                        ? "gui.huhutalk.vision.button.use" : "gui.huhutalk.vision.button.url_empty");
         PhoneText.drawCenteredIn(g, font, label, innerX, y, innerW, h, fg, PhoneText.scale(0.85f));
     }
 
@@ -822,32 +860,32 @@ public class VisionModelSettingsPage extends PhonePage {
         if (value == null || value.isBlank()) {
             // 留空 = 不改动。刻意如此：否则一次误按回车就会把已配好的密钥清掉。
             // 真要清除，用主模组自己的 AI 设置界面（那里能编辑站点）。
-            showToast("密钥留空，未做改动");
+            showToast(PhoneText.tr("gui.huhutalk.vision.toast.key_blank"));
             return;
         }
         if (!VisionSiteCache.canEdit()) {
-            showToast("当前环境无权修改服务器 AI 配置");
+            showToast(PhoneText.tr("gui.huhutalk.vision.toast.no_permission"));
             return;
         }
         PacketDistributor.sendToServer(new C2SVisionSiteEditPacket(siteId, value, null));
-        showToast("密钥已提交");
+        showToast(PhoneText.tr("gui.huhutalk.vision.toast.key_submitted"));
     }
 
     /** 「使用此平台」。 */
     private void usePlatform(Card c) {
         if (c.entry.url().isBlank()) {
-            showToast("请先填写接口地址");
+            showToast(PhoneText.tr("gui.huhutalk.vision.toast.need_url"));
             return;
         }
         if (!c.entry.hasKey()) {
-            showToast("该平台还没配 API Key，识图会失败");
+            showToast(PhoneText.tr("gui.huhutalk.vision.toast.no_key_warn"));
         }
         HuhuTalkClientSettings.setVisionSiteId(c.entry.siteId());
         // 玩家没为该平台选过模型时，把当前生效的那个写下来，免得服务端再去猜
         if (HuhuTalkClientSettings.getVisionModel(c.entry.siteId()).isBlank()) {
             String m = effectiveModel(c);
             if (m.isBlank()) {
-                showToast("自定义模型名为空，这次会用平台默认模型");
+                showToast(PhoneText.tr("gui.huhutalk.vision.toast.custom_empty"));
             } else {
                 HuhuTalkClientSettings.setVisionModel(c.entry.siteId(), m);
             }

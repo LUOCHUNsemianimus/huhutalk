@@ -99,8 +99,8 @@ public class ManualPage extends PhonePage {
     private static final int SCROLL_SPEED = 10;
     /** 骨架画返回键文案的左边距（{@code PhonePage} 内部固定为 4），本页只用来把标题摆在它右边 */
     private static final int BACK_LABEL_X = 4;
-    /** 与 {@code PhonePage} 内部的返回键文案一致，仅用于量它的宽度 */
-    private static final String BACK_LABEL = "< 返回";
+    /** 与 {@code PhonePage} 内部的返回键文案一致的语言键，仅用于量它的宽度把标题摆到右边 */
+    private static final String BACK_LABEL_KEY = "gui.huhutalk.page.back";
 
     /**
      * 正文配图最多占内容区可视高度的比例（其余留给正文）。
@@ -210,6 +210,57 @@ public class ManualPage extends PhonePage {
         return mapping.getTranslatedKeyMessage().getString();
     }
 
+    /**
+     * 内置栏目 / 条目的<b>对象身份</b>集合（{@link java.util.IdentityHashMap}）。
+     * <p>
+     * 为什么不能只看前缀：附属模组注册的原文恰好以 {@code gui.huhutalk.manual.} 开头时，
+     * 前缀判定会把它当成内置键去翻译（翻不到就显示键名），原文被吞掉。
+     * 所以"内置与否"只认"这个对象是不是本类构造器建的那批"，外部对象一律原样返回。
+     */
+    private final java.util.Set<ManualSection> builtinSections =
+            java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+    private final java.util.Set<ManualEntry> builtinEntries =
+            java.util.Collections.newSetFromMap(new java.util.IdentityHashMap<>());
+
+    /**
+     * 解析一条手册文案：<b>内置对象</b>的键按当前语言翻译（含按键占位符的键在此填入实际绑定），
+     * 外部注册的对象一律原样返回。
+     * <p>每次渲染/排版都调用，所以切语言下一帧生效，重绑按键也立刻反映。
+     */
+    private String resolve(Object owner, String raw) {
+        if (raw == null || !isBuiltin(owner)) {
+            return raw;
+        }
+        Object[] args = dynamicKeyArgs(raw);
+        return args == null ? PhoneText.tr(raw) : PhoneText.tr(raw, args);
+    }
+
+    /** {@code owner} 是否为本类构造器建立的内置栏目 / 条目（按对象身份，不看字符串前缀）。 */
+    private boolean isBuiltin(Object owner) {
+        return (owner instanceof ManualSection s && builtinSections.contains(s))
+                || (owner instanceof ManualEntry e && builtinEntries.contains(e));
+    }
+
+    /** 带按键占位符的内置键 → 当前实际绑定名（其余返回 null，表示无占位符）。 */
+    private static Object[] dynamicKeyArgs(String key) {
+        return switch (key) {
+            case "gui.huhutalk.manual.phone.keys.title",
+                 "gui.huhutalk.manual.phone.keys.body" -> new Object[]{
+                    keyDisplayName(ClientModEvents.PHONE_CLICK),
+                    keyDisplayName(ClientModEvents.PHONE_BACK)};
+            case "gui.huhutalk.manual.chat.camera.body" -> new Object[]{
+                    keyDisplayName(ClientModEvents.PHONE_CLICK),
+                    keyDisplayName(ClientModEvents.PHONE_BACK)};
+            // 独立屏幕的唤出键 = 「打开/关闭手机」，语音输入键 = 「按住说话」：
+            // 玩家改绑后手册立刻跟着变，不再硬编码 O / H。
+            case "gui.huhutalk.manual.settings.alt_screen.body" -> new Object[]{
+                    keyDisplayName(ClientModEvents.TOGGLE_PHONE)};
+            case "gui.huhutalk.manual.chat.voice.body" -> new Object[]{
+                    keyDisplayName(ClientModEvents.QUICK_VOICE)};
+            default -> null;
+        };
+    }
+
     private final List<ManualSection> sections;
     /** 当前打开的一级栏目；null = 一级列表 */
     private ManualSection currentSection = null;
@@ -234,125 +285,68 @@ public class ManualPage extends PhonePage {
 
     /**
      * 构造时把内置栏目 + {@link #EXTERNAL_SECTIONS} 的快照收进本实例自己的 {@link #sections}。
-     * <p>
-     * ⚠ 下面几段正文刻意保留字符串串联（{@code "…\n" + …}）：它们是玩家可见的原文，
-     * 改成文本块会改变缩进与尾部换行。所以在这里抑制 IDE 的「可换成文本块」提示，
-     * 免得它把「不改文案」这条约束变成一片无法消除的告警。
+     * <p>内置标题与正文只存语言键，渲染/排版时经 {@link #resolve(String)} 解析，不被静态缓存。
      */
-    @SuppressWarnings("TextBlockMigration")
     public ManualPage() {
         sections = new ArrayList<>();
-        sections.add(sec("huhutalk",
-                entry("huhutalk", "狐狐talk是一款车万女仆（Touhou Little Maid）的附属模组。其主要目的是为了补充不能远程和女仆聊天的空缺，"
-                        + "并且为女仆定制了专属于手机UI的聊天方式/新的接收路径/隐私模式的开关，欢迎并且感谢大家体验！\n"
-                        + "——本模组由AI协助开发（我不是科班出身）。"),
-                entry("关于加载", "模组采用了一些下发加载票据的方法，因此会有额外的性能开销。具体开销可见模组物品栏目。所以，请节制的使用Pro版手机。"),
-                entry("额外指令", "在此基础上，添加了一些额外的指令（以后可能还加），可以使用自然语言，去往某坐标/呆在某坐标/来我身边"
-                        + "指挥女仆AI，支持去某地做某事，呆在某地做某事等格式（具体见指南8）。")));
-        sections.add(sec("关于手机",
-                entry("绘制与字体", "手机使用overlay绘制。\n"
-                        + "手机里的字体大小会跟随玩家设置的GUI界面尺寸而改变，所以请随心的调整你喜欢的字体比例。\n"
-                        + "如果你使用了大GUI却想要小字体/使用了小GUI却想要大字体 ，在huhutalk内部的设置页面可再次缩放字体，"
-                        + "但可能会有一些字体渲染问题出现。"),
-                // 原来这条叫「辅助键（默认alt）」—— 那条"按住 Alt 释放鼠标"的通路早已拆除，
-                // 现在手机用独立光标，只吃玩家绑定的两个功能键。键名一律动态取当前绑定
-                // （见 keyDisplayName）：玩家改绑到 W 之后这里就得写「W」，不能再印死默认值。
-                entry("操作键（" + keyDisplayName(ClientModEvents.PHONE_CLICK) + " / "
-                                + keyDisplayName(ClientModEvents.PHONE_BACK) + "）",
-                        "手机需要用已绑定的功能键位来操作。左键=" + keyDisplayName(ClientModEvents.PHONE_CLICK)
-                                + "，右键=" + keyDisplayName(ClientModEvents.PHONE_BACK)
-                                + "，滚轮=按住" + keyDisplayName(ClientModEvents.PHONE_CLICK) + "拖动。\n"
-                                + "默认左键确认、右键返回上一级（当然也可以点击左上角的返回按钮）。"),
-                // 「顶部导航栏」这条已按需求方要求并进「备用屏幕选项」（见下一节），从本节移走。
-                entry("紧急关闭", "顶部导航栏的右角有一个隐形的紧急关闭按钮（叉叉），用来应对某种特殊情况。（见图1）",
+        sections.add(sec("gui.huhutalk.manual.sec.huhutalk",
+                entry("gui.huhutalk.manual.huhutalk.what.title", "gui.huhutalk.manual.huhutalk.what.body"),
+                entry("gui.huhutalk.manual.huhutalk.loading.title", "gui.huhutalk.manual.huhutalk.loading.body"),
+                entry("gui.huhutalk.manual.huhutalk.extra_cmd.title", "gui.huhutalk.manual.huhutalk.extra_cmd.body")));
+        sections.add(sec("gui.huhutalk.manual.sec.phone",
+                entry("gui.huhutalk.manual.phone.draw_font.title", "gui.huhutalk.manual.phone.draw_font.body"),
+                entry("gui.huhutalk.manual.phone.keys.title", "gui.huhutalk.manual.phone.keys.body"),
+                entry("gui.huhutalk.manual.phone.emg_close.title", "gui.huhutalk.manual.phone.emg_close.body",
                         fig(1))));
-        sections.add(sec("关于设置",
-                entry("设置入口", "设置界面位于huhutalk内部，请进入huhutalk，用底部导航栏切换到最右侧选项——外头那个设置暂时没功能。\n"
-                        + "ps：因为这个模组叫huhutalk，只是觉得只有一个孤零零的APP太奇怪了，所以我打算后期多做点APP。"),
-                // 「备用屏幕选项」= 原「屏幕大小」+「屏幕比例」+「顶部导航栏」+「亮度滑块」+「手机壳」五条并成一条。
-                // 需求方要求合并后仍看得出每句原本是哪一项 → 统一用「原标题：」前缀（见交接文档的合并约定）。
-                entry("备用屏幕选项（只能调节配用屏幕）", "玩家即使没有手机，也可以按o唤出独立屏幕。\n"
-                        + "最高等于屏幕实际高度，最低等于屏幕的1/2（暂时没考虑有人用特别大的屏幕），如果你把屏幕缩小到字体都放不下，"
-                        + "那么，滑块就没有办法固定——其实算是个小bug，但是可以防止卡位置，所以它是好bug。（图11）\n"
-                        + "比例：支持20：9、16：9、4：3，内部UI会自适应内容。\n"
-                        + "顶部导航栏：手机的上部导航栏（标注有时间、电量以及信号）是手机备用屏幕的位置拖动功能区，请将它移动到任何你喜欢的位置！\n"
-                        + "亮度滑块：“手机壳也可以调暗。”\n"
-                        + "手机壳：可以选择你背包内的任何完整方块，但是，有点不好看。",
+        sections.add(sec("gui.huhutalk.manual.sec.settings",
+                entry("gui.huhutalk.manual.settings.entry.title", "gui.huhutalk.manual.settings.entry.body"),
+                entry("gui.huhutalk.manual.settings.alt_screen.title", "gui.huhutalk.manual.settings.alt_screen.body",
                         fig(11)),
-                // 「聊天设置」= 原「消息免打扰」+「女仆悄悄话」+「沉浸式聊天」三条并成一条（需求方原话：这三条合为一条）
-                entry("聊天设置", "消息免打扰：打开会关闭红点提醒，同时关闭消息提示音，默认为关闭状态。\n"
-                        + "女仆悄悄话：打开会关闭女仆的AI气泡显示——给您更私密的聊天体验\n"
-                        + "沉浸式聊天：开启后所有有手机唤起的聊天，将不会在左下角公屏产生女仆回复。\n"
-                        + "由于手机内的消息渲染特意加了输入延迟，所以事实上左下角公屏的内容会率先抵达，此选项是为提升沉浸感。（见图2）",
-                        fig(2)),
-                entry("药水复活", "开启后，你死亡时只要身上带着Pro手机、且女仆背包里有治疗药水，她就会在死亡后5秒后把药水远程送过来（直接砸你身上），"
-                        + "并把你复活到药水能恢复的血量；掉进岩浆还会额外补一瓶抗火药水，掉进虚空则不会救援。\n"
-                        + "每次触发都会请女仆走一次AI叙事，因此会消耗token——不想烧token的话可以在这里关掉。（见图3）",
-                        fig(3)),
-                entry("远程补给", "特殊工作模式，进入后女仆会给你补过低的生命值/饱食度。并且在退出模式时触发LLM，以此选项关闭模型对话。（见图3）",
-                        fig(3)),
-                entry("SOS", "在女仆界面，可以绑定女仆作为你的SOS召唤人，紧急情况，按这个按钮把他们召唤过来。"),
-                // 「切屏与消息动画」= 原「打字耗时」（改名「消息动画」）+「动画」（改名「切屏动画」）并成一条
-                entry("切屏与消息动画", "消息动画：此选项是为了增强真实感，给女仆的每条消息做了断句处理，并且根据字符的多少加了回复前摇"
-                        + "（抢在他发完之前再发一句话，会让他一次渲染完）\n"
-                        + "切屏动画：这个选项管理切屏动画——“谁不想要一个漂亮的UI动画？”（见图4）",
-                        fig(4))));
-        sections.add(sec("聊天页",
-                entry("输入框", "点击即可开始输入按esc退出输入，回车发送。"),
-                entry("底部扩展栏", "从左至右分别为语音输入、发送表情包、图库、拍照、附加栏。（见图5）", fig(5)),
-                entry("语音输入", "默认按h键开始输入，但值得注意的是，此种输入方式不会触发私密聊天！（图6）", fig(6)),
-                entry("表情包", "你发一个表情包，女仆一定会回一个表情包，但实际上不是llm回的（要不然token要烧完了）。当然，您可以要求女仆和你发送表情包。（图7）",
-                        fig(7)),
-                entry("图库", "在拍照界面点击保存的照片才会储存在这里，一次仅能发送一张图片，支持图片和文字一起发送，但需要等待图片完成识别后，女仆才会回复。（图8）\n"
-                        + "注：借用了车万女仆的原生链路，目前仅开通了deepseek最新模型的识图功能，如果已经在原模组填入了ds API key，那么便可直接使用图片相关功能。\n"
-                        + "注：识图延迟挺高，请耐心等待orz。",
-                        fig(8)),
-                entry("拍照", "按" + keyDisplayName(ClientModEvents.PHONE_CLICK) + "拍照，长按"
-                                + keyDisplayName(ClientModEvents.PHONE_CLICK) + "保存，"
-                                + keyDisplayName(ClientModEvents.PHONE_BACK) + "退出。\n"
-                        + "如果不点击保存，那么点击确认的图片仅会在此次发送中生效，不会存储到本地。（图9）",
-                        fig(9)),
-                // 新增条目：玩家把物品随消息发给女仆（P→M 传文件）
-                entry("传文件", "点击想发送的物品选中到待发送栏位，点击发送栏位内取消，返回聊天页面点击发送键发送。（图10）",
-                        fig(10))));
-        // 「联系人设置」按需求方要求**降级为小栏目**（不再是一个大栏目），并入「联系人」大栏目最后一条；
-        // 它原来的四条内容并成这一条（合并约定同前：每条原文以「原标题：」开头）。
-        sections.add(sec("联系人",
-                entry("在线", "表示女仆正被加载且可通话"),
-                entry("离线", "表示女仆处于被卸载区块内，已经无法通话，需要通过红狐狸卷轴寻找。"),
-                entry("已关机", "女仆现在饰品栏里没有手机。（图13）", fig(13)),
-                entry("联系人设置", "设置头像：默认会给女仆拍一张大头贴，后续考虑增加以表情包当头像/或者更多姿势。\n"
-                        + "删除聊天：仅删除huhutalk附属模组的聊天存储，实际上下文仍然会存储在车万女仆模组之内。\n"
-                        + "删除联系人：如果女仆不小心死了（大哭），总得有个把它删掉的办法（嗷嗷哭）。\n"
-                        + "但是如果女仆只是因为丢失（区块未加载）而被删除联系人，下次她拿起手机会被重新录入联系人。\n"
-                        + "绑定SOS：可以自行定义召唤哪个女仆，并且以什么模式将其召唤过来（针对不同的“兵种”），最多可添加四位女仆成为您的魔王护。（图12）",
+                entry("gui.huhutalk.manual.settings.chat.title", "gui.huhutalk.manual.settings.chat.body", fig(2)),
+                entry("gui.huhutalk.manual.settings.potion.title", "gui.huhutalk.manual.settings.potion.body", fig(3)),
+                entry("gui.huhutalk.manual.settings.supply.title", "gui.huhutalk.manual.settings.supply.body", fig(3)),
+                entry("gui.huhutalk.manual.settings.sos.title", "gui.huhutalk.manual.settings.sos.body"),
+                entry("gui.huhutalk.manual.settings.anim.title", "gui.huhutalk.manual.settings.anim.body", fig(4))));
+        sections.add(sec("gui.huhutalk.manual.sec.chat",
+                entry("gui.huhutalk.manual.chat.input.title", "gui.huhutalk.manual.chat.input.body"),
+                entry("gui.huhutalk.manual.chat.toolbar.title", "gui.huhutalk.manual.chat.toolbar.body", fig(5)),
+                entry("gui.huhutalk.manual.chat.voice.title", "gui.huhutalk.manual.chat.voice.body", fig(6)),
+                entry("gui.huhutalk.manual.chat.sticker.title", "gui.huhutalk.manual.chat.sticker.body", fig(7)),
+                entry("gui.huhutalk.manual.chat.gallery.title", "gui.huhutalk.manual.chat.gallery.body", fig(8)),
+                entry("gui.huhutalk.manual.chat.camera.title", "gui.huhutalk.manual.chat.camera.body", fig(9)),
+                entry("gui.huhutalk.manual.chat.file.title", "gui.huhutalk.manual.chat.file.body", fig(10))));
+        sections.add(sec("gui.huhutalk.manual.sec.contacts",
+                entry("gui.huhutalk.manual.contacts.online.title", "gui.huhutalk.manual.contacts.online.body"),
+                entry("gui.huhutalk.manual.contacts.offline.title", "gui.huhutalk.manual.contacts.offline.body"),
+                entry("gui.huhutalk.manual.contacts.shutdown.title", "gui.huhutalk.manual.contacts.shutdown.body",
+                        fig(13)),
+                entry("gui.huhutalk.manual.contacts.settings.title", "gui.huhutalk.manual.contacts.settings.body",
                         fig(12))));
-        // 「桌面」按需求方改名成「导航栏」（里面的内容说的就是顶部那条状态栏）
-        sections.add(sec("导航栏",
-                entry("信号栏", "不好的维度会产生信号延迟，末地为0.5s，地狱为1s。"),
-                entry("电池", "“是核能的。”（图14）", fig(14))));
-        sections.add(sec("指令",
-                entry("Move to/去…等我", "女仆将去你指示的地点等待，当你靠近她身边，她会开始跟随你，此操作可以附带工作模式。"),
-                entry("Come/到我这儿来", "女仆会到你身边来，如果离得近，她会走过来，离得远，则会传送。"),
-                entry("Stay/去…呆着", "女仆会去往你指示的地点。开启home模式，在你经过后不会跟随你。")));
-        sections.add(sec("模组兼容",
-                entry("旅行地图", "兼容旅行地图（Journey map）。\n"
-                        + "可使用自然语言指挥女仆到达路径点工作，例：“去快乐老家把菜一收。”“去史莱姆牧场等着我”")));
-        sections.add(sec("物品与方块",
-                entry("电话手表", "它是造价较低廉的手机，但是它没有流量卡，所以需要搭配WIFI方块使用。\n"
-                        + "处在WIFI方块直径三个区块内的持有电话手表的女仆，可以保持常驻加载，会为其下发加载票据。（图15）",
-                        fig(15)),
-                entry("WIFI方块", "是本模组的节能设计，避免过多的女仆聚集在一起，每个都下发强制加载票据的性能问题，在其周围没有持有电话手表的女仆时，不会对周围的区块下发加载票据，所以不会产生性能开销。\n"
-                        + "当且仅当周围区块有手表女仆时，才会对女仆所在的区块下发强制加载票据。（图16）",
+        sections.add(sec("gui.huhutalk.manual.sec.navbar",
+                entry("gui.huhutalk.manual.navbar.signal.title", "gui.huhutalk.manual.navbar.signal.body"),
+                entry("gui.huhutalk.manual.navbar.battery.title", "gui.huhutalk.manual.navbar.battery.body", fig(14))));
+        sections.add(sec("gui.huhutalk.manual.sec.commands",
+                entry("gui.huhutalk.manual.commands.move.title", "gui.huhutalk.manual.commands.move.body"),
+                entry("gui.huhutalk.manual.commands.come.title", "gui.huhutalk.manual.commands.come.body"),
+                entry("gui.huhutalk.manual.commands.stay.title", "gui.huhutalk.manual.commands.stay.body")));
+        sections.add(sec("gui.huhutalk.manual.sec.compat",
+                entry("gui.huhutalk.manual.compat.journeymap.title", "gui.huhutalk.manual.compat.journeymap.body")));
+        sections.add(sec("gui.huhutalk.manual.sec.items",
+                entry("gui.huhutalk.manual.items.watch.title", "gui.huhutalk.manual.items.watch.body", fig(15)),
+                entry("gui.huhutalk.manual.items.wifi_block.title", "gui.huhutalk.manual.items.wifi_block.body",
                         fig(16)),
-                entry("Pro版手机", "会持续为玩家的女仆下发强制加载的票据，但为保证性能，仅下发一区块的加载票据，所以——如果你的女仆是闪电侠，有可能会跑到未加载区块里。（图17）",
+                entry("gui.huhutalk.manual.items.pro_phone.title", "gui.huhutalk.manual.items.pro_phone.body",
                         fig(17))));
-        sections.add(sec("写在最后",
-                entry("总之的总之！", "本模组由我（罗春）使用AI工作流协助开发，如果有任何bug/建议，烦请反映至Anirtual@gmail.com，谢谢！\n"
-                        + "还有——感谢你们的下载与体验，我爱你们！")));
+        sections.add(sec("gui.huhutalk.manual.sec.outro",
+                entry("gui.huhutalk.manual.outro.final.title", "gui.huhutalk.manual.outro.final.body")));
 
         // 附属模组追加的栏目：**一定放在最后**，内置栏目的顺序与内容是玩家已经看惯的，
         // 不该因为装了什么附属模组而变化。（注册通路见 registerSection）
+        // 此刻 sections 里只有内置栏目：先按对象身份记下来，resolve 用它区分内置键与外部原文。
+        for (ManualSection s : sections) {
+            builtinSections.add(s);
+            builtinEntries.addAll(s.entries());
+        }
         synchronized (ManualPage.class) {
             sections.addAll(EXTERNAL_SECTIONS);
         }
@@ -433,23 +427,27 @@ public class ManualPage extends PhonePage {
 
     /** 顶栏标题文本：一级列表显示「设置」，二 / 三级显示当前一级栏目名（旧实现的正文页也显示栏目名） */
     private String topBarTitle() {
-        return currentSection != null ? currentSection.title() : "设置";
+        return currentSection != null
+                ? resolve(currentSection, currentSection.title())
+                : PhoneText.tr("gui.huhutalk.manual.root_title");
     }
 
     /**
      * 顶栏标题：<b>左对齐</b>画在骨架的返回键右边。
      * <p>
      * 起点 = 骨架画返回键的位置（{@code baseX + 4}）+ 返回键文案宽度 + {@link #TOP_TITLE_GAP}。
-     * {@link #BACK_LABEL} 与 {@code PhonePage} 内部的返回键文案是同一个字符串，这里只用来量宽度。
+     * {@link #BACK_LABEL_KEY} 与 {@code PhonePage} 内部返回键用的是同一个键，这里只用来量宽度。
      */
     @Override
     protected void renderTopBarExtras(GuiGraphics g, int baseX, int baseY, int w, int barH, int textY) {
         Font font = font();
         int titleX = baseX + BACK_LABEL_X
-                + PhoneText.width(font, BACK_LABEL, PhoneText.scale(1.0f))
+                + PhoneText.width(font, PhoneText.tr(BACK_LABEL_KEY), PhoneText.scale(1.0f))
                 + PhoneText.px(TOP_TITLE_GAP);
-        PhoneText.draw(g, font, topBarTitle(), titleX, textY,
-                colors().topBarText(), PhoneText.scale(TOP_TITLE_SCALE));
+        float titleScale = PhoneText.scale(TOP_TITLE_SCALE);
+        int avail = Math.max(0, w - (titleX - baseX) - PhoneText.px(6));
+        PhoneText.draw(g, font, PhoneText.truncate(font, topBarTitle(), avail, titleScale),
+                titleX, textY, colors().topBarText(), titleScale);
     }
 
     // ==================== 布局 ====================
@@ -592,8 +590,12 @@ public class ManualPage extends PhonePage {
                 break;
             }
             PhoneShapes.fillRoundedRect(g, originX + L.pad, cy, cardW, L.rowH, radius, c.cardBg());
-            PhoneText.draw(g, font, "›  " + titles.at(i), originX + L.pad + textPad,
-                    cy + (L.rowH - L.lineH) / 2f, c.textPrimary(), scale);
+            // 所有者按当前级别取：二级取条目、一级取栏目，交由 resolve 判内置/外置
+            Object owner = currentSection != null ? currentSection.entries().get(i) : sections.get(i);
+            String rowText = "›  " + resolve(owner, titles.at(i));
+            PhoneText.draw(g, font,
+                    PhoneText.truncate(font, rowText, Math.max(0, cardW - textPad - PhoneText.px(4)), scale),
+                    originX + L.pad + textPad, cy + (L.rowH - L.lineH) / 2f, c.textPrimary(), scale);
             cy += L.rowH + L.gap;
         }
     }
@@ -639,7 +641,7 @@ public class ManualPage extends PhonePage {
      */
     private List<FormattedCharSequence> wrapBody(Font font, int maxWidth) {
         List<FormattedCharSequence> out = new ArrayList<>();
-        for (String para : currentEntry.body().split("\n")) {
+        for (String para : resolve(currentEntry, currentEntry.body()).split("\n")) {
             if (para.isBlank()) {
                 out.add(Component.literal(" ").getVisualOrderText());
                 continue;

@@ -1,6 +1,7 @@
 package com.huhutalk.client.network;
 
 import com.huhutalk.HuhuTalk;
+import com.huhutalk.api.phone.ui.PhoneText;
 import com.huhutalk.client.ChatHistoryStorage;
 import com.huhutalk.client.MaidListCache;
 import com.huhutalk.client.MaidStatusCache;
@@ -9,6 +10,7 @@ import com.huhutalk.client.PhoneChatSourceCache;
 import com.huhutalk.client.SosBindCache;
 import com.huhutalk.client.SosTaskCache;
 import com.huhutalk.client.vision.VisionSiteCache;
+import com.huhutalk.common.SystemText;
 import com.huhutalk.init.HuhuTalkSounds;
 import com.huhutalk.network.S2CVisionSitesPacket;
 import com.huhutalk.network.S2CPhoneChatSourcePacket;
@@ -35,6 +37,10 @@ import net.neoforged.neoforge.network.handling.IPayloadContext;
 
 @EventBusSubscriber(modid = HuhuTalk.MOD_ID, value = Dist.CLIENT)
 public class ClientPayloadSetup {
+    /** 两条固定到达通知的精确编码；只有 info 与之完全相等才按到达通知处理（参数化/普通 info 不受影响）。 */
+    private static final String ARRIVED_GUARD = SystemText.of("message.huhutalk.move.arrived_guard");
+    private static final String ARRIVED_WAIT = SystemText.of("message.huhutalk.move.arrived_wait");
+
     @SubscribeEvent
     public static void onRegisterPayloads(RegisterPayloadHandlersEvent event) {
         var registrar = event.registrar(HuhuTalk.MOD_ID);
@@ -71,39 +77,49 @@ public class ClientPayloadSetup {
     }
 
     private static void handleResponse(S2CMaidChatResponsePacket packet, IPayloadContext context) {
-        context.enqueueWork(() -> {
-            String text = packet.responseText();
-            String emote = packet.emote();
-            boolean hasEmote = emote != null && !emote.isEmpty();
-            // 文本与附件表情分别落盘（同一 tick 写入 → 同 gameTime → 重进后仍同组）
-            ChatHistoryStorage.appendMessage(packet.stableId(), text, false, false);
-            if (hasEmote) {
-                ChatHistoryStorage.appendMessage(packet.stableId(), "", emote, false, false);
+        // AI 回复原文原样投递：绝不经过 SystemText，即使正文看起来像系统文案编码
+        context.enqueueWork(() -> deliverResponse(packet.stableId(), packet.responseText(), packet.emote()));
+    }
+
+    /**
+     * 「女仆消息气泡」的唯一投递实现：落盘 + 当前聊天页实时气泡 + 未读计数 + 界面外提示音。
+     * <p>
+     * AI 回复（{@link #handleResponse}）与固定系统到达通知（{@link #handleInfo}）共用此路径，
+     * 因此两者的落盘/未读/音效行为完全一致；系统通知只在调用前把编码解析成当前语言。
+     */
+    private static void deliverResponse(String stableId, String text, String emote) {
+        boolean hasEmote = emote != null && !emote.isEmpty();
+        // 文本与附件表情分别落盘（同一 tick 写入 → 同 gameTime → 重进后仍同组）
+        ChatHistoryStorage.appendMessage(stableId, text, false, false);
+        if (hasEmote) {
+            ChatHistoryStorage.appendMessage(stableId, "", emote, false, false);
+        }
+        IPhonePage current = PhoneOverlay.getCurrentPage();
+        if (current instanceof ChatPage chatPage && chatPage.getStableId().equals(stableId)) {
+            chatPage.onReceiveMessage(text, false, hasEmote ? emote : null);
+            // 特殊：玩家在该女仆聊天页但已收起手机 → 手机不可见、不产生红点，
+            // 此时补响一声界面外通知音（较响 + 限频），提示"有消息来了"。
+            if (!PhoneOverlay.isVisible()) {
+                HuhuTalkSounds.playMsgReceiveOuter();
             }
-            IPhonePage current = PhoneOverlay.getCurrentPage();
-            if (current instanceof ChatPage chatPage && chatPage.getStableId().equals(packet.stableId())) {
-                chatPage.onReceiveMessage(text, false, hasEmote ? emote : null);
-                // 特殊：玩家在该女仆聊天页但已收起手机 → 手机不可见、不产生红点，
-                // 此时补响一声界面外通知音（较响 + 限频），提示"有消息来了"。
-                if (!PhoneOverlay.isVisible()) {
-                    HuhuTalkSounds.playMsgReceiveOuter();
-                }
-            } else {
-                // 未读按断句分段数累加，与聊天页逐条气泡显示保持一致；有附件表情再 +1
-                NotificationManager.addUnread(packet.stableId(),
-                        MessageSplitter.split(text).size() + (hasEmote ? 1 : 0));
-            }
-        });
+        } else {
+            // 未读按断句分段数累加，与聊天页逐条气泡显示保持一致；有附件表情再 +1
+            NotificationManager.addUnread(stableId,
+                    MessageSplitter.split(text).size() + (hasEmote ? 1 : 0));
+        }
     }
 
     private static void handleError(S2CMaidChatErrorPacket packet, IPayloadContext context) {
         context.enqueueWork(() -> {
-            ChatHistoryStorage.appendMessage(packet.stableId(), "[错误] " + packet.error(), false, true);
+            // 系统字段用可翻译表示：PhoneText.system 解析 => 当前语言；再加已翻译的「错误」前缀。
+            // 只算一次，历史落盘与页面通知共用同一行，避免重复翻译/前缀不一致。
+            String shown = PhoneText.tr("gui.huhutalk.chat.error", PhoneText.system(packet.error()));
+            ChatHistoryStorage.appendMessage(packet.stableId(), shown, false, true);
             IPhonePage current = PhoneOverlay.getCurrentPage();
             if (current instanceof ChatPage chatPage && chatPage.getStableId().equals(packet.stableId())) {
                 // 先标记等待中的图片为识图错误（红!），再显示错误提示
                 chatPage.onVisionError();
-                chatPage.onReceiveMessage("[错误] " + packet.error(), true);
+                chatPage.onReceiveMessage(shown, true);
             }
             NotificationManager.addUnread(packet.stableId());
         });
@@ -122,10 +138,18 @@ public class ClientPayloadSetup {
                 return;
             }
 
-            // 普通提示（如未佩戴手机）：正常显示
-            ChatHistoryStorage.appendMessage(packet.stableId(), "[提示] " + packet.info(), false, true);
+            // 固定到达通知：info 精确等于两个无参数系统键之一 → 按客户端语言解析，
+            // 并复用 AI 回复的女仆消息通路（正常气泡，而非「提示」气泡）。普通 info 不匹配此分支。
+            if (ARRIVED_GUARD.equals(packet.info()) || ARRIVED_WAIT.equals(packet.info())) {
+                deliverResponse(packet.stableId(), PhoneText.system(packet.info()), "");
+                return;
+            }
+
+            // 普通提示（如未佩戴手机）：正常显示。系统字段解析 + 已翻译「提示」前缀，只算一次
+            String shown = PhoneText.tr("gui.huhutalk.chat.notice", PhoneText.system(packet.info()));
+            ChatHistoryStorage.appendMessage(packet.stableId(), shown, false, true);
             if (chatPage != null) {
-                chatPage.onReceiveMessage("[提示] " + packet.info(), true);
+                chatPage.onReceiveMessage(shown, true);
             }
             NotificationManager.addUnread(packet.stableId());
         });
@@ -192,12 +216,17 @@ public class ClientPayloadSetup {
                     chatPage.onItemSendAccepted(hasItems ? packet.toPayload() : null);
                 }
             } else {
-                // 失败：整条未发 → 落盘一条提示，打开页时还原文字并保留队列
-                String msg = packet.message() == null ? "发送失败" : packet.message();
-                ChatHistoryStorage.appendMessage(packet.stableId(), "[提示] " + msg, false, true);
+                // 失败：整条未发 → 落盘一条提示，打开页时还原文字并保留队列。
+                // problem 是模组自有系统字段（固定错误 SystemText 编码），渲染 + 前缀只算一次
+                String notice = (packet.message() == null || packet.message().isBlank())
+                        ? PhoneText.tr("gui.huhutalk.chat.item_send_failed")
+                        : PhoneText.system(packet.message());
+                String shown = PhoneText.tr("gui.huhutalk.chat.notice", notice);
+                ChatHistoryStorage.appendMessage(packet.stableId(), shown, false, true);
                 NotificationManager.addUnread(packet.stableId());
                 if (chatPage != null) {
-                    chatPage.onItemSendRejected(msg);
+                    // 传无前缀原因：页面内部用同一 notice 键 + 同一 notice 生成与历史相同的行，保持公开方法原约定
+                    chatPage.onItemSendRejected(notice);
                 }
             }
         });

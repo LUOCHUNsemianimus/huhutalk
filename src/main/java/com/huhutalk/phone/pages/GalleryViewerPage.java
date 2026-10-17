@@ -36,7 +36,7 @@ public class GalleryViewerPage extends PhonePage {
 
     @Override
     protected String title() {
-        return "阅览";
+        return PhoneText.tr("gui.huhutalk.gallery.viewer_title");
     }
 
     /** 阅览页用深底：照片是主角，浅色底会把它压灰 */
@@ -55,7 +55,7 @@ public class GalleryViewerPage extends PhonePage {
     protected void renderContent(GuiGraphics g, int ox, int oy, int w, int h, float partialTick) {
         ResourceLocation tex = PhotoLibrary.getOrLoadTexture(fileName);
         if (tex == null) {
-            PhoneText.drawLeftIn(g, font(), "这张照片已经不在相册里了",
+            PhoneText.drawLeftIn(g, font(), PhoneText.tr("gui.huhutalk.gallery.gone"),
                     ox, oy + PhoneText.px(10), w, PhoneText.px(16), PhoneText.px(10),
                     0xFFB0BEC5, PhoneText.scale(0.9f));
             return;
@@ -77,7 +77,7 @@ public class GalleryViewerPage extends PhonePage {
     protected boolean onTopBarClick(double relX, double relY, int button, int action) {
         if (GalleryDeleteButton.hit(font(), width(), topBarHeight(), relX, relY, button, action)) {
             PhotoLibrary.deleteGallery(fileName);
-            PhoneOverlay.showBubble("已删除");
+            PhoneOverlay.showBubble(PhoneText.tr("gui.huhutalk.gallery.deleted_one"));
             PhoneOverlay.popPage();   // 删的就是当前这张，没有东西可看了
             return true;
         }

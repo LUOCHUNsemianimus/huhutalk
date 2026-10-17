@@ -102,8 +102,8 @@ public class SettingsPage extends PhonePage {
     /** 底部留白：让最后一行能滑出悬浮的底部导航胶囊 */
     private static final int BOTTOM_PAD = 30;
 
-    /** 顶栏标题（左对齐，见 {@link #renderTopBarExtras}） */
-    private static final String TITLE = "HuhuTalk设置";
+    /** 顶栏标题键（左对齐，见 {@link #renderTopBarExtras}）；渲染时解析，切语言下一帧生效 */
+    private static final String TITLE_KEY = "gui.huhutalk.phone_settings.title";
 
     /** 屏幕比例可选值 */
     private static final List<String> ASPECT_OPTIONS = List.of("20:9", "9:16", "4:3");
@@ -147,8 +147,8 @@ public class SettingsPage extends PhonePage {
     /** 分组（标题 + 行）。构造时建好，之后每帧只重新 layout。 */
     private final List<Section> sections;
 
-    /** 一个分组：标题 + 若干「标签 + 控件」行。 */
-    private record Section(String title, List<PhoneRow> rows) {
+    /** 一个分组：标题键 + 若干「标签 + 控件」行。 */
+    private record Section(String titleKey, List<PhoneRow> rows) {
     }
 
     public SettingsPage() {
@@ -215,7 +215,7 @@ public class SettingsPage extends PhonePage {
 
     @Override
     protected void renderTopBarExtras(GuiGraphics graphics, int baseX, int baseY, int w, int barH, int textY) {
-        PhoneText.draw(graphics, font(), TITLE, baseX + PhoneText.px(10), textY,
+        PhoneText.draw(graphics, font(), PhoneText.tr(TITLE_KEY), baseX + PhoneText.px(10), textY,
                 colors().topBarText(), PhoneText.scale(1.0f));
     }
 
@@ -276,51 +276,84 @@ public class SettingsPage extends PhonePage {
     private List<Section> buildSections() {
         List<Section> out = new ArrayList<>();
 
-        out.add(new Section("消息", List.of(
-                row("消息免打扰", dndSwitch),
-                row("女仆悄悄话", whisperSwitch),
-                row("沉浸式聊天", immersiveSwitch))));
+        out.add(new Section("gui.huhutalk.phone_settings.section.message", List.of(
+                row("gui.huhutalk.phone_settings.row.dnd", dndSwitch),
+                row("gui.huhutalk.phone_settings.row.whisper", whisperSwitch),
+                row("gui.huhutalk.phone_settings.row.immersive", immersiveSwitch))));
 
-        out.add(new Section("救援", List.of(
-                row("药水复活", potionRescueSwitch),
-                row("远程补给女仆回复", supplyReplySwitch))));
+        out.add(new Section("gui.huhutalk.phone_settings.section.rescue", List.of(
+                row("gui.huhutalk.phone_settings.row.potion_rescue", potionRescueSwitch),
+                row("gui.huhutalk.phone_settings.row.supply_reply", supplyReplySwitch))));
 
-        out.add(new Section("动画", List.of(
-                row("消息动画", messageAnimSwitch),
-                row(() -> "每次耗时(ms)：" + (long) charTypingStepper.value(), charTypingStepper),
-                row(() -> "单句上限(ms)：" + (long) maxTypingStepper.value(), maxTypingStepper),
-                row("切屏动画", uiAnimSwitch))));
+        out.add(new Section("gui.huhutalk.phone_settings.section.animation", List.of(
+                row("gui.huhutalk.phone_settings.row.message_anim", messageAnimSwitch),
+                row(() -> PhoneText.tr("gui.huhutalk.phone_settings.row.char_typing",
+                        (long) charTypingStepper.value()), charTypingStepper),
+                row(() -> PhoneText.tr("gui.huhutalk.phone_settings.row.max_typing",
+                        (long) maxTypingStepper.value()), maxTypingStepper),
+                row("gui.huhutalk.phone_settings.row.ui_anim", uiAnimSwitch))));
 
         // ⚠ 「桌面图标管理」落在**桌面设置 App**（{@link SettingsAppPage}）里，不在这里。
         //    分工：本页 = 手机本身的设置（屏幕/亮度/配色/动画…）；
         //    SettingsAppPage = 桌面 App 级的设置（AI 识图、桌面图标管理…）。
         //    新增条目时先问一句"玩家会在哪一页找它"，两边不要重复。
-        out.add(new Section("配色", List.of(
-                row(() -> "配色方案：" + ThemeManager.getActive().displayName(),
-                        new CapsuleButton("切换", ThemeManager::cycleNext)),
+        out.add(new Section("gui.huhutalk.phone_settings.section.theme", List.of(
+                row(() -> PhoneText.tr("gui.huhutalk.phone_settings.row.theme",
+                                ThemeManager.displayNameOf(ThemeManager.getActive())),
+                        new CapsuleButton("gui.huhutalk.phone_settings.button.switch", ThemeManager::cycleNext)),
                 row(this::phoneCaseLabel,
-                        new CapsuleButton("选壳", () -> PhoneOverlay.pushPage(new PhoneCasePickerPage()))))));
+                        new CapsuleButton("gui.huhutalk.phone_settings.button.choose_case",
+                                () -> PhoneOverlay.pushPage(new PhoneCasePickerPage()))))));
 
-        out.add(new Section("显示", List.of(
-                row(() -> "屏幕比例：" + HuhuTalkClientSettings.getPhoneAspect(),
-                        new CapsuleButton("切换", this::cycleAspect)),
-                row(() -> "屏幕大小：" + Math.round(HuhuTalkClientSettings.getPhoneSize() * 100) + "%",
+        out.add(new Section("gui.huhutalk.phone_settings.section.display", List.of(
+                row(() -> PhoneText.tr("gui.huhutalk.phone_settings.row.aspect",
+                                HuhuTalkClientSettings.getPhoneAspect()),
+                        new CapsuleButton("gui.huhutalk.phone_settings.button.switch", this::cycleAspect)),
+                row(() -> PhoneText.tr("gui.huhutalk.phone_settings.row.phone_size",
+                                Math.round(HuhuTalkClientSettings.getPhoneSize() * 100) + "%"),
                         phoneSizeSlider),
-                row(() -> "字体倍率：×" + fontScaleStepper.display(), fontScaleStepper),
-                row(() -> "屏幕亮度：" + Math.round(HuhuTalkClientSettings.getScreenBrightness() * 100) + "%",
+                row(() -> PhoneText.tr("gui.huhutalk.phone_settings.row.font_scale",
+                                fontScaleStepper.display()),
+                        fontScaleStepper),
+                row(() -> PhoneText.tr("gui.huhutalk.phone_settings.row.brightness",
+                                Math.round(HuhuTalkClientSettings.getScreenBrightness() * 100) + "%"),
                         brightnessSlider),
-                row(() -> "HuhuTalk图标：" + iconStyleLabel(),
-                        new CapsuleButton("切换", this::cycleIconStyle)))));
+                row(() -> PhoneText.tr("gui.huhutalk.phone_settings.row.icon_style", iconStyleLabel()),
+                        new CapsuleButton("gui.huhutalk.phone_settings.button.switch", this::cycleIconStyle)))));
 
         return List.copyOf(out);
     }
 
-    private static PhoneRow row(String label, PhoneWidget widget) {
-        return PhoneRow.of(label, widget).pad(ROW_PAD).rowHeight(ROW_H);
+    /** 静态标签行：{@code labelKey} 是语言键，渲染时解析，控件实例只建一次。 */
+    private PhoneRow row(String labelKey, PhoneWidget widget) {
+        return row(() -> PhoneText.tr(labelKey), widget);
     }
 
-    private static PhoneRow row(java.util.function.Supplier<String> label, PhoneWidget widget) {
-        return PhoneRow.of(label, widget).pad(ROW_PAD).rowHeight(ROW_H);
+    /** 动态标签行（标签里带当前值）。 */
+    private PhoneRow row(java.util.function.Supplier<String> label, PhoneWidget widget) {
+        return PhoneRow.of(() -> fitRowLabel(label.get(), widget), widget).pad(ROW_PAD).rowHeight(ROW_H);
+    }
+
+    /**
+     * 把标签截断到不与右侧控件重叠的可用宽度。
+     * <p>
+     * {@link PhoneRow} 的标签绘制并不感知控件宽度，英文标签（比中文长得多）会压到右侧
+     * 开关 / stepper / 胶囊按钮上。这里复用 {@link PhoneText#truncate}，按控件的实际建议宽度
+     * 预留出位置：{@code INLINE_RIGHT} 控件（开关、stepper、按钮）扣掉控件宽 + 间距，
+     * {@code STACKED} 控件（滑块、下拉）标签独占一行，交给 PhoneRow 自己按整行宽截断。
+     */
+    private String fitRowLabel(String text, PhoneWidget widget) {
+        if (widget == null || widget.layoutHint() == PhoneWidget.LayoutHint.STACKED) {
+            return text;
+        }
+        Font font = font();
+        int pw = widget.preferredWidth(font);
+        if (pw <= 0) {
+            return text;
+        }
+        int rowW = width() - PhoneText.px(CARD_PAD) * 2;
+        int avail = rowW - PhoneText.px(ROW_PAD) * 2 - pw - PhoneText.px(6);
+        return PhoneText.truncate(font, text, Math.max(0, avail), PhoneText.scale(1.0f));
     }
 
     // ==================== 布局 ====================
@@ -405,13 +438,13 @@ public class SettingsPage extends PhonePage {
         // SOS 紧急呼叫胶囊（页面顶部首位）
         PhoneShapes.fillRoundedRect(g, originX + sosX(), originY + scrollY(sosY()),
                 sosW(), sosH(), sosH() / 2, c.sosBg());
-        PhoneText.drawLeftIn(g, font, "🚨 SOS 紧急呼叫",
+        PhoneText.drawLeftIn(g, font, PhoneText.tr("gui.huhutalk.phone_settings.sos"),
                 originX + sosX(), originY + scrollY(sosY()), sosW(), sosH(),
                 PhoneText.px(ROW_PAD), c.sosText(), PhoneText.scale(1.0f));
 
         for (int i = 0; i < sections.size(); i++) {
             Section section = sections.get(i);
-            PhoneText.draw(g, font, section.title(),
+            PhoneText.draw(g, font, PhoneText.tr(section.titleKey()),
                     originX + PhoneText.px(TITLE_PAD), originY + L.titleYs.get(i),
                     c.textMuted(), PhoneText.scale(GROUP_SCALE));
 
@@ -508,16 +541,12 @@ public class SettingsPage extends PhonePage {
         return (float) (0.5 + t * 0.5);
     }
 
-    /** 手机壳行：物品 id 可能很长，在留出右侧「选壳」按钮的前提下截断。 */
+    /** 手机壳行：返回完整文案，宽度截断交给 {@link #fitRowLabel}（复用现有截断）。 */
     private String phoneCaseLabel() {
         String id = HuhuTalkClientSettings.getPhoneCaseBlock();
-        String text = id.isBlank() ? "手机壳：默认" : "手机壳：" + shortName(id);
-        Font font = font();
-        int buttonW = PhoneText.width(font, "选壳", PhoneText.scale(CapsuleButton.TEXT_SCALE))
-                + PhoneText.px(10);
-        int avail = width() - PhoneText.px(CARD_PAD) * 2 - PhoneText.px(ROW_PAD) * 2
-                - buttonW - PhoneText.px(8);
-        return PhoneText.truncate(font, text, Math.max(0, avail), PhoneText.scale(1.0f));
+        return id.isBlank()
+                ? PhoneText.tr("gui.huhutalk.phone_settings.row.phone_case_default")
+                : PhoneText.tr("gui.huhutalk.phone_settings.row.phone_case", shortName(id));
     }
 
     private static String shortName(String id) {
@@ -536,9 +565,9 @@ public class SettingsPage extends PhonePage {
     /** 图标风格显示名 */
     private static String iconStyleLabel() {
         return switch (HuhuTalkClientSettings.getHuhutalkIconStyle()) {
-            case "symbol" -> "低清图标";
-            case "fox" -> "狐狸emoji";
-            default -> "高清图标";
+            case "symbol" -> PhoneText.tr("gui.huhutalk.phone_settings.icon_style.legacy");
+            case "fox" -> PhoneText.tr("gui.huhutalk.phone_settings.icon_style.fox");
+            default -> PhoneText.tr("gui.huhutalk.phone_settings.icon_style.hd");
         };
     }
 
@@ -571,17 +600,18 @@ public class SettingsPage extends PhonePage {
         /** 文字两侧留白 */
         private static final int PAD_PX = 10;
 
-        private final String text;
+        private final String textKey;
         private final Runnable action;
 
-        CapsuleButton(String text, Runnable action) {
-            this.text = text;
+        CapsuleButton(String textKey, Runnable action) {
+            this.textKey = textKey;
             this.action = action;
         }
 
         @Override
         public int preferredWidth(Font font) {
-            return PhoneText.width(font, text, PhoneText.scale(TEXT_SCALE)) + PhoneText.px(PAD_PX);
+            return PhoneText.width(font, PhoneText.tr(textKey), PhoneText.scale(TEXT_SCALE))
+                    + PhoneText.px(PAD_PX);
         }
 
         @Override
@@ -600,7 +630,7 @@ public class SettingsPage extends PhonePage {
             int y = originY + y();
             // 取主题强调色（与旧实现硬编码的 #de7e7e 同值），换配色方案时会跟着变
             PhoneShapes.fillRoundedRect(g, x, y, w, h, h / 2, ThemeManager.getActive().accent());
-            PhoneText.drawCenteredIn(g, Minecraft.getInstance().font, text, x, y, w, h,
+            PhoneText.drawCenteredIn(g, Minecraft.getInstance().font, PhoneText.tr(textKey), x, y, w, h,
                     0xFFFFFFFF, PhoneText.scale(TEXT_SCALE));
         }
 

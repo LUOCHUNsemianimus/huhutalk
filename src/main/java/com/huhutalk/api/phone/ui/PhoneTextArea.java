@@ -5,6 +5,8 @@ import com.huhutalk.phone.PhoneTextCaptureScreen;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
+import net.minecraft.network.chat.Component;
+import net.minecraft.util.FormattedCharSequence;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -197,15 +199,21 @@ public final class PhoneTextArea extends PhoneWidget implements PhoneTextEditabl
         }
 
         boolean empty = value.isEmpty();
-        String text = empty ? placeholder : value;
         int color = empty ? ThemeManager.getActive().textMuted() : ThemeManager.getActive().textPrimary();
 
-        Wrapped wp = wrap(font, text, (int) (innerW / ts));
-        int cursorLine = empty ? 0 : cursorLine(wp, cursorPos);
+        if (empty) {
+            // 占位提示只在绘制路径走原生 Font.split：英文等以空格分词的语言按词折行；
+            // 真实输入的折行/光标映射仍走 wrap(...)，文本存储与编辑算法完全不变。
+            renderPlaceholder(g, font, x, y, w, pad, innerW, lineH, maxRows, ts, color);
+            return;
+        }
 
-        // 可见窗口：编辑期跟着光标，非编辑期从第一行起
+        Wrapped wp = wrap(font, value, (int) (innerW / ts));
+        int cursorLine = cursorLine(wp, cursorPos);
+
+        // 可见窗口：编辑期跟着光标
         int first = 0;
-        if (focused && !empty && cursorLine >= maxRows) {
+        if (focused && cursorLine >= maxRows) {
             first = cursorLine - maxRows + 1;
         }
         int last = Math.min(wp.lines().size(), first + maxRows);
@@ -213,10 +221,8 @@ public final class PhoneTextArea extends PhoneWidget implements PhoneTextEditabl
         for (int row = first; row < last; row++) {
             String line = wp.lines().get(row);
             // 编辑期在光标所在的字符列插入一个竖线（真光标由 EditBox 管，这里只做视觉提示）。
-            // 空值时显示的是占位文字、光标没有对应字符，就补在占位文字末尾。
             if (focused && row == cursorLine) {
-                int col = empty ? line.length()
-                        : Math.clamp(cursorPos - wp.starts().get(row), 0, line.length());
+                int col = Math.clamp(cursorPos - wp.starts().get(row), 0, line.length());
                 line = line.substring(0, col) + "|" + line.substring(col);
             }
             PhoneText.draw(g, font, line, x + pad, y + pad + (row - first) * lineH, color, ts);
@@ -231,6 +237,42 @@ public final class PhoneTextArea extends PhoneWidget implements PhoneTextEditabl
             if (pad * 2 + lastLineW + moreW <= w) {
                 PhoneText.draw(g, font, more, x + w - pad - moreW,
                         y + pad + (last - 1 - first) * lineH, ThemeManager.getActive().textMuted(), ts);
+            }
+        }
+    }
+
+    /**
+     * 空值占位提示：用 {@link Font#split} 按词折行后以同字号绘制。
+     * <p>占位文字不参与光标映射（编辑期的竖线只补在第一行末尾），所以这里只要"折好的行"。
+     */
+    private void renderPlaceholder(GuiGraphics g, Font font, int x, int y, int w, int pad,
+                                   int innerW, int lineH, int maxRows, float ts, int color) {
+        int wrapW = Math.max(1, (int) (innerW / ts));
+        List<FormattedCharSequence> lines = font.split(Component.literal(placeholder), wrapW);
+        int last = Math.min(lines.size(), maxRows);
+        if (last <= 0) {
+            // Font.split 返回空行列表：非编辑期不画；编辑期仍在第一行起点画竖线，保留焦点提示
+            if (focused) {
+                PhoneText.draw(g, font, "|", x + pad, y + pad, color, ts);
+            }
+            return;
+        }
+        for (int row = 0; row < last; row++) {
+            PhoneText.draw(g, font, lines.get(row), x + pad, y + pad + row * lineH, color, ts);
+        }
+        // 空值时真光标没有对应字符：编辑期在第一行占位文字末尾补一个竖线（与旧实现一致）
+        if (focused) {
+            int lineW = PhoneText.width(font, lines.get(0), ts);
+            PhoneText.draw(g, font, "|", x + pad + lineW, y + pad, color, ts);
+        }
+        // 非编辑期被截断：末行右端补省略号，同样只在塞得下时才画
+        if (!focused && last < lines.size()) {
+            String more = "…";
+            int moreW = PhoneText.width(font, more, ts);
+            int lastLineW = PhoneText.width(font, lines.get(last - 1), ts);
+            if (pad * 2 + lastLineW + moreW <= w) {
+                PhoneText.draw(g, font, more, x + w - pad - moreW,
+                        y + pad + (last - 1) * lineH, ThemeManager.getActive().textMuted(), ts);
             }
         }
     }

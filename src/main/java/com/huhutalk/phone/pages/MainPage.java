@@ -84,6 +84,13 @@ public class MainPage implements IPhonePage {
      * {@link #isDesktopFixed} —— 后者会连拖动一起禁掉，设置就动不了了。
      */
     public static final String KEY_SETTINGS = "settings";
+    /**
+     * 「手册」App 的稳定 key（内部使用）。
+     * <p>
+     * 与 {@link #KEY_TALK} / {@link #KEY_SETTINGS} 同性质：它是布局/行为判据，不是显示文案。
+     * 名称只在这里的 {@link #builtinNameKey(String)} 里映射到语言键。
+     */
+    private static final String KEY_MANUAL = "manual";
     /** 图标下方名称的灰字颜色 */
     private static final int LABEL_COLOR = 0xFF7A7A7A;
     /** 桌面中央表情边长 = 手机内容宽度 × 该比例 */
@@ -166,6 +173,46 @@ public class MainPage implements IPhonePage {
     private static Map<String, AppInfo> allByKey() {
         slots(); // 触发一次重建/缓存命中
         return mergedByKey;
+    }
+
+    // ==================== 显示名称（语言边界） ====================
+    //
+    // 稳定 key（huhutalk / manual / settings）是布局与行为的唯一判据，名字只是给玩家看的文案。
+    // 这里把「内置 key → 语言键」的映射收成一处：桌面标签、DesktopSlot 快照都在显示边界调用，
+    // 于是 AppInfo.name 保持原样（外部注册名/内置兜底名），翻译结果不落进任何静态字段。
+
+    /**
+     * 内置 App 的显示名称键；外部注册的 App 返回 {@code null}（名称原样显示）。
+     * <p>只认 {@link AppInfo#key} 这个稳定标识，不认名字 —— 名字会随语言变。
+     */
+    private static String builtinNameKey(String key) {
+        if (KEY_TALK.equals(key)) {
+            return "gui.huhutalk.app.huhutalk";
+        }
+        if (KEY_SETTINGS.equals(key)) {
+            return "gui.huhutalk.app.settings";
+        }
+        if (KEY_MANUAL.equals(key)) {
+            return "gui.huhutalk.app.manual";
+        }
+        // 内置性质的「相机 / 图库」走公开注册通路（PhoneApp id = 稳定存档 key），
+        // 这里只加它们的显示名映射；其余外部 App 的注册名一律原样。
+        if ("huhutalk:camera".equals(key)) {
+            return "gui.huhutalk.app.camera";
+        }
+        if ("huhutalk:gallery".equals(key)) {
+            return "gui.huhutalk.app.gallery";
+        }
+        return null;
+    }
+
+    /**
+     * App 在界面上的名称：内置 App 按 {@code key} 解析为当前语言的文案，外部 App 原样返回注册名。
+     * <p>每次调用都重新查语言表，因此切换语言后下一帧即更新，不会被静态缓存冻住。
+     */
+    static String displayName(String key, String registeredName) {
+        String nameKey = builtinNameKey(key);
+        return nameKey == null ? registeredName : PhoneText.tr(nameKey);
     }
 
     /**
@@ -323,7 +370,7 @@ public class MainPage implements IPhonePage {
         // 1 刻意留空：预留给「相机」App —— 它作为外部注册走 PhoneAppRegistry（见 Phase 3 的计划），
         //   显式申请槽位 1。留空而不是先占住，是为了让「我们自己的 App 也能走公开注册通路」这条验证成立。
         // 2 手册：手机内置手册（拆分前，「设置」图标指向的就是这个页面）
-        list.add(new AppInfo(2, "manual", AppBehavior.MANUAL, false,
+        list.add(new AppInfo(2, KEY_MANUAL, AppBehavior.MANUAL, false,
                 "手册", 0xFFEFEBE9, "📖", true, 2.0f, 0xFF5D4037, true, false, ManualPage::new));
         // 5 设置：设置 App 主页（用公开骨架 PhonePage 画，配色跟主题）。
         //   目前只有「识图模型」一栏（见 SettingsAppPage）；底部导航那个老设置页不受影响。
@@ -395,6 +442,16 @@ public class MainPage implements IPhonePage {
     }
 
     /**
+     * 桌面图标的列间距基准：页面左右边距与相邻图标之间的间隙都用它。
+     * <p>
+     * {@link #appRect}（绘制与命中共用）和图标下方名称的可用宽度必须取同一个值，
+     * 否则只改一处就会让名称的居中/越界判断与图标槽位漂移。
+     */
+    private static int appMargin(int w) {
+        return Math.max(4, (int) (w * 0.06));
+    }
+
+    /**
      * 计算某个<b>槽位</b>的图标矩形（内容区相对坐标，未含 baseX/baseY）。
      * 渲染（加 baseX/baseY）与点击命中（直接用 relX/relY）共用，保证一致。
      * 纵向步进含图标下方名称留白，避免名称与下一行重叠。
@@ -404,7 +461,7 @@ public class MainPage implements IPhonePage {
      */
     private static void appRect(int w, int h, int slot, int[] out) {
         Font font = Minecraft.getInstance().font;
-        int margin = Math.max(4, (int) (w * 0.06));
+        int margin = appMargin(w);
         int iconW = Math.max(10, (w - margin * (APP_COLS + 1)) / APP_COLS);
         int iconH = iconW; // 圆角正方形
         int labelH = Math.max(3, Math.round(font.lineHeight * PhoneText.scale(0.8f)));
@@ -533,11 +590,18 @@ public class MainPage implements IPhonePage {
             }
 
             // 图标下方名称（灰字，0.8 倍，带阴影描边）
+            // 名称在显示边界按稳定 key 解析当前语言；测量与绘制用同一个字符串
+            String appLabel = displayName(app.key, app.name);
             float ls = PhoneText.scale(0.8f);
-            int lw = PhoneText.width(font, app.name, ls);
+            // 本槽位可用宽度 = 图标宽 + 一个列间距（与 appRect 共用 appMargin，避免公式漂移）。
+            // 居中后最多各伸入左右间隙一半，绝不会跨到相邻图标的槽位里。
+            int labelMargin = appMargin(w);
+            int maxLabelW = iconW + labelMargin;
+            appLabel = PhoneText.truncate(font, appLabel, maxLabelW, ls);
+            int lw = PhoneText.width(font, appLabel, ls);
             int lx = x + (iconW - lw) / 2;
             int ly = y + iconH + 1;
-            PhoneText.drawShaded(graphics, font, app.name, lx, ly, LABEL_COLOR, ls);
+            PhoneText.drawShaded(graphics, font, appLabel, lx, ly, LABEL_COLOR, ls);
 
             // HuhuTalk 未读红点
             if (app.unreadBadge) {
@@ -836,7 +900,7 @@ public class MainPage implements IPhonePage {
                     tw = th = ICON_SYMBOL2_SIZE;
                 }
             }
-            return new DesktopSlot(a.slot, a.key, a.name, a.color, a.center, a.emoji, a.centerScale,
+            return new DesktopSlot(a.slot, a.key, displayName(a.key, a.name), a.color, a.center, a.emoji, a.centerScale,
                     a.centerColor, tex, tw, th, a.iconFill, KEY_TALK.equals(a.key));
         }
     }

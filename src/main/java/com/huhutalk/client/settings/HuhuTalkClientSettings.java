@@ -3,6 +3,7 @@ package com.huhutalk.client.settings;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonParseException;
+import com.huhutalk.api.phone.ui.PhoneText;
 import com.huhutalk.common.vision.VisionAppearance;
 import com.huhutalk.common.vision.VisionProvider;
 import com.huhutalk.common.vision.VisionProviders;
@@ -264,7 +265,7 @@ public final class HuhuTalkClientSettings {
             return stored;
         }
         if (isVisionCustomModel(siteId)) {
-            return "自定义";
+            return PhoneText.tr("gui.huhutalk.vision.custom_empty_label");
         }
         VisionProvider p = VisionProviders.byId(siteId);
         return p != null ? p.resolveDefaultModel() : "";

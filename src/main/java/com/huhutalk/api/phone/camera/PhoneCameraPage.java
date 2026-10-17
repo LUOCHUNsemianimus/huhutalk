@@ -237,7 +237,7 @@ public class PhoneCameraPage implements PhoneCameraHost {
     private void takePhoto() {
         PhoneOverlay.requestWorldCapture(png -> {
             if (png == null) {
-                PhoneOverlay.showBubble("拍照失败");
+                PhoneOverlay.showBubble(PhoneText.tr("gui.huhutalk.camera.fail_photo"));
                 return;
             }
             // 装饰缩略图：用固定 key 覆盖注册，这样左下角永远显示"刚拍的这张"
@@ -250,7 +250,7 @@ public class PhoneCameraPage implements PhoneCameraHost {
             // 快门本身就是反馈，再每次弹一条"已保存"只是噪声。
             // 失败则必须说 —— 否则玩家会以为拍下来了，回头找不到照片。
             if (saved == null) {
-                PhoneOverlay.showBubble("保存失败");
+                PhoneOverlay.showBubble(PhoneText.tr("gui.huhutalk.camera.fail_save"));
             }
         });
     }
@@ -275,7 +275,7 @@ public class PhoneCameraPage implements PhoneCameraHost {
             }
             selfieShotPending = false;
             if (png == null) {
-                PhoneOverlay.showBubble("拍照失败");
+                PhoneOverlay.showBubble(PhoneText.tr("gui.huhutalk.camera.fail_photo"));
                 return;
             }
             cameraShot = png;
@@ -296,11 +296,11 @@ public class PhoneCameraPage implements PhoneCameraHost {
             return;
         }
         if (PhotoLibrary.saveToGallery(cameraShot) != null) {
-            PhoneOverlay.showBubble("已保存");
+            PhoneOverlay.showBubble(PhoneText.tr("gui.huhutalk.camera.saved"));
             cameraShot = null;
             PhoneOverlay.requestRedraw();
         } else {
-            PhoneOverlay.showBubble("保存失败，可重试");
+            PhoneOverlay.showBubble(PhoneText.tr("gui.huhutalk.camera.fail_save_retry"));
         }
     }
 
@@ -316,9 +316,11 @@ public class PhoneCameraPage implements PhoneCameraHost {
         // ---- 顶栏：与聊天内相机同款，左「< 返回 <返回键名>」、右「拍照」----
         // 两段共用同一个缩放：键名是玩家绑定的、可能很长，宁可一起缩也不让它们撞在一起。
         graphics.fill(baseX, baseY, baseX + w, baseY + navH, TOPBAR_BG);
-        String backHint = "< 返回 " + keyHint(false);
+        String backHint = PhoneText.tr("gui.huhutalk.camera.back_hint", keyHint(false));
         // 右段：前摄确认页「确认照片」，前摄取景「自拍」，后摄取景「拍照」。
-        String title = cameraShot != null ? "确认照片" : (frontCamera ? "自拍" : "拍照");
+        String title = PhoneText.tr(cameraShot != null
+                ? "gui.huhutalk.camera.confirm"
+                : (frontCamera ? "gui.huhutalk.camera.selfie" : "gui.huhutalk.camera.photo"));
         float barTs = PhoneText.scale(0.85f);
         int barAvail = w - PhoneText.px(10) - PhoneText.px(6);
         int barRaw = font.width(backHint) + font.width(title);
@@ -436,9 +438,9 @@ public class PhoneCameraPage implements PhoneCameraHost {
         // 按钮压在照片上，需要一条暗带衬底
         g.fill(baseX, baseY + y - PhoneText.px(6), baseX + w, bottom, 0x66000000);
         drawPill(g, font, baseX + margin, baseY + y, btnW, btnH,
-                0xECFFFFFF, 0xFFDE7E7E, "重拍 " + keyHint(false));
+                0xECFFFFFF, 0xFFDE7E7E, PhoneText.tr("gui.huhutalk.camera.retake", keyHint(false)));
         drawPill(g, font, baseX + margin + btnW + gap, baseY + y, btnW, btnH,
-                0xFFDE7E7E, 0xFFFFFFFF, "保存 " + keyHint(true));
+                0xFFDE7E7E, 0xFFFFFFFF, PhoneText.tr("gui.huhutalk.camera.save", keyHint(true)));
     }
 
     /**
@@ -458,7 +460,9 @@ public class PhoneCameraPage implements PhoneCameraHost {
             SelfieCameraTarget.renderPreviewFit(g, x, y, w, h);
             return;
         }
-        String hint = SelfieCameraTarget.isFailed() ? "前置相机不可用" : "前置相机准备中…";
+        String hint = PhoneText.tr(SelfieCameraTarget.isFailed()
+                ? "gui.huhutalk.camera.front_unavailable"
+                : "gui.huhutalk.camera.front_preparing");
         float ts = Math.min(PhoneText.scale(0.8f), (w - PhoneText.px(8)) / Math.max(1f, (float) font.width(hint)));
         ts = Math.max(0.25f, ts);
         PhoneText.draw(g, font, hint, x + (w - font.width(hint) * ts) / 2f,
@@ -477,7 +481,8 @@ public class PhoneCameraPage implements PhoneCameraHost {
         }
         PhoneShapes.fillRoundedRect(g, tx, ty, tw, th, th / 2, 0xCC000000);
         // 简短状态 + 切换键名，单行自适应：极窄 GUI 下缩小，不换行、不溢出、不撞中央快门
-        String label = (frontCamera ? "前摄 " : "后摄 ") + facingKeyHint();
+        String label = PhoneText.tr(frontCamera ? "gui.huhutalk.camera.front" : "gui.huhutalk.camera.back",
+                facingKeyHint());
         float ts = Math.min(PhoneText.scale(0.8f),
                 (tw - PhoneText.px(6)) / Math.max(1f, (float) font.width(label)));
         ts = Math.max(0.20f, ts);

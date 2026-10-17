@@ -5,6 +5,7 @@ import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
 import com.huhutalk.HuhuTalk;
 import com.huhutalk.common.MaidStableIdHelper;
 import com.huhutalk.common.PhoneHelper;
+import com.huhutalk.common.SystemText;
 import com.huhutalk.core.rescue.RescuePotion;
 import com.huhutalk.core.transfer.MaidTransferService;
 import com.huhutalk.core.transfer.UsedItemNotifier;
@@ -176,7 +177,7 @@ public final class RemoteSupplyService {
         if (asFood && food != null) {
             player.getFoodData().eat(food);
             playFeedback(player, -1, false);
-            return "已使用 · 饱食 +" + food.nutrition();
+            return SystemText.of("message.huhutalk.supply.food", food.nutrition());
         }
 
         int instant = RescuePotion.instantHealAmount(stack);
@@ -190,11 +191,10 @@ public final class RemoteSupplyService {
         playFeedback(player, RescuePotion.colorOf(stack),
                 RescuePotion.usageOf(stack) != RescuePotion.Usage.DRINK);
 
-        StringBuilder sb = new StringBuilder("已使用 · 恢复 ").append(Math.max(0, instant)).append(" ❤");
-        if (!lasting.isEmpty()) {
-            sb.append(" · 附效果");
-        }
-        return sb.toString();
+        int restored = Math.max(0, instant);
+        return lasting.isEmpty()
+                ? SystemText.of("message.huhutalk.supply.heal", restored)
+                : SystemText.of("message.huhutalk.supply.heal_effect", restored);
     }
 
     /** 在玩家身上播一点"刚被喂了东西"的视听反馈（不生成实体，避免二次结算）。 */
