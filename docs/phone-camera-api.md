@@ -134,6 +134,14 @@ HuhuTalk 的相机侧键状态机是这样的：
 那一刻本帧世界已画完，而**手 / 手机 / HUD 都还没画**，所以抓到的就是"玩家眼睛里那片干净的世界"，
 不需要临时隐藏任何东西，也不会把 HUD / 手臂 / 手机本体拍进去。
 
+> **光影（Iris）例外**：Iris 在 `LevelRenderer.renderLevel` 的 "translucent" 处就由
+> `HandRenderer.renderSolid` 把第一人称手 / 手机画进世界 pass，并在 `renderLevel` RETURN 处
+> 把最终合成直接写进主渲染靶，之后才轮到 `AFTER_LEVEL`。因此拍照帧会由
+> `PhoneOverlay.beginWorldCaptureFrame()`（`RenderFrame.Pre` 调用）临时把 `GameRenderer.renderHand`
+> 置 false，抓完在 `consumeWorldCapture` 里立即恢复：无光影时当帧画面完全不变，
+> 光影下只是抓图那一帧看不到手 / 手机。HUD 不受影响（仍在 `renderLevel` 之后才画），
+> 也不要为此改用 `options.hideGui`（会停掉整个 GUI 层）。
+
 **几个必须知道的点**：
 
 1. **回调在渲染线程、可能在按下拍照的同一帧内执行**，别在里面做重活。

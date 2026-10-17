@@ -244,6 +244,11 @@ public class ClientModEvents {
         } else {
             PhoneScreenTarget.markDirty();
         }
+
+        // 拍照抓图帧：光影（Iris）把第一人称手 / 手机提前画进了世界 pass，
+        // 使 AFTER_LEVEL 不再是"手还没画"的时刻。这里（主场景渲染之前）临时关掉 renderHand，
+        // 抓完在 consumeWorldCapture 里立刻恢复；无光影时该帧画面与原来完全一致。
+        PhoneOverlay.beginWorldCaptureFrame();
     }
 
     @SubscribeEvent
@@ -262,6 +267,11 @@ public class ClientModEvents {
      * （1.21.1 源：L1279 派发 AFTER_LEVEL，L1281 才是 {@code renderItemInHand}），
      * HUD 更是在整段 {@code renderLevel} 之后由 {@code Gui.render} 画。
      * 所以这里抓到的就是「玩家眼睛里那片干净的世界」，不需要隐藏任何东西。
+     * <p>
+     * ⚠ <b>光影（Iris）例外</b>：Iris 会把第一人称手 / 手机提前画进世界 pass，并在
+     * {@code renderLevel} RETURN 处把最终合成写进主渲染靶 —— 那时 AFTER_LEVEL 还没到。
+     * 所以拍照帧由 {@code PhoneOverlay.beginWorldCaptureFrame()} 在帧首临时关掉 {@code renderHand}，
+     * 抓完立即恢复。HUD 不受影响（它仍在本钩子之后才画）。
      * <p>
      * ⚠ 早先走的是「临时隐藏手机 + 在 GUI 层抓图」，结果是整屏原版截图（含 HUD / 物品栏 / 手臂 / 手机本身）。
      * 也<b>不能</b>靠 {@code options.hideGui} 去藏 HUD —— 它会让整个 GUI 层（含本模组的 GUI 层回调）

@@ -105,6 +105,16 @@ public class PhoneOverlay {
     private static boolean grabPending = false;
     private static java.util.function.Consumer<byte[]> grabCallback = null;
 
+    /**
+     * 拍照抓图帧的「临时关手」状态。
+     * <p>
+     * 光影（Iris）会把第一人称手 / 手机提前画进世界 pass（见 {@link #beginWorldCaptureFrame()}），
+     * 使 {@code AFTER_LEVEL} 不再是"手还没画"的时刻。抓图帧内把 {@code GameRenderer.renderHand}
+     * 临时置 false；{@link #captureHandOldValue} 记住原值，{@link #restoreCaptureHand} 精确恢复。
+     */
+    private static boolean captureHandHidden = false;
+    private static boolean captureHandOldValue = true;
+
     /** 正在拖动手机（按住顶部状态栏左键） */
     private static boolean dragging = false;
     /** 拖拽抓取点：按下瞬间鼠标相对手机左上角的偏移 */
@@ -1449,14 +1459,23 @@ public class PhoneOverlay {
      * {@code RenderLevelStageEvent.Stage.AFTER_LEVEL} 上的 {@link #consumeWorldCapture()} 兑现。
      *
      * <h2>为什么在 AFTER_LEVEL 抓</h2>
-     * 那一刻本帧的世界已经画完，而<b>手 / 手机 / HUD 都还没画</b>（见 ClientModEvents 里的说明），
-     * 抓到的就是「玩家眼睛里那片干净的世界」—— 不需要临时隐藏任何东西，
-     * 也就不会出现旧版的两种病：整屏原版截图（HUD/物品栏/手臂/手机全在里面），或抓图回调不触发。
+     * 原版那一刻本帧的世界已经画完，而<b>手 / 手机 / HUD 都还没画</b>
+     * （{@code GameRenderer.renderLevel}：先派发 AFTER_LEVEL，之后才 {@code if (renderHand) renderItemInHand}；
+     * HUD 要等整个 {@code renderLevel} 返回后由 {@code Gui} 画），
+     * 抓到的就是「玩家眼睛里那片干净的世界」。
+     *
+     * <h2>⚠ 光影（Iris）下 AFTER_LEVEL 不再"手还没画"</h2>
+     * Iris 在 {@code LevelRenderer.renderLevel} 的 "translucent" 处就
+     * {@code HandRenderer.renderSolid(...)} 把第一人称手 / 手机画进世界 pass，
+     * 并在 {@code renderLevel} RETURN 处把最终合成直接写进主渲染靶；随后才轮到 AFTER_LEVEL。
+     * 所以拍照帧必须由 {@link #beginWorldCaptureFrame()} 临时关掉 {@code renderHand}
+     * （{@code HandRenderer.canRender()} 也读这个开关），抓完由 {@link #restoreCaptureHand} 恢复。
+     * HUD 仍然不在这一步里（它在 {@code renderLevel} 之后才画），不需要也不应该动 {@code options.hideGui}。
      *
      * <h2>⚠ 别改用 options.hideGui</h2>
      * {@code Gui} 的 layerManager 条件就是 {@code !options.hideGui}，置真会让<b>整个 GUI 层</b>
-     * （含本模组注册的 GUI 层回调）全部不绘制 —— 靠 GUI 层回调抓图的路会永远不触发，
-     * 表现为「按下拍照后手机永久消失」。旧版的 {@code captureHidden} 通路正是死在这里，已整体删除。
+     * （含本模组注册的 GUI 层回调）全部不绘制，还会藏掉手机屏上的所有内容；
+     * 旧版的 {@code captureHidden} 通路正是死在这里，已整体删除。
      *
      * @param onDone 拿到 PNG 字节（可能为 null）后的回调，在渲染线程执行
      */
@@ -1465,7 +1484,49 @@ public class PhoneOverlay {
         grabCallback = onDone;
     }
 
-    /** 由 {@code RenderLevelStageEvent.AFTER_LEVEL} 每帧调用：有请求就抓一张并回调。在渲染线程执行。 */
+    /**
+     * 由 {@code RenderFrameEvent.Pre} 每帧调用（世界尚未渲染）：有拍照请求时，
+     * 本帧临时把 {@code GameRenderer.renderHand} 置 false，让抓到的画面不含第一人称手 / 手机。
+     * <p>
+     * 只有光影下才真正必要（原版手在 AFTER_LEVEL 之后才画），但统一执行没有副作用：
+     * 无光影时 {@link #restoreCaptureHand} 在 AFTER_LEVEL 内就恢复，玩家看到的画面与原来一致；
+     * 光影下 Iris 已把原版之后那次手渲染取消，所以只有抓图这一帧看不到手（约 16ms）。
+     * <p>
+     * 上一帧若没能等到 AFTER_LEVEL（焦点丢失 / 无世界帧），这里先兜底恢复，避免手一直不画。
+     */
+    public static void beginWorldCaptureFrame() {
+        Minecraft mc = Minecraft.getInstance();
+        restoreCaptureHand(mc);
+        if (!grabPending) {
+            return;
+        }
+        // Mixin 侧实现的接口：GameRenderer 静态上并不 implements 它，运行时才由 GameRendererSelfieMixin 补上
+        com.huhutalk.client.render.SelfieRenderAccess.GameRendererAccess access =
+                (com.huhutalk.client.render.SelfieRenderAccess.GameRendererAccess) mc.gameRenderer;
+        if (access.huhutalk$getRenderHand()) {
+            captureHandOldValue = true;
+            captureHandHidden = true;
+            mc.gameRenderer.setRenderHand(false);
+        }
+    }
+
+    /** 恢复抓图帧临时关掉的第一人称手；只有确实由我们关过才动 */
+    private static void restoreCaptureHand(Minecraft mc) {
+        if (!captureHandHidden) {
+            return;
+        }
+        captureHandHidden = false;
+        if (captureHandOldValue) {
+            mc.gameRenderer.setRenderHand(true);
+        }
+    }
+
+    /**
+     * 由 {@code RenderLevelStageEvent.AFTER_LEVEL} 每帧调用：有请求就抓一张并回调。在渲染线程执行。
+     * <p>
+     * 抓完立即恢复 {@code renderHand}：这一刻仍然早于原版 {@code if (renderHand) renderItemInHand}，
+     * 所以无光影时这一帧的手照常画；光影下原版手本就被 Iris 跳过。
+     */
     public static void consumeWorldCapture() {
         if (!grabPending) {
             return;
@@ -1473,10 +1534,13 @@ public class PhoneOverlay {
         grabPending = false;
         java.util.function.Consumer<byte[]> cb = grabCallback;
         grabCallback = null;
-        if (cb == null) {
-            return;
+        try {
+            if (cb != null) {
+                cb.accept(com.huhutalk.client.PhotoLibrary.captureMainTargetPng());
+            }
+        } finally {
+            restoreCaptureHand(Minecraft.getInstance());
         }
-        cb.accept(com.huhutalk.client.PhotoLibrary.captureMainTargetPng());
     }
 
     // ==================== 屏内气泡 ====================
@@ -2216,6 +2280,10 @@ public class PhoneOverlay {
         endWindowDrag(false);
         // 切世界/退出：释放前摄取景离屏资源，兑现未完成的抓图请求（绝不悬着）
         SelfieCameraTarget.release();
+        // 作废在途的后摄抓图请求，并恢复可能被「抓图帧临时关手」关掉的第一人称手
+        grabPending = false;
+        grabCallback = null;
+        restoreCaptureHand(Minecraft.getInstance());
         cameraHoldButton = 0;
         cameraHoldFired = false;
         selfieRightLatch = false;

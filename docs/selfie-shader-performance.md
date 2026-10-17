@@ -17,6 +17,21 @@
 - 自拍 pass 与 Iris 共享帧内历史/缓冲，尚非完全隔离；不能据此声称对任意 Iris 版本或任意光影包全面兼容。
 - 只在现有 `RenderFrame.Pre → SelfieCameraTarget.update` 前置帧序调用安全；不能在 HUD 等主场景已绘制后调用。
 
+## 光影下的后摄抓图（2026-10-17 追加）
+
+Iris 的帧序会改变「手还没画」这个原版前提：
+
+- `MixinLevelRenderer.iris$beginTranslucents` 在 `LevelRenderer.renderLevel` 的 "translucent" 处就调用
+  `HandRenderer.renderSolid(...)`，**第一人称手 / 手机（`RenderHandEvent`）在世界 pass 内就被画进 colortex**；
+- `renderLevel` RETURN 处 `finalizeLevelRendering()` → `FinalPassRenderer.renderFinalPass()`
+  直接把最终合成写进 `mainRenderTarget` 的颜色纹理，随后 NeoForge 才派发 `AFTER_LEVEL`；
+- 原版 `GameRenderer.renderLevel` 之后那次 `renderItemInHand` 已被 `MixinGameRenderer`
+  `iris$disableVanillaHandRendering` 取消。
+
+因此后摄抓图不能只依赖 `AFTER_LEVEL` 的时机，现由 `PhoneOverlay.beginWorldCaptureFrame()`
+在拍照帧（`RenderFrame.Pre`）临时 `setRenderHand(false)`，`consumeWorldCapture` 抓完立即恢复。
+HUD 不在这条通路里（`Gui` 在 `renderLevel` 返回后才画），不要为此改用 `options.hideGui`。
+
 ## 实测记录（2026-10-17）
 
 环境：RTX 4060 Laptop，窗口 2560x1600，GUI Scale 4，FOV 70，渲染距离 12，关闭 VSync，帧率上限 260；
