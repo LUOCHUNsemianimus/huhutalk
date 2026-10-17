@@ -341,6 +341,51 @@ public final class PhoneScreenTarget {
         diagPlacement(poseStack);
     }
 
+    /**
+     * 求「内容底边（水印顶部）中心对齐到原版生命/饱食度首行上沿」所需的机身局部 Y 位移。
+     * <p>
+     * 参考姿态已经过共享的 {@code applyPhoneBodyTransform}，但不含实际 equip/swing 运动。
+     * 离屏画布底部是水印栏，不能把整块 FBO 底边当作内容底边：锚点从屏幕局部底边 {@code SCREEN_Y0}
+     * 上移水印高度占比，即 {@code SCREEN_Y0 + (SCREEN_Y1-SCREEN_Y0)*getStatusBarHeight()/usedCanvasH}。
+     * 用真实 {@link RenderSystem} 投影、全局 ModelView 与参考 pose 的复合矩阵，把内容底边中心齐次坐标 {@code p} 与局部 Y 方向
+     * {@code d}（w=0）投到 NDC，再解
+     * {@code (p.y + delta*d.y) / (p.w + delta*d.w) = target}：
+     * {@code delta = (target*p.w - p.y) / (d.y - target*d.w)}。
+     * <p>
+     * 目标取窗口 GUI 高的 {@code guiH-40} 处：原版生命/饱食度首行上沿在 {@code guiH-39}，
+     * 这里保留 1 GUI 像素间距。使用真实 {@code guiScaledHeight} 而非固定 720p 数值，
+     * 因此窗口高度 / GUI 缩放变化时仍贴近 HUD。
+     *
+     * @return 局部 Y 位移；仅在投影奇异或结果非有限时返回 0，不做任意钳制
+     */
+    static float localYCompensation(PoseStack referencePose) {
+        int guiScaledHeight = Minecraft.getInstance().getWindow().getGuiScaledHeight();
+        if (guiScaledHeight <= 0 || usedCanvasH <= 0) {
+            return 0.0F;
+        }
+
+        Matrix4f projection = RenderSystem.getProjectionMatrix();
+        Matrix4f mvp = new Matrix4f(projection)
+                .mul(RenderSystem.getModelViewMatrix())
+                .mul(referencePose.last().pose());
+        float centreX = (SCREEN_X0 + SCREEN_X1) * 0.5F;
+        float anchorY = SCREEN_Y0 + (SCREEN_Y1 - SCREEN_Y0)
+                * (float) PhoneOverlay.getStatusBarHeight() / usedCanvasH;
+        Vector4f point = mvp.transform(new Vector4f(centreX, anchorY, SCREEN_Z, 1.0F));
+        Vector4f direction = mvp.transform(new Vector4f(0.0F, 1.0F, 0.0F, 0.0F));
+
+        float targetNdcY = 1.0F - 2.0F * (guiScaledHeight - 40.0F) / guiScaledHeight;
+        float denominator = direction.y - targetNdcY * direction.w;
+        if (!Float.isFinite(point.x) || !Float.isFinite(point.y) || !Float.isFinite(point.w)
+                || !Float.isFinite(direction.y) || !Float.isFinite(direction.w)
+                || Math.abs(denominator) < 1.0E-6F) {
+            return 0.0F;
+        }
+
+        float delta = (targetNdcY * point.w - point.y) / denominator;
+        return Float.isFinite(delta) ? delta : 0.0F;
+    }
+
     /** 排入一组四边形顶点（{@code frontCcw=true} = 按「从 +Z 看逆时针」的绕序） */
     private static void emitQuad(VertexConsumer consumer, Matrix4f matrix, int light,
                                  float u0, float u1, float vTop, float vBot, boolean frontCcw) {

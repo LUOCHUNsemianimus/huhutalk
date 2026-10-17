@@ -76,7 +76,10 @@ public final class ProPhoneHandRenderer {
 
     /** 手机整体缩放（0~1 空间；1.0 = 原尺寸，约 0.175 宽） */
     private static final float PHONE_SCALE = 3.0F;
-    /** 手机在双手之间的垂直偏移 */
+    /**
+     * 手机在双手之间的基础垂直偏移（手机局部高度，向上为正）。
+     * 机身与离屏屏幕共享这一变换；静止参考姿态也使用同一常量，最终 HUD 对齐由投影补偿完成。
+     */
     private static final float PHONE_OFFSET_Y = 0.05F;
     /** 手机在双手之间的前后偏移（负 = 靠向玩家） */
     private static final float PHONE_OFFSET_Z = 0.0F;
@@ -226,6 +229,11 @@ public final class ProPhoneHandRenderer {
     private static void renderTwoHandedPhone(Minecraft mc, AbstractClientPlayer player, PoseStack poseStack,
                                              MultiBufferSource buffer, int packedLight, float pitch,
                                              float equippedProgress, float swingProgress, ItemStack stack) {
+        // 静止参考矩阵：复刻 base 位移 / tilt / 相机姿态，但不参与 equip/swing 动画。
+        // 投影对齐只用它求局部 Y 补偿，实际绘制仍保留原动画。
+        PoseStack referencePose = new PoseStack();
+        referencePose.last().pose().set(poseStack.last().pose());
+
         boolean camera = PhoneOverlay.isCameraMode();
         // 前摄取景：右手单手持机（屏朝玩家）。模型右臂在自拍 pass 里由核心摆好，
         // 这里只管第一人称"自己手里那台"的持握，不复用原版 ItemRenderer（那会让屏幕熄灭）。
@@ -249,10 +257,13 @@ public final class ProPhoneHandRenderer {
                 : calculateMapTilt(pitch);
         if (camera && !mapPose) {
             poseStack.translate(CAM_OFFSET_X, CAM_OFFSET_Y, CAM_OFFSET_Z);
+            referencePose.translate(CAM_OFFSET_X, CAM_OFFSET_Y, CAM_OFFSET_Z);
         } else {
             poseStack.translate(0.0F, 0.04F + equippedProgress * -1.2F + tilt * -0.5F, -0.72F);
+            referencePose.translate(0.0F, 0.04F + tilt * -0.5F, -0.72F);
         }
         poseStack.mulPose(Axis.XP.rotationDegrees(tilt * -85.0F));
+        referencePose.mulPose(Axis.XP.rotationDegrees(tilt * -85.0F));
 
         if (!player.isInvisible()) {
             poseStack.pushPose();
@@ -271,10 +282,16 @@ public final class ProPhoneHandRenderer {
 
         if (camera && !mapPose) {
             applyCameraPose(poseStack, tilt);
+            applyCameraPose(referencePose, tilt);
             camDiag(player.getXRot(), pitch, tilt);
         }
 
-        renderPhoneBody(mc, player, poseStack, buffer, packedLight, stack);
+        // 相机取景姿态需要完整对齐；地图姿态从 30° 到 40° 平滑启用，
+        // 40° 及更深全部生效，30° 及更浅保持原放平姿态，避免阈值突跳。
+        float alignWeight = (camera && !mapPose)
+                ? 1.0F
+                : Mth.clamp((pitch - 30.0F) / 10.0F, 0.0F, 1.0F);
+        renderPhoneBody(mc, player, poseStack, referencePose, buffer, packedLight, stack, alignWeight);
     }
 
     /**
@@ -351,15 +368,17 @@ public final class ProPhoneHandRenderer {
      * 其余（render pass / render type / 附魔光效）完全照抄原版 {@code ItemRenderer.render} 的遍历方式。
      */
     private static void renderPhoneBody(Minecraft mc, AbstractClientPlayer player, PoseStack poseStack,
-                                        MultiBufferSource buffer, int packedLight, ItemStack stack) {
+                                        PoseStack referencePose, MultiBufferSource buffer, int packedLight,
+                                        ItemStack stack, float alignWeight) {
         poseStack.pushPose();
-        poseStack.translate(0.0F, PHONE_OFFSET_Y, PHONE_OFFSET_Z);
-        poseStack.mulPose(Axis.XP.rotationDegrees(PHONE_ROT_X));
-        poseStack.mulPose(Axis.YP.rotationDegrees(PHONE_ROT_Y));
-        poseStack.mulPose(Axis.ZP.rotationDegrees(PHONE_ROT_Z));
-        poseStack.scale(PHONE_SCALE, PHONE_SCALE, PHONE_SCALE);
-        // 0~1 空间 → 以模型中心为原点（与 ItemRenderer.render 的 "-0.5" 同理）
-        poseStack.translate(-0.5F, -0.5F, -0.5F);
+        applyPhoneBodyTransform(poseStack);
+
+        // 参考姿态施加同一 body transform，但不含实际 equip/swing 运动：
+        // 用它求屏幕底边中心对齐到原版生命/饱食度首行上沿所需的局部 Y 位移。
+        applyPhoneBodyTransform(referencePose);
+        float alignDelta = PhoneScreenTarget.localYCompensation(referencePose);
+        // 补偿加在机身与 renderScreen 共同绘制之前，两者共享同一位移。
+        poseStack.translate(0.0F, alignDelta * alignWeight, 0.0F);
 
         ItemRenderer itemRenderer = mc.getItemRenderer();
         BakedModel model = itemRenderer.getModel(stackForMode(mc, stack), mc.level, player, 0);
@@ -382,6 +401,20 @@ public final class ProPhoneHandRenderer {
         PhoneScreenTarget.renderScreen(poseStack, buffer, packedLight);
 
         poseStack.popPose();
+    }
+
+    /**
+     * 机身与离屏屏幕共享的最终局部变换（基础 offset、出厂旋转、缩放、居中）。
+     * 正常绘制与静止参考姿态必须调用本方法，避免两套变换漂移。
+     */
+    private static void applyPhoneBodyTransform(PoseStack poseStack) {
+        poseStack.translate(0.0F, PHONE_OFFSET_Y, PHONE_OFFSET_Z);
+        poseStack.mulPose(Axis.XP.rotationDegrees(PHONE_ROT_X));
+        poseStack.mulPose(Axis.YP.rotationDegrees(PHONE_ROT_Y));
+        poseStack.mulPose(Axis.ZP.rotationDegrees(PHONE_ROT_Z));
+        poseStack.scale(PHONE_SCALE, PHONE_SCALE, PHONE_SCALE);
+        // 0~1 空间 → 以模型中心为原点（与 ItemRenderer.render 的 "-0.5" 同理）
+        poseStack.translate(-0.5F, -0.5F, -0.5F);
     }
 
     /**
