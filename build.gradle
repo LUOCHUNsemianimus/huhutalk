@@ -211,3 +211,8 @@ tasks.named('jar') {
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 }
 
+// 光影开发环境默认关闭；只有显式 -PshaderDev=true 时才加入 Iris/Sodium 与光影 ZIP。
+if (providers.gradleProperty("shaderDev").map { it.toBoolean() }.getOrElse(false)) {
+    apply from: file('gradle/shader-dev.gradle')
+}
+

@@ -1,0 +1,87 @@
+// ── 可显式启用的光影开发环境（默认构建完全不参与）──────────────────────────────
+// 仅在 build.gradle 末尾检测到 -PshaderDev=true 时才会 apply 本文件。
+// 作用：
+//   1. Iris 以 localRuntime 加入开发环境运行类路径（不进入发布 jar 的 metadata）；
+//   2. Sodium 原始 Maven 分发包作为服务包装 JAR 复制到专用 run 目录的 mods/，
+//      让 FML 在早期发现其嵌套模块/服务，而不是把外层包误当普通类路径 mod；
+//   3. Complementary Reimagined 光影 ZIP 复制到同一专用 run 目录的 shaderpacks/。
+// 不写 Iris 用户配置、不自动启用光影、不改变关闭开关时的默认 run 目录和存档位置。
+
+// Modrinth 版本 ID，可用 -P<name>=<id> 覆盖；留空则回退到默认值。
+def propertyOr = { String name, String fallback ->
+    providers.gradleProperty(name)
+            .map { it.trim() }
+            .filter { !it.isEmpty() }
+            .getOrElse(fallback)
+}
+
+def irisDevVersion = propertyOr('irisDevVersion', 'KduFYu4t')
+def sodiumDevVersion = propertyOr('sodiumDevVersion', 'uMOpc5uV')
+def complementaryDevVersion = propertyOr('complementaryDevVersion', 'Bqen1mJX')
+
+configurations {
+    // 光影 ZIP 单独存放，只在本配置中解析，绝不挂入 runtimeClasspath。
+    shaderDevPacks {
+        canBeConsumed = false
+        canBeResolved = true
+        transitive = false
+    }
+    // Sodium 的原始 Maven 分发 JAR 单独存放，由 prepareShaderDevMods 复制进专用 mods/，
+    // 不挂入 runtimeClasspath，避免外层服务包装被当作普通类路径模组。
+    shaderDevMods {
+        canBeConsumed = false
+        canBeResolved = true
+        transitive = false
+    }
+}
+
+dependencies {
+    // Iris 仍走 localRuntime（Modrinth POM 无传递依赖），不进入发布 jar 或模组 metadata。
+    localRuntime("maven.modrinth:iris:${irisDevVersion}") {
+        transitive = false
+    }
+
+    // Sodium 保持同一原始分发 JAR，只改变投递方式，不解包或改写第三方字节码。
+    shaderDevMods("maven.modrinth:sodium:${sodiumDevVersion}") {
+        transitive = false
+    }
+
+    // 光影必须使用 @zip：Modrinth 上它是资源包 ZIP，不是可加载的 jar。
+    shaderDevPacks("maven.modrinth:complementary-reimagined:${complementaryDevVersion}@zip") {
+        transitive = false
+    }
+}
+
+// 仅在启用本脚本时把 client 的默认运行目录隔离出来。
+// 用 convention 而不是 set：外部 -I / 构建脚本显式设置的 gameDirectory 仍然优先。
+def clientRun = neoForge.runs.named('client').get()
+clientRun.gameDirectory.convention(project.layout.projectDirectory.dir('run-shader-dev'))
+
+def clientGameDirectory = providers.provider {
+    clientRun.gameDirectory.get().asFile
+}
+
+def prepareShaderDevMods = tasks.register('prepareShaderDevMods', Copy) {
+    group = 'shader dev'
+    description = 'Copy the pinned Sodium distribution JAR into the client run gameDirectory/mods.'
+
+    from(configurations.shaderDevMods)
+    into(providers.provider { new File(clientGameDirectory.get(), 'mods') })
+    // 固定开发别名，避免版本覆盖后文件名仍声称旧版本。
+    rename { 'sodium-shader-dev.jar' }
+}
+
+def prepareShaderDev = tasks.register('prepareShaderDev', Copy) {
+    group = 'shader dev'
+    description = 'Copy the pinned shader pack ZIP into the client run gameDirectory/shaderpacks.'
+
+    from(configurations.shaderDevPacks)
+    into(providers.provider { new File(clientGameDirectory.get(), 'shaderpacks') })
+    // 固定开发别名，避免把版本号写死进文件名后被覆盖版本时产生误导。
+    rename { 'ComplementaryReimagined-dev.zip' }
+    dependsOn(prepareShaderDevMods)
+}
+
+tasks.named('runClient') {
+    dependsOn(prepareShaderDev)
+}

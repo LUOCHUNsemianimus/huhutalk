@@ -34,6 +34,7 @@ bin/
 
 ### Minecraft Modding ###
 run/
+/run-shader-dev/
 !**/src/**/run/
 **/src/generated/**/.cache/
 repo/

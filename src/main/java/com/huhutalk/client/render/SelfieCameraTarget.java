@@ -31,6 +31,7 @@ import net.neoforged.neoforge.client.event.ViewportEvent;
 import org.joml.Matrix4f;
 import org.joml.Matrix4fStack;
 import org.lwjgl.opengl.GL11;
+import org.lwjgl.opengl.GL30;
 import org.slf4j.Logger;
 
 import java.io.IOException;
@@ -48,9 +49,10 @@ import java.util.function.Consumer;
  *
  * <h2>实现要点</h2>
  * <ol>
- *   <li><b>复刻原版</b>：临时把 {@code Minecraft.mainRenderTarget} 换成自拍靶，
- *       再调用公开的 {@code GameRenderer.renderLevel(DeltaTracker)}。这样
- *       {@code LevelRenderer} 内部所有 {@code getMainRenderTarget()} 调用都自然落到自拍靶上。</li>
+ *   <li><b>复刻原版</b>：无光影时把 {@code Minecraft.mainRenderTarget} 临时换成 400x600 输出靶；
+ *       光影下直接使用真实主靶，不替换其身份。随后调用公开的
+ *       {@code GameRenderer.renderLevel(DeltaTracker)}，这样 {@code LevelRenderer} 内部所有
+ *       {@code getMainRenderTarget()} 调用都自然落到该靶上。</li>
  *   <li><b>相机</b>：<b>只在 {@code mc.getCameraEntity() == mc.player} 时出图，pass 内完全不改相机实体</b> ——
  *       {@code Minecraft.setCameraEntity} 会调 {@code GameRenderer.checkEntityPostEffect}
  *       无条件 close 现有 postEffect 并重建，且新 PostChain 以「当时的主靶」为目标；
@@ -58,7 +60,8 @@ import java.util.function.Consumer;
  *       {@code CameraSelfieMixin} 把这帧的 {@code camera.setup} 强成第三人称正面（detached + 反向），
  *       本地玩家模型可见，且自带原版方块碰撞裁剪；{@code CalculateDetachedCameraDistanceEvent} 把距离收到约 1.35 格。</li>
  *   <li><b>投影</b>：{@code GameRendererSelfieMixin} 把 {@code getProjectionMatrix} 的输出换成
- *       竖屏 aspect；{@code ViewportEvent.ComputeFov} 固定 70°。</li>
+ *       竖屏 aspect；{@code ViewportEvent.ComputeFov} 固定 70°。光影裁切路径再按裁切区域占全靶的
+ *       比例缩放 m00/m11，使裁切并放大后的构图与原 400x600 一致。</li>
  *   <li><b>干净照片</b>：{@code renderHand=false}、{@code renderBlockOutline=false}，
  *       自拍 pass 不画手 / 不画方块描边；HUD 本来就不在 {@code renderLevel} 内。</li>
  *   <li><b>Fabulous 隔离</b>：三重保险 —— 置空 {@code transparencyChain}/{@code entityEffect}/
@@ -84,9 +87,18 @@ import java.util.function.Consumer;
  * 所以离屏画面直接 blit 会上下颠倒；预览用「负的源区域尺寸」把 U/V 各翻一次
  * （同时修正 V 轴与自拍镜像 U），不改几何绕序，详见 {@link #renderPreview}。
  *
- * <h2>已知限制</h2>
- * 第三方光影/后处理（shader pack）未做兼容测试：自拍 pass 直接调 {@code renderLevel}，
- * 不经过 {@code GameRenderer.render} 里的 postEffect，因此光影下的自拍与主画面观感可能不同。
+ * <h2>光影路径</h2>
+ * Iris 报告正在使用光影包时，<b>直接借用真实 {@code mainRenderTarget}</b>（不替换其身份、不 resize）
+ * 渲染自拍，渲染完立即用 {@code glBlitFramebuffer} 把 2:3 中央区域 LINEAR 缩放到固定 400x600 输出靶：
+ * <ul>
+ *   <li>同一帧稍后正常主场景会重新清屏并覆盖主靶，因此本 pass 只在
+ *       {@code ClientModEvents.RenderFrame.Pre} → {@link #update} 这个前置时机调用安全；
+ *       不能从 HUD 等主场景已绘制之后的位置调用，否则会破坏当帧主画面；</li>
+ *   <li>投影在 {@link #buildProjection} 里按裁切比例缩放，保证裁切后的构图与 70° 竖屏 FOV 不变；</li>
+ *   <li>无 Iris 或关闭光影时仍走原 400x600 直接渲染路径，预览/拍照/镜像/保存流程不变。</li>
+ * </ul>
+ * 此实现按 Iris 1.8.14-beta.1 + Sodium 0.8.13 + Complementary Reimagined r5.9.3 HIGH 的帧序与尺寸行为
+ * 做过候选实测，但仍共享 Iris 的帧内历史/缓冲，尚非完全隔离；不声称对任意 Iris / 光影包全面兼容。
  *
  * <p><b>R1 不自动启用</b>：{@link #setActive(boolean)} 默认 false，不加任何页面/手持/输入逻辑。
  * 下一阶段在 {@code ClientModEvents.RenderFrame.Pre} 里先 {@link #update} 再
@@ -115,7 +127,18 @@ public final class SelfieCameraTarget {
 
     // ==================== 状态 ====================
 
+    /** 固定 400x600 输出靶：预览、拍照、镜像都只读它。 */
     private static TextureTarget fbo;
+    /** 当前帧是否走「借用真实主靶 + 中心裁切」的光影路径。 */
+    private static boolean shaderPathActive;
+    /** 光影路径的中心裁切区域（像素，相对真实主靶）。仅 {@link #shaderPathActive} 时有效。 */
+    private static int shaderCropX;
+    private static int shaderCropY;
+    private static int shaderCropWidth;
+    private static int shaderCropHeight;
+    /** 投影 m00/m11 的裁切缩放比，保证裁切放大后的构图不变。 */
+    private static float shaderProjectionScaleX = 1.0F;
+    private static float shaderProjectionScaleY = 1.0F;
     private static ResourceLocation textureLocation;
     private static boolean failed;
     private static boolean active;
@@ -388,7 +411,12 @@ public final class SelfieCameraTarget {
 
     // ==================== 离屏靶 ====================
 
-    /** 建靶 + 注册纹理（各一次）。尺寸与窗口无关，始终是竖屏 2:3 取景尺寸 */
+    /**
+     * 建靶 + 注册纹理。输出靶固定 {@link #IMAGE_WIDTH}x{@link #IMAGE_HEIGHT}；
+     * 光影生效时只按真实 {@code mainRenderTarget} 的当前宽高计算中心裁切比例，不额外分配全屏靶。
+     * 窗口像素少于输出靶（宽 &lt; {@link #IMAGE_WIDTH} 或高 &lt; {@link #IMAGE_HEIGHT}）时
+     * 不做裁切放大，回退既有 400x600 独立渲染路径以保证画质。
+     */
     private static void ensureTarget(Minecraft mc) {
         if (fbo == null) {
             TextureTarget target = new TextureTarget(IMAGE_WIDTH, IMAGE_HEIGHT, true, Minecraft.ON_OSX);
@@ -400,12 +428,57 @@ public final class SelfieCameraTarget {
             mc.getTextureManager().register(path, new FboTexture());
             textureLocation = path;
         }
+
+        final RenderTarget main = mc.getMainRenderTarget();
+        // 极小窗口保画质回退：宽或高低于照片像素数时不走裁切放大，仍用 400x600 独立渲染；
+        // 这不是全场景性能保证。先做便宜的尺寸判断，再查询 Iris API。
+        final boolean enoughPixels = main != null
+                && main.width >= IMAGE_WIDTH && main.height >= IMAGE_HEIGHT;
+        final boolean irisActive = enoughPixels && IrisShaderCompat.isShaderPackInUse();
+        if (!irisActive) {
+            shaderPathActive = false;
+            shaderProjectionScaleX = 1.0F;
+            shaderProjectionScaleY = 1.0F;
+            return;
+        }
+
+        updateShaderCrop(main.width, main.height);
+        shaderPathActive = true;
+    }
+
+    /**
+     * 计算 2:3 中央裁切区域与投影缩放比。
+     * <p>
+     * 宽屏保留全高、横向取约 2:3；窄屏保留全宽、纵向取约 2:3。宽高取整后仍近似 2:3，
+     * 由 {@code glBlitFramebuffer} 的 LINEAR 缩放补齐到 400x600。
+     */
+    private static void updateShaderCrop(int fullWidth, int fullHeight) {
+        final int cropWidth;
+        final int cropHeight;
+        if ((long) fullWidth * IMAGE_HEIGHT >= (long) fullHeight * IMAGE_WIDTH) {
+            // 宽屏 / 等比：cropH = fullH，cropW ≈ fullH * 2/3
+            cropHeight = fullHeight;
+            cropWidth = Math.min(fullWidth, Math.max(1, Math.round((float) fullHeight * ASPECT)));
+        } else {
+            // 窄屏：cropW = fullW，cropH ≈ fullW / (2/3)
+            cropWidth = fullWidth;
+            cropHeight = Math.min(fullHeight, Math.max(1, Math.round((float) fullWidth / ASPECT)));
+        }
+        shaderCropWidth = cropWidth;
+        shaderCropHeight = cropHeight;
+        shaderCropX = (fullWidth - cropWidth) / 2;
+        shaderCropY = (fullHeight - cropHeight) / 2;
+        shaderProjectionScaleX = (float) cropWidth / (float) fullWidth;
+        shaderProjectionScaleY = (float) cropHeight / (float) fullHeight;
     }
 
     /** 销毁离屏 Fbo 与纹理注册（不动 active/failed 等逻辑状态）。GL 操作走渲染线程 */
     private static void destroyTargets() {
         TextureTarget target = fbo;
         fbo = null;
+        shaderPathActive = false;
+        shaderProjectionScaleX = 1.0F;
+        shaderProjectionScaleY = 1.0F;
         ResourceLocation location = textureLocation;
         textureLocation = null;
         Minecraft mc = Minecraft.getInstance();
@@ -421,23 +494,37 @@ public final class SelfieCameraTarget {
 
     // ==================== 自拍 pass ====================
 
-    /** 竖屏透视投影。由 {@code GameRendererSelfieMixin} 在自拍 pass 里替换原版窗口 aspect 的结果 */
+    /**
+     * 竖屏透视投影。由 {@code GameRendererSelfieMixin} 在自拍 pass 里替换原版窗口 aspect 的结果。
+     * <p>
+     * 光影裁切路径下，先按原 400x600 的 2:3 计算投影，再把 m00/m11 分别乘上裁切区域占全靶的比例。
+     * 这样「全靶渲染 → 中央裁切 → 缩放到 400x600」后的构图与 FOV 与原直接渲染路径一致；
+     * 普通路径不缩放。
+     */
     public static Matrix4f buildProjection(float fovDegrees, float depthFar) {
-        return new Matrix4f().perspective(
+        Matrix4f matrix = new Matrix4f().perspective(
                 (float) Math.toRadians(fovDegrees), ASPECT, 0.05F, depthFar);
+        if (shaderPathActive) {
+            matrix.m00(matrix.m00() * shaderProjectionScaleX);
+            matrix.m11(matrix.m11() * shaderProjectionScaleY);
+        }
+        return matrix;
     }
 
     private static void renderSelfie(Minecraft mc, DeltaTracker deltaTracker) {
         final GameRenderer gameRenderer = mc.gameRenderer;
         final LevelRenderer levelRenderer = mc.levelRenderer;
-        final TextureTarget selfie = fbo;
+        final TextureTarget output = fbo;
+        final RenderTarget oldMain = mc.getMainRenderTarget();
+        // 光影生效时直接借用真实主靶（不替换其身份、不 resize），否则仍渲染到 400x600 输出靶
+        final boolean cropped = shaderPathActive;
+        final RenderTarget scene = cropped ? oldMain : output;
 
         final GameRendererAccess gr = (GameRendererAccess) (Object) gameRenderer;
         final MinecraftAccess mcAccess = (MinecraftAccess) (Object) mc;
         final LevelRendererAccess lr = (LevelRendererAccess) (Object) levelRenderer;
 
         // ---- 暂存原状态（finally 全量恢复） ----
-        final RenderTarget oldMain = mc.getMainRenderTarget();
         final HitResult oldHitResult = mc.hitResult;
         final Entity oldCrosshair = mc.crosshairPickEntity;
         final boolean oldRenderHand = gr.huhutalk$getRenderHand();
@@ -471,15 +558,19 @@ public final class SelfieCameraTarget {
             lr.huhutalk$setWeatherTarget(null);
             lr.huhutalk$setCloudsTarget(null);
 
-            // 主靶 / 手持 / 描边（相机实体全程保持 mc.player 不动，见 update 的守卫）
-            mcAccess.huhutalk$setMainRenderTarget(selfie);
+            // 光影路径直接借用真实主靶，不替换 Minecraft.mainRenderTarget 身份，也不改其尺寸；
+            // 普通路径仍把主靶临时指向 400x600 输出靶。相机实体全程保持 mc.player 不动。
+            if (!cropped) {
+                mcAccess.huhutalk$setMainRenderTarget(output);
+            }
             gameRenderer.setRenderHand(false);
             gr.huhutalk$setRenderBlockOutline(false);
 
-            // 先清掉上一帧的颜色/深度（旧画面绝不能残留），再重新绑定并设置 viewport
-            selfie.bindWrite(true);
-            selfie.clear(Minecraft.ON_OSX);
-            selfie.bindWrite(true);
+            // 先清掉上一帧的颜色/深度（旧画面绝不能残留），再重新绑定并设置 viewport。
+            // 光影路径使用主靶自己的现有清屏色（外部所有状态，不在此 setClearColor）；FogRenderer 随后设实际颜色。
+            scene.bindWrite(true);
+            scene.clear(Minecraft.ON_OSX);
+            scene.bindWrite(true);
             RenderSystem.disableScissor();
             RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
 
@@ -489,9 +580,15 @@ public final class SelfieCameraTarget {
             // 完整世界 pass：天空 / 地形 / 实体（含本地玩家模型）/ 方块实体 / 天气，且不含 HUD
             gameRenderer.renderLevel(deltaTracker);
 
+            if (cropped) {
+                // 完整世界渲染结束后，把真实主靶的 2:3 中央区域 LINEAR 缩放到 400x600 输出靶。
+                // Iris 会重置 viewport，所以不能用「改 viewport 到 400x600」的方式裁切。
+                blitCropToOutput(scene, output);
+            }
+
             // 天空/雾可能留下 alpha=0 的有效颜色。截图会强制不透明，但 GUI 着色器会丢弃这些像素。
-            // 在世界渲染结束后统一 alpha，使预览与成片一致；保留 RGB 和深度。
-            makeColorOpaque(selfie);
+            // 在世界渲染结束后统一 alpha，使预览与成片一致；保留 RGB 和深度。只对输出靶做。
+            makeColorOpaque(output);
         } finally {
             if (pushedModelView) {
                 modelView.popMatrix();
@@ -546,6 +643,31 @@ public final class SelfieCameraTarget {
                 camera.setup(mc.level, mc.player,
                         !cameraType.isFirstPerson(), cameraType.isMirrored(), restorePartialTick);
             }
+        }
+    }
+
+    /**
+     * 把光影自拍（真实主靶）的 2:3 中央区域 LINEAR 缩放到固定 400x600 输出靶。
+     * <p>
+     * 只复制 {@code GL_COLOR_BUFFER_BIT}：深度/模板保留在主靶里，绝不从输出靶反向读，
+     * 也不修改 Iris 内部管线。颜色附件默认就是 COLOR_ATTACHMENT0。
+     * 绑定状态在 finally 还原；viewport 由随后的 {@link #makeColorOpaque} 绑定输出靶时设置。
+     */
+    private static void blitCropToOutput(RenderTarget source, TextureTarget destination) {
+        final int oldReadBinding = GL11.glGetInteger(GL30.GL_READ_FRAMEBUFFER_BINDING);
+        final int oldDrawBinding = GL11.glGetInteger(GL30.GL_DRAW_FRAMEBUFFER_BINDING);
+        try {
+            RenderSystem.disableScissor();
+            GL30.glBindFramebuffer(GL30.GL_READ_FRAMEBUFFER, source.frameBufferId);
+            GL30.glBindFramebuffer(GL30.GL_DRAW_FRAMEBUFFER, destination.frameBufferId);
+            GL30.glBlitFramebuffer(
+                    shaderCropX, shaderCropY,
+                    shaderCropX + shaderCropWidth, shaderCropY + shaderCropHeight,
+                    0, 0, destination.width, destination.height,
+                    GL11.GL_COLOR_BUFFER_BIT, GL11.GL_LINEAR);
+        } finally {
+            GL30.glBindFramebuffer(GL30.GL_READ_FRAMEBUFFER, oldReadBinding);
+            GL30.glBindFramebuffer(GL30.GL_DRAW_FRAMEBUFFER, oldDrawBinding);
         }
     }
 
