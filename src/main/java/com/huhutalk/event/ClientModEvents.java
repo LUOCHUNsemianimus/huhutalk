@@ -219,6 +219,9 @@ public class ClientModEvents {
         if (SelfieCameraTarget.isRendering()) {
             return;
         }
+        // 上一帧若没等到 AFTER_LEVEL（切页/不持机/F3/第三人称/无 world pass），
+        // 这里先作废暂存的离屏屏幕，避免旧帧四边形被补画到本帧。
+        PhoneScreenTarget.beginFrame();
         // 俯仰低通：供「操控屏幕」状态机判定，须在离屏出图之前更新
         PhoneOverlay.updateLookFilter();
 
@@ -288,6 +291,9 @@ public class ClientModEvents {
         if (SelfieCameraTarget.isRendering()) {
             return;
         }
+        // 先兑现拍照抓图：抓到的必须是「不含手机 UI」的干净世界；
+        // 再补画本帧 Iris 世界 pass 中暂存的手机屏幕（机身/手仍已由 Iris 世界 pass 绘制）。
         PhoneOverlay.consumeWorldCapture();
+        PhoneScreenTarget.renderAfterLevel();
     }
 }

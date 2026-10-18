@@ -1,6 +1,7 @@
 package com.huhutalk.client.render;
 
 import com.huhutalk.phone.PhoneOverlay;
+import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.pipeline.TextureTarget;
 import com.mojang.blaze3d.platform.Lighting;
 import com.mojang.blaze3d.systems.RenderSystem;
@@ -19,6 +20,8 @@ import net.minecraft.server.packs.resources.ResourceManager;
 import org.joml.Matrix4f;
 import org.joml.Matrix4fStack;
 import org.joml.Vector4f;
+import org.lwjgl.opengl.GL11;
+import org.lwjgl.opengl.GL14;
 import org.slf4j.Logger;
 
 import java.util.Locale;
@@ -150,12 +153,33 @@ public final class PhoneScreenTarget {
     private static String lastDiag = "";
     private static long lastDiagAt = 0L;
 
+    // ==================== Iris 晚绘暂存（每帧最多一个四边形） ====================
+    //
+    // 光影下 RenderHandEvent 发生在 Iris 世界 pass 内部：此刻提交屏幕四边形会被写进
+    // colortex，随后被 TAA/Bloom 当世界内容处理（移动重影 + 泛光）。因此只暂存「原样」的
+    // pose / 投影 / 模型视图，等 AFTER_LEVEL（Iris finalize 之后、原版 HUD 之前）再用同一组
+    // 矩阵实际绘制。所有矩阵对象静态复用，暂存路径每帧不分配。
+    private static boolean pending;
+    private static final Matrix4f pendingPose = new Matrix4f();
+    private static final Matrix4f pendingProjection = new Matrix4f();
+    private static final Matrix4f pendingModelView = new Matrix4f();
+    private static VertexSorting pendingSorting = VertexSorting.DISTANCE_TO_ORIGIN;
+
     private PhoneScreenTarget() {
     }
 
     /** 标记「下一帧必须重绘」 */
     public static void markDirty() {
         dirty = true;
+    }
+
+    /**
+     * 每帧世界渲染开始前调用（在 {@code RenderFrameEvent.Pre} 的自拍早退之后）：
+     * 清掉上一帧没等到 {@code AFTER_LEVEL} 的暂存，避免切页 / 不持机 / F1 隐藏 HUD /
+     * 第三人称 / 没有 world pass 时把旧帧四边形补画出来。
+     */
+    public static void beginFrame() {
+        pending = false;
     }
 
     // ==================== 每帧出图 ====================
@@ -252,6 +276,8 @@ public final class PhoneScreenTarget {
         }
 
         if (fbo == null || fbo.width != pixelWidth || fbo.height != pixelHeight) {
+            // 尺寸变化会重建纹理：旧暂存指向的已不是这一帧的靶，必须作废
+            pending = false;
             if (fbo != null) {
                 fbo.destroyBuffers();
             }
@@ -296,6 +322,31 @@ public final class PhoneScreenTarget {
         if (renderType == null || fbo == null || usedPixelHeight <= 0) {
             return;
         }
+
+        // 光影下此刻仍在 Iris 世界 pass 内：只暂存完全相同的 pose / 投影 / 模型视图，
+        // 不向世界 colortex 提交屏幕四边形，避免被 TAA/Bloom 处理。
+        // 晚绘只发生在 AFTER_LEVEL，且这里绝不动机身/手的绘制路径。
+        if (IrisShaderCompat.isShaderPackInUse() && !SelfieCameraTarget.isRendering()) {
+            pendingPose.set(poseStack.last().pose());
+            pendingProjection.set(RenderSystem.getProjectionMatrix());
+            pendingModelView.set(RenderSystem.getModelViewMatrix());
+            pendingSorting = RenderSystem.getVertexSorting();
+            pending = true;
+            return;
+        }
+
+        drawScreenQuad(buffer, poseStack.last().pose());
+        diagPlacement(poseStack);
+    }
+
+    /**
+     * 实际绘制屏幕四边形。原即时路径与 Iris 晚绘路径共用这一份 UV / 双面 / 白色调制 /
+     * 批次刷出逻辑；调用方负责让投影、模型视图与 buffer 处于正确状态。
+     */
+    private static void drawScreenQuad(MultiBufferSource buffer, Matrix4f matrix) {
+        if (renderType == null || fbo == null || usedPixelHeight <= 0) {
+            return;
+        }
         // 画布只占离屏靶左上角一块，换算成纹理 V（GL 的 V=0 在下、=1 在上）
         float vBottom = 1.0F - (usedCanvasH * (float) usedGuiScale) / (float) usedPixelHeight;
         float u0 = FLIP_U ? 1.0F : 0.0F;
@@ -303,9 +354,8 @@ public final class PhoneScreenTarget {
         float vTop = FLIP_V ? vBottom : 1.0F;
         float vBot = FLIP_V ? 1.0F : vBottom;
 
-        Matrix4f matrix = poseStack.last().pose();
         VertexConsumer consumer = buffer.getBuffer(renderType);
-        // 屏幕内容不受世界光照影响
+        // 屏幕内容不受世界光照影响（保持原即时路径行为）
         int light = LightTexture.FULL_BRIGHT;
 
         // ⚠⚠ 关键：画屏幕四边形之前，必须把**全局着色器色**复位成 (1,1,1,1)。
@@ -331,14 +381,116 @@ public final class PhoneScreenTarget {
             emitQuad(consumer, matrix, light, u0, u1, vTop, vBot, FLIP_WINDING);
         }
 
-        // ⚠ 立即刷出：这 4/8 个顶点必须就在「第一人称手持」这一步、以此刻的**世界透视投影**画出去。
+        // ⚠ 立即刷出：这些顶点必须用此刻的投影 / 模型视图画出去。
         // 若留在共享缓冲里等后续 endBatch，一旦刷新时机落到 GUI 段（那里投影是正交的），
         // 屏幕就会脱离手机、钉死在屏幕某个角上。
         if (buffer instanceof MultiBufferSource.BufferSource bufferSource) {
             bufferSource.endBatch(renderType);
         }
+    }
 
-        diagPlacement(poseStack);
+    /**
+     * 在 {@code AFTER_LEVEL}（Iris finalize 之后、原版 HUD 之前）用暂存矩阵补画屏幕。
+     * <p>
+     * 抓图消费必须先于本方法调用：拍照帧 {@code renderHand} 被临时关闭，不会产生暂存；
+     * 这里再次确认自拍 pass 不能消费外层主帧状态。取出 pending 后立即清除，
+     * 后续任何早退都不会留下旧帧四边形。
+     * <p>
+     * 投影 / 模型视图 / 视口 / 深度测试与写掩码 / 剔除 / scissor / 混合与着色器颜色状态
+     * 全部在 {@code finally} 恢复；深度测试保持开启，不使用置顶 HUD 画法。
+     */
+    public static void renderAfterLevel() {
+        if (!pending) {
+            return;
+        }
+        // 自拍 pass 内会嵌套派发 AFTER_LEVEL；跳过且不清 pending，避免误消费外层主帧
+        if (SelfieCameraTarget.isRendering()) {
+            return;
+        }
+
+        // 先取出并作废：以下任何校验失败都不能让旧帧残留到下一帧
+        pending = false;
+
+        Minecraft mc = Minecraft.getInstance();
+        if (!PhoneOverlay.hasModelScreen()
+                || !ProPhoneHandRenderer.isActive()
+                || mc.level == null || mc.player == null
+                || renderType == null || fbo == null || usedPixelHeight <= 0) {
+            return;
+        }
+
+        RenderTarget mainTarget = mc.getMainRenderTarget();
+        int[] oldViewport = new int[4];
+        GL11.glGetIntegerv(GL11.GL_VIEWPORT, oldViewport);
+        boolean oldDepthEnabled = GL11.glIsEnabled(GL11.GL_DEPTH_TEST);
+        int oldDepthFunc = GL11.glGetInteger(GL11.GL_DEPTH_FUNC);
+        boolean oldDepthWriteMask = GL11.glGetBoolean(GL11.GL_DEPTH_WRITEMASK);
+        boolean oldCullEnabled = GL11.glIsEnabled(GL11.GL_CULL_FACE);
+        boolean oldBlendEnabled = GL11.glIsEnabled(GL11.GL_BLEND);
+        int oldBlendSrcRgb = GL11.glGetInteger(GL14.GL_BLEND_SRC_RGB);
+        int oldBlendDstRgb = GL11.glGetInteger(GL14.GL_BLEND_DST_RGB);
+        int oldBlendSrcAlpha = GL11.glGetInteger(GL14.GL_BLEND_SRC_ALPHA);
+        int oldBlendDstAlpha = GL11.glGetInteger(GL14.GL_BLEND_DST_ALPHA);
+        float[] oldShaderColor = RenderSystem.getShaderColor().clone();
+        boolean oldScissorEnabled = GL11.glIsEnabled(GL11.GL_SCISSOR_TEST);
+        int[] oldScissorBox = new int[4];
+        GL11.glGetIntegerv(GL11.GL_SCISSOR_BOX, oldScissorBox);
+
+        // 原版配对：连带 VertexSorting 一起保存/恢复，不重新估算 FOV 或手持 pose
+        RenderSystem.backupProjectionMatrix();
+        Matrix4fStack modelView = RenderSystem.getModelViewStack();
+        modelView.pushMatrix();
+        try {
+            // Iris finalize 已把最终画面写进真实主靶；这里显式绑定，不替换主靶身份
+            mainTarget.bindWrite(true);
+            RenderSystem.setProjectionMatrix(pendingProjection, pendingSorting);
+            modelView.identity();
+            modelView.mul(pendingModelView);
+            RenderSystem.applyModelViewMatrix();
+
+            // 保持真实世界深度层级：启用深度测试，屏幕仍会被更近的世界几何遮挡
+            RenderSystem.enableDepthTest();
+            RenderSystem.depthFunc(GL11.GL_LEQUAL);
+            // scissor 属于世界 pass 状态，晚绘不沿用；finally 按原 box 恢复
+            RenderSystem.disableScissor();
+
+            drawScreenQuad(mc.renderBuffers().bufferSource(), pendingPose);
+        } finally {
+            RenderSystem.setShaderColor(oldShaderColor[0], oldShaderColor[1], oldShaderColor[2], oldShaderColor[3]);
+            if (oldBlendEnabled) {
+                RenderSystem.enableBlend();
+            } else {
+                RenderSystem.disableBlend();
+            }
+            RenderSystem.blendFuncSeparate(oldBlendSrcRgb, oldBlendDstRgb, oldBlendSrcAlpha, oldBlendDstAlpha);
+            if (oldDepthEnabled) {
+                RenderSystem.enableDepthTest();
+            } else {
+                RenderSystem.disableDepthTest();
+            }
+            RenderSystem.depthFunc(oldDepthFunc);
+            // RenderType.text 会改深度写掩码与背面剔除；必须恢复到世界 pass 的原状态
+            RenderSystem.depthMask(oldDepthWriteMask);
+            if (oldCullEnabled) {
+                RenderSystem.enableCull();
+            } else {
+                RenderSystem.disableCull();
+            }
+
+            modelView.popMatrix();
+            RenderSystem.applyModelViewMatrix();
+            RenderSystem.restoreProjectionMatrix();
+            mainTarget.bindWrite(true);
+            if (oldViewport[2] > 0 && oldViewport[3] > 0) {
+                RenderSystem.viewport(oldViewport[0], oldViewport[1], oldViewport[2], oldViewport[3]);
+            }
+            // 走 RenderSystem 恢复，保证其状态缓存与实际 GL 一致
+            if (oldScissorEnabled) {
+                RenderSystem.enableScissor(oldScissorBox[0], oldScissorBox[1], oldScissorBox[2], oldScissorBox[3]);
+            } else {
+                RenderSystem.disableScissor();
+            }
+        }
     }
 
     /**
