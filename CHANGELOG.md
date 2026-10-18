@@ -1,6 +1,6 @@
 # 更新日志 / Changelog
 
-## 1.1.0 — 待发布 / Pending release
+## 1.1.0 — 2026-10-18
 
 本节汇总从 `v1.0.0-beta` 之后的开发改动；不补造历史正式版本日期。
 This section summarizes development since `v1.0.0-beta`; no historical release dates are inferred.
@@ -34,8 +34,8 @@ This section summarizes development since `v1.0.0-beta`; no historical release d
   The Settings icon can be moved but not deleted; the starter kit now contains a Pro phone, smartwatch and Wi-Fi block with an updated notification.
 - 修正手册物品配图：电话手表、Wi-Fi 方块、Pro 手机分别对应正确图片。
   Corrected manual illustrations for the smartwatch, Wi-Fi block and Pro phone.
-- 发布版本元数据统一到 1.1.0；主页链接修正，许可证标识与仓库现有 Apache-2.0 LICENSE 对齐。
-  Unified release metadata at 1.1.0; corrected the homepage link and aligned the license identifier with the existing Apache-2.0 LICENSE.
+- 发布版本元数据统一到 1.1.0，主页链接修正；明确代码采用 Apache-2.0、罗春制作的自有美术采用 CC BY-NC-SA 4.0，第三方资源保留原许可（Pixabay 音效为例外）。新增资源署名/来源清单，并将授权声明随 JAR 分发。
+  Unified release metadata at 1.1.0 and corrected the homepage link; clarified Apache-2.0 for code, CC BY-NC-SA 4.0 for original artwork by 罗春, and retained original terms for third-party assets (including the Pixabay audio exception). Added asset attribution/provenance listings and bundled the license notices with the JAR.
 
 ### 升级与兼容说明 / Upgrade and compatibility
 

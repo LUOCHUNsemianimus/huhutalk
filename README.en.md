@@ -2,7 +2,7 @@
 
 [简体中文](README.md) · [Changelog](CHANGELOG.md) · [1.1.0 release notes](docs/releases/1.1.0.md)
 
-A phone-style remote chat and photography add-on for **Touhou Little Maid** on **Minecraft 1.21.1 / NeoForge**. Version being prepared: **1.1.0**.
+A phone-style remote chat and photography add-on for **Touhou Little Maid** on **Minecraft 1.21.1 / NeoForge**. Current version: **1.1.0**.
 
 ## Features
 
@@ -54,4 +54,4 @@ The output is `build/libs/huhutalk-1.1.0.jar`. Add `--offline --console=plain` w
 
 Report issues through [GitHub Issues](https://github.com/LUOCHUNsemianimus/huhutalk/issues), including mod/loader versions and shader pack details where relevant. Remove API keys and other private information before sharing logs.
 
-Licensed under [Apache-2.0](LICENSE). Developed by 罗春 with an AI-assisted workflow. Thanks to Touhou Little Maid, related projects and resource authors, and everyone who tested the mod.
+Code is licensed under [Apache-2.0](LICENSES/Apache-2.0.txt); original artwork by 罗春 is licensed under [CC BY-NC-SA 4.0](LICENSES/CC-BY-NC-SA-4.0.md). Third-party assets retain their original licenses; Pixabay audio is not relicensed under these terms, and its provenance records remain unavailable. See [licensing scope](LICENSING.md) and [third-party notices](THIRD_PARTY_NOTICES.md). Developed by 罗春 with an AI-assisted workflow. Thanks to Touhou Little Maid, related projects and resource authors, and everyone who tested the mod.

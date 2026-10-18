@@ -2,7 +2,7 @@
 
 [English](README.en.md) · [更新日志 / Changelog](CHANGELOG.md) · [1.1.0 发布说明](docs/releases/1.1.0.md)
 
-为 **Minecraft 1.21.1 / NeoForge** 上的 **Touhou Little Maid（车万女仆）** 提供手机式远程聊天与摄影体验。当前准备版本：**1.1.0**。
+为 **Minecraft 1.21.1 / NeoForge** 上的 **Touhou Little Maid（车万女仆）** 提供手机式远程聊天与摄影体验。当前版本：**1.1.0**。
 
 ## 功能
 
@@ -54,4 +54,4 @@ gradlew.bat build
 
 请通过 [GitHub Issues](https://github.com/LUOCHUNsemianimus/huhutalk/issues) 提供问题表现、模组/加载器版本，以及相关光影名称和版本。提交日志前移除 API 密钥等私人信息。
 
-项目遵循 [Apache-2.0](LICENSE)。由罗春使用 AI 工作流协助开发；感谢车万女仆及相关项目、资源作者与测试玩家。
+代码采用 [Apache-2.0](LICENSES/Apache-2.0.txt)；罗春制作的自有美术采用 [CC BY-NC-SA 4.0](LICENSES/CC-BY-NC-SA-4.0.md)。第三方资源保留原许可，Pixabay 音效不改套上述协议；具体来源记录未找回。见[授权范围](LICENSING.md)、[第三方资源声明](THIRD_PARTY_NOTICES.md)。由罗春使用 AI 工作流协助开发；感谢车万女仆及相关项目、资源作者与测试玩家。

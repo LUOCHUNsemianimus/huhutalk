@@ -1,0 +1,584 @@
+{
+  "schema_version": 1,
+  "project": "HuhuTalk",
+  "policy": "LICENSE / LICENSING.md / THIRD_PARTY_NOTICES.md",
+  "license_urls": {
+    "Apache-2.0": "https://www.apache.org/licenses/LICENSE-2.0",
+    "CC-BY-NC-SA-4.0": "https://creativecommons.org/licenses/by-nc-sa/4.0/legalcode"
+  },
+  "historical_permissions": "No revocation of valid earlier grants.",
+  "audio_warning": "Pixabay source confirmed by maintainer only; exact per-item license is unverified, not Apache/CC.",
+  "runtime_external_resources": [
+    {
+      "namespace": "touhou_little_maid",
+      "path": "textures/chat_bubble/maid_emoji/",
+      "bundled": false,
+      "attribution": "TartaricAcid, Touhou Little Maid contributors and respective resource creators",
+      "upstream_asset_license": "CC-BY-NC-SA-4.0 subject to individual notices",
+      "source": "https://github.com/TartaricAcid/TouhouLittleMaid"
+    }
+  ],
+  "files": [
+    {
+      "path": "OGG/heart.png",
+      "sha256": "d718a206a8831e2cf57a0ab4014db8bdcf9bb80b86daf26d7431a6eb90cedba6",
+      "category": "original-visual-art",
+      "creator": "罗春",
+      "license": "CC-BY-NC-SA-4.0",
+      "source": "maintainer-confirmed own models, textures and icons; related visual source files"
+    },
+    {
+      "path": "OGG/huhutalk_symbol.png",
+      "sha256": "56e5e93f64f3105cf723fe786f0584f76800dc1ffa72c4728b09ceaf3a7d507b",
+      "category": "original-visual-art",
+      "creator": "罗春",
+      "license": "CC-BY-NC-SA-4.0",
+      "source": "maintainer-confirmed own models, textures and icons; related visual source files"
+    },
+    {
+      "path": "OGG/huhutalk_symbol_legacy.png",
+      "sha256": "56e5e93f64f3105cf723fe786f0584f76800dc1ffa72c4728b09ceaf3a7d507b",
+      "category": "original-visual-art",
+      "creator": "罗春",
+      "license": "CC-BY-NC-SA-4.0",
+      "source": "maintainer-confirmed own models, textures and icons; related visual source files"
+    },
+    {
+      "path": "OGG/huhutalk_wifi_block.json",
+      "sha256": "e96c12bd165ffbb965d7a566704aeb41910964bee44dcc98c7f977b2d5ca19f0",
+      "category": "original-visual-art",
+      "creator": "罗春",
+      "license": "CC-BY-NC-SA-4.0",
+      "source": "maintainer-confirmed own models, textures and icons; related visual source files"
+    },
+    {
+      "path": "OGG/huhutalk_wifi_block_texture.png",
+      "sha256": "55ad004d9db6f3633c85c4a4c5dedd358660dec4ad1550b91469f7b0d2e7264c",
+      "category": "original-visual-art",
+      "creator": "罗春",
+      "license": "CC-BY-NC-SA-4.0",
+      "source": "maintainer-confirmed own models, textures and icons; related visual source files"
+    },
+    {
+      "path": "OGG/huhutalke_symbol2.png",
+      "sha256": "6904976581f353b59832093f3b6a35b6331d1a754dd4a7e35e6b83c938c937fc",
+      "category": "original-visual-art",
+      "creator": "罗春",
+      "license": "CC-BY-NC-SA-4.0",
+      "source": "maintainer-confirmed own models, textures and icons; related visual source files"
+    },
+    {
+      "path": "OGG/不在聊天界面时接受到消息.ogg",
+      "sha256": "4e423a17a85602276d67b2e9bef4241d0170ab5fbb9ed515aa9f2d42a5a11646",
+      "category": "third-party-audio",
+      "creator": null,
+      "source": "https://pixabay.com/",
+      "license": null,
+      "license_record_status": "maintainer-reported-platform; original page, author, date and applicable terms unavailable",
+      "relicensed": false
+    },
+    {
+      "path": "OGG/按住语音按钮.ogg",
+      "sha256": "c63a0f494edc970027aa723588a5da28ffeaf5cf4b9def4aaa6e5e2cdd00d0ef",
+      "category": "third-party-audio",
+      "creator": null,
+      "source": "https://pixabay.com/",
+      "license": null,
+      "license_record_status": "maintainer-reported-platform; original page, author, date and applicable terms unavailable",
+      "relicensed": false
+    },
+    {
+      "path": "OGG/消息发送出错.ogg",
+      "sha256": "fda4153ac2f214cda763ed207581acb13cd8986adf65b2c834884fce8c57c28f",
+      "category": "third-party-audio",
+      "creator": null,
+      "source": "https://pixabay.com/",
+      "license": null,
+      "license_record_status": "maintainer-reported-platform; original page, author, date and applicable terms unavailable",
+      "relicensed": false
+    },
+    {
+      "path": "OGG/界面内接收消息.ogg",
+      "sha256": "d4f080027a40452e3757dd48da05144b87c8c3011bfacd2068e0c4dcb28d3f78",
+      "category": "third-party-audio",
+      "creator": null,
+      "source": "https://pixabay.com/",
+      "license": null,
+      "license_record_status": "maintainer-reported-platform; original page, author, date and applicable terms unavailable",
+      "relicensed": false
+    },
+    {
+      "path": "docs/blockbench/huhutalk_phone.bbmodel",
+      "sha256": "f51e290381f451a7f70c752a481fcf9df08c55b55482665c91138d2b38223dd5",
+      "category": "original-visual-art",
+      "creator": "罗春",
+      "license": "CC-BY-NC-SA-4.0",
+      "source": "maintainer-confirmed own models, textures and icons; related visual source files"
+    },
+    {
+      "path": "phone_camera_2.png",
+      "sha256": "fcc02a181109ed3dfe32945857e31498d581aa5fede0a55ef14caf85de395eb1",
+      "category": "original-visual-art",
+      "creator": "罗春",
+      "license": "CC-BY-NC-SA-4.0",
+      "source": "maintainer-confirmed own models, textures and icons; related visual source files"
+    },
+    {
+      "path": "phone_erased.png",
+      "sha256": "03aca47965f3ec2c9477655d2e475ddfe35838c8307fbbf55fab1ef2caf40dd6",
+      "category": "original-visual-art",
+      "creator": "罗春",
+      "license": "CC-BY-NC-SA-4.0",
+      "source": "maintainer-confirmed own models, textures and icons; related visual source files"
+    },
+    {
+      "path": "src/main/resources/assets/huhutalk/animation/huhutalk_phone.animation.json",
+      "sha256": "6a6333d312bf0602dbfe96ecdb697d91e84f99bfce55d24e1650fc7e15cb3ebd",
+      "category": "original-visual-art",
+      "creator": "罗春",
+      "license": "CC-BY-NC-SA-4.0",
+      "source": "maintainer-confirmed own models, textures and icons; related visual source files"
+    },
+    {
+      "path": "src/main/resources/assets/huhutalk/manual/manual_fig_1.png",
+      "sha256": "ae46582ac7d3c18eb5481512ae71899462c88f9d3836e132096689bfd0cdb019",
+      "category": "mixed-screenshot",
+      "creator": "罗春 (capture/layout contribution only)",
+      "license": "CC-BY-NC-SA-4.0 for HuhuTalk contribution only",
+      "excluded_rights": "depicted Minecraft/Touhou Little Maid/other third-party content retains original rights",
+      "source": "HuhuTalk in-game handbook"
+    },
+    {
+      "path": "src/main/resources/assets/huhutalk/manual/manual_fig_10.png",
+      "sha256": "c10d3d43278837b4e3c63a8d48e2e5cee9ab9355a4a3dcb5bc87a82433e6212d",
+      "category": "mixed-screenshot",
+      "creator": "罗春 (capture/layout contribution only)",
+      "license": "CC-BY-NC-SA-4.0 for HuhuTalk contribution only",
+      "excluded_rights": "depicted Minecraft/Touhou Little Maid/other third-party content retains original rights",
+      "source": "HuhuTalk in-game handbook"
+    },
+    {
+      "path": "src/main/resources/assets/huhutalk/manual/manual_fig_11.png",
+      "sha256": "9ee0f5cc1b6aa1353186fb8ce83d9d9d72b02b695bd744658c1b1065b1e43584",
+      "category": "mixed-screenshot",
+      "creator": "罗春 (capture/layout contribution only)",
+      "license": "CC-BY-NC-SA-4.0 for HuhuTalk contribution only",
+      "excluded_rights": "depicted Minecraft/Touhou Little Maid/other third-party content retains original rights",
+      "source": "HuhuTalk in-game handbook"
+    },
+    {
+      "path": "src/main/resources/assets/huhutalk/manual/manual_fig_12.png",
+      "sha256": "243229d0a18ac8fff8fedef7e2ff08abe1cc214e37d88f2f8778477ccccd6020",
+      "category": "mixed-screenshot",
+      "creator": "罗春 (capture/layout contribution only)",
+      "license": "CC-BY-NC-SA-4.0 for HuhuTalk contribution only",
+      "excluded_rights": "depicted Minecraft/Touhou Little Maid/other third-party content retains original rights",
+      "source": "HuhuTalk in-game handbook"
+    },
+    {
+      "path": "src/main/resources/assets/huhutalk/manual/manual_fig_13.png",
+      "sha256": "c9e4af7945eab81ef0700abc25f5f349336d5fff8b6d2aeaecf6f569e382f99c",
+      "category": "mixed-screenshot",
+      "creator": "罗春 (capture/layout contribution only)",
+      "license": "CC-BY-NC-SA-4.0 for HuhuTalk contribution only",
+      "excluded_rights": "depicted Minecraft/Touhou Little Maid/other third-party content retains original rights",
+      "source": "HuhuTalk in-game handbook"
+    },
+    {
+      "path": "src/main/resources/assets/huhutalk/manual/manual_fig_14.png",
+      "sha256": "f1657bd3d77092cfb8a850bdb88509d9c523adff466b6e68b20039284962aeea",
+      "category": "mixed-screenshot",
+      "creator": "罗春 (capture/layout contribution only)",
+      "license": "CC-BY-NC-SA-4.0 for HuhuTalk contribution only",
+      "excluded_rights": "depicted Minecraft/Touhou Little Maid/other third-party content retains original rights",
+      "source": "HuhuTalk in-game handbook"
+    },
+    {
+      "path": "src/main/resources/assets/huhutalk/manual/manual_fig_15.png",
+      "sha256": "944f71c23b5f38ce001c54c01dc6ea433a4d686efaa00c8ad031839c41c6489d",
+      "category": "mixed-screenshot",
+      "creator": "罗春 (capture/layout contribution only)",
+      "license": "CC-BY-NC-SA-4.0 for HuhuTalk contribution only",
+      "excluded_rights": "depicted Minecraft/Touhou Little Maid/other third-party content retains original rights",
+      "source": "HuhuTalk in-game handbook"
+    },
+    {
+      "path": "src/main/resources/assets/huhutalk/manual/manual_fig_16.png",
+      "sha256": "c02a929af43fc302fc3c64932b62ea63f9a1cb99ec32731e83dc4e58aef8e663",
+      "category": "mixed-screenshot",
+      "creator": "罗春 (capture/layout contribution only)",
+      "license": "CC-BY-NC-SA-4.0 for HuhuTalk contribution only",
+      "excluded_rights": "depicted Minecraft/Touhou Little Maid/other third-party content retains original rights",
+      "source": "HuhuTalk in-game handbook"
+    },
+    {
+      "path": "src/main/resources/assets/huhutalk/manual/manual_fig_17.png",
+      "sha256": "38b34b2b96ba844cf5bcc982943b4a6237085740efc150cba383f1131e1a828c",
+      "category": "mixed-screenshot",
+      "creator": "罗春 (capture/layout contribution only)",
+      "license": "CC-BY-NC-SA-4.0 for HuhuTalk contribution only",
+      "excluded_rights": "depicted Minecraft/Touhou Little Maid/other third-party content retains original rights",
+      "source": "HuhuTalk in-game handbook"
+    },
+    {
+      "path": "src/main/resources/assets/huhutalk/manual/manual_fig_2.png",
+      "sha256": "bd4e11c6a056d4611e77ac86a7eb9f1ab1f55e24c9260a79ad5d04ec0e4d8dd6",
+      "category": "mixed-screenshot",
+      "creator": "罗春 (capture/layout contribution only)",
+      "license": "CC-BY-NC-SA-4.0 for HuhuTalk contribution only",
+      "excluded_rights": "depicted Minecraft/Touhou Little Maid/other third-party content retains original rights",
+      "source": "HuhuTalk in-game handbook"
+    },
+    {
+      "path": "src/main/resources/assets/huhutalk/manual/manual_fig_3.png",
+      "sha256": "47d5856f6c0e81c76441efda4a3e457a7b1fbc2c76f6accc103d6e97d39da131",
+      "category": "mixed-screenshot",
+      "creator": "罗春 (capture/layout contribution only)",
+      "license": "CC-BY-NC-SA-4.0 for HuhuTalk contribution only",
+      "excluded_rights": "depicted Minecraft/Touhou Little Maid/other third-party content retains original rights",
+      "source": "HuhuTalk in-game handbook"
+    },
+    {
+      "path": "src/main/resources/assets/huhutalk/manual/manual_fig_4.png",
+      "sha256": "cf1d3e0954bdec6867e5c5f5c43f1841c3454a8cad9441adb073d9758a4d1d0a",
+      "category": "mixed-screenshot",
+      "creator": "罗春 (capture/layout contribution only)",
+      "license": "CC-BY-NC-SA-4.0 for HuhuTalk contribution only",
+      "excluded_rights": "depicted Minecraft/Touhou Little Maid/other third-party content retains original rights",
+      "source": "HuhuTalk in-game handbook"
+    },
+    {
+      "path": "src/main/resources/assets/huhutalk/manual/manual_fig_5.png",
+      "sha256": "b6dbadd7cbd4e7102b6b4b13539bfd8ed565a8606b4abaee3491edadebf543ef",
+      "category": "mixed-screenshot",
+      "creator": "罗春 (capture/layout contribution only)",
+      "license": "CC-BY-NC-SA-4.0 for HuhuTalk contribution only",
+      "excluded_rights": "depicted Minecraft/Touhou Little Maid/other third-party content retains original rights",
+      "source": "HuhuTalk in-game handbook"
+    },
+    {
+      "path": "src/main/resources/assets/huhutalk/manual/manual_fig_6.png",
+      "sha256": "7f166178bd1c26bfd10a1c77796ffafc15224ee4175d14218ada59c2045214f3",
+      "category": "mixed-screenshot",
+      "creator": "罗春 (capture/layout contribution only)",
+      "license": "CC-BY-NC-SA-4.0 for HuhuTalk contribution only",
+      "excluded_rights": "depicted Minecraft/Touhou Little Maid/other third-party content retains original rights",
+      "source": "HuhuTalk in-game handbook"
+    },
+    {
+      "path": "src/main/resources/assets/huhutalk/manual/manual_fig_7.png",
+      "sha256": "b3586681d310261cdcf58af61f31881dac678b7cfd7b9cb4d1e05e4295678f08",
+      "category": "mixed-screenshot",
+      "creator": "罗春 (capture/layout contribution only)",
+      "license": "CC-BY-NC-SA-4.0 for HuhuTalk contribution only",
+      "excluded_rights": "depicted Minecraft/Touhou Little Maid/other third-party content retains original rights",
+      "source": "HuhuTalk in-game handbook"
+    },
+    {
+      "path": "src/main/resources/assets/huhutalk/manual/manual_fig_8.png",
+      "sha256": "af1f370f561542a4113373bc6b51149c253b1dfd7417d2142db4bab1e48e9345",
+      "category": "mixed-screenshot",
+      "creator": "罗春 (capture/layout contribution only)",
+      "license": "CC-BY-NC-SA-4.0 for HuhuTalk contribution only",
+      "excluded_rights": "depicted Minecraft/Touhou Little Maid/other third-party content retains original rights",
+      "source": "HuhuTalk in-game handbook"
+    },
+    {
+      "path": "src/main/resources/assets/huhutalk/manual/manual_fig_9.png",
+      "sha256": "d14de7c690e82f70aef7345c7a53518c64de8b53a0f201f3adf46b43bda20502",
+      "category": "mixed-screenshot",
+      "creator": "罗春 (capture/layout contribution only)",
+      "license": "CC-BY-NC-SA-4.0 for HuhuTalk contribution only",
+      "excluded_rights": "depicted Minecraft/Touhou Little Maid/other third-party content retains original rights",
+      "source": "HuhuTalk in-game handbook"
+    },
+    {
+      "path": "src/main/resources/assets/huhutalk/models/block/wifi_block.json",
+      "sha256": "4486973d8ca7e187f980140297d7804689be844fbab79a1c1becd07abbae1e74",
+      "category": "original-visual-art",
+      "creator": "罗春",
+      "license": "CC-BY-NC-SA-4.0",
+      "source": "maintainer-confirmed own models, textures and icons; related visual source files"
+    },
+    {
+      "path": "src/main/resources/assets/huhutalk/models/item/phone_3d.json",
+      "sha256": "d368eeb520e86a03ab305d3efbcb81c84acd1e64a9d7837195df4b39d1269919",
+      "category": "original-visual-art",
+      "creator": "罗春",
+      "license": "CC-BY-NC-SA-4.0",
+      "source": "maintainer-confirmed own models, textures and icons; related visual source files"
+    },
+    {
+      "path": "src/main/resources/assets/huhutalk/models/item/phone_camera.json",
+      "sha256": "a37d1f9ceca15e78d29858bed82823ab81c43350c24c27ee5a37739d92a29ccb",
+      "category": "original-visual-art",
+      "creator": "罗春",
+      "license": "CC-BY-NC-SA-4.0",
+      "source": "maintainer-confirmed own models, textures and icons; related visual source files"
+    },
+    {
+      "path": "src/main/resources/assets/huhutalk/models/item/phone_smart.json",
+      "sha256": "94d4a6380af6ffdf3fe5723f8b2a46467c4c2cf433c5863c54273950a0a1a658",
+      "category": "original-visual-art",
+      "creator": "罗春",
+      "license": "CC-BY-NC-SA-4.0",
+      "source": "maintainer-confirmed own models, textures and icons; related visual source files"
+    },
+    {
+      "path": "src/main/resources/assets/huhutalk/models/item/phone_watch.json",
+      "sha256": "b2b94112d88ecb544ab45922a21d94a1c97afb30cffdef14251769aedc57d673",
+      "category": "original-visual-art",
+      "creator": "罗春",
+      "license": "CC-BY-NC-SA-4.0",
+      "source": "maintainer-confirmed own models, textures and icons; related visual source files"
+    },
+    {
+      "path": "src/main/resources/assets/huhutalk/models/item/phone_watch_3d.json",
+      "sha256": "33c9cd9e4932cc725b788769bfec0e455d66f0f2c3b01b145bbf77aa4170205e",
+      "category": "original-visual-art",
+      "creator": "罗春",
+      "license": "CC-BY-NC-SA-4.0",
+      "source": "maintainer-confirmed own models, textures and icons; related visual source files"
+    },
+    {
+      "path": "src/main/resources/assets/huhutalk/models/item/wifi_block.json",
+      "sha256": "dd7a87c5d57f7dca279f602b05d72ddc3b51993cd4e09cafb33ea13a656e88e7",
+      "category": "original-visual-art",
+      "creator": "罗春",
+      "license": "CC-BY-NC-SA-4.0",
+      "source": "maintainer-confirmed own models, textures and icons; related visual source files"
+    },
+    {
+      "path": "src/main/resources/assets/huhutalk/sounds/msg_receive_outer.ogg",
+      "sha256": "4e423a17a85602276d67b2e9bef4241d0170ab5fbb9ed515aa9f2d42a5a11646",
+      "category": "third-party-audio",
+      "creator": null,
+      "source": "https://pixabay.com/",
+      "license": null,
+      "license_record_status": "maintainer-reported-platform; original page, author, date and applicable terms unavailable",
+      "relicensed": false
+    },
+    {
+      "path": "src/main/resources/assets/huhutalk/sounds/msg_receive_ui.ogg",
+      "sha256": "d4f080027a40452e3757dd48da05144b87c8c3011bfacd2068e0c4dcb28d3f78",
+      "category": "third-party-audio",
+      "creator": null,
+      "source": "https://pixabay.com/",
+      "license": null,
+      "license_record_status": "maintainer-reported-platform; original page, author, date and applicable terms unavailable",
+      "relicensed": false
+    },
+    {
+      "path": "src/main/resources/assets/huhutalk/sounds/send_fail.ogg",
+      "sha256": "fda4153ac2f214cda763ed207581acb13cd8986adf65b2c834884fce8c57c28f",
+      "category": "third-party-audio",
+      "creator": null,
+      "source": "https://pixabay.com/",
+      "license": null,
+      "license_record_status": "maintainer-reported-platform; original page, author, date and applicable terms unavailable",
+      "relicensed": false
+    },
+    {
+      "path": "src/main/resources/assets/huhutalk/sounds/voice_hold.ogg",
+      "sha256": "c63a0f494edc970027aa723588a5da28ffeaf5cf4b9def4aaa6e5e2cdd00d0ef",
+      "category": "third-party-audio",
+      "creator": null,
+      "source": "https://pixabay.com/",
+      "license": null,
+      "license_record_status": "maintainer-reported-platform; original page, author, date and applicable terms unavailable",
+      "relicensed": false
+    },
+    {
+      "path": "src/main/resources/assets/huhutalk/textures/block/huhutalk_wifi_block_texture.png",
+      "sha256": "28b05f6dc413ffaa0f92d3b9943edb738a9e5a3554dda7ff94873628d8d0082e",
+      "category": "original-visual-art",
+      "creator": "罗春",
+      "license": "CC-BY-NC-SA-4.0",
+      "source": "maintainer-confirmed own models, textures and icons; related visual source files"
+    },
+    {
+      "path": "src/main/resources/assets/huhutalk/textures/block/huhutalk_wifi_texture_1.png",
+      "sha256": "b6e68a61e13c7f323b9351738ab8ffa4d0fb3406505c9e68e6e69e8cf413618c",
+      "category": "original-visual-art",
+      "creator": "罗春",
+      "license": "CC-BY-NC-SA-4.0",
+      "source": "maintainer-confirmed own models, textures and icons; related visual source files"
+    },
+    {
+      "path": "src/main/resources/assets/huhutalk/textures/block/huhutalk_wifi_texture_2.png",
+      "sha256": "66847c9d54e4988beeb17d1357b1e3a38c912c51d3bb2e80b7b47536d8304e3a",
+      "category": "original-visual-art",
+      "creator": "罗春",
+      "license": "CC-BY-NC-SA-4.0",
+      "source": "maintainer-confirmed own models, textures and icons; related visual source files"
+    },
+    {
+      "path": "src/main/resources/assets/huhutalk/textures/block/huhutalk_wifi_texture_3.png",
+      "sha256": "b6e68a61e13c7f323b9351738ab8ffa4d0fb3406505c9e68e6e69e8cf413618c",
+      "category": "original-visual-art",
+      "creator": "罗春",
+      "license": "CC-BY-NC-SA-4.0",
+      "source": "maintainer-confirmed own models, textures and icons; related visual source files"
+    },
+    {
+      "path": "src/main/resources/assets/huhutalk/textures/block/huhutalk_wifi_texture_4.png",
+      "sha256": "64ff659d891885571eef55202e90ac1c932f7981b8b3eeaabf0d13f5b06f332d",
+      "category": "original-visual-art",
+      "creator": "罗春",
+      "license": "CC-BY-NC-SA-4.0",
+      "source": "maintainer-confirmed own models, textures and icons; related visual source files"
+    },
+    {
+      "path": "src/main/resources/assets/huhutalk/textures/block/huhutalk_wifi_texture_5.png",
+      "sha256": "aba56b804f147172660ab20b63a3fb8a31a73c84a0abacc9211fe5cee76cb496",
+      "category": "original-visual-art",
+      "creator": "罗春",
+      "license": "CC-BY-NC-SA-4.0",
+      "source": "maintainer-confirmed own models, textures and icons; related visual source files"
+    },
+    {
+      "path": "src/main/resources/assets/huhutalk/textures/block/huhutalk_wifi_texture_6.png",
+      "sha256": "b2153d68b1afca064dccdb1e132ec4160e6250011b0a150564b923a0b955cbc9",
+      "category": "original-visual-art",
+      "creator": "罗春",
+      "license": "CC-BY-NC-SA-4.0",
+      "source": "maintainer-confirmed own models, textures and icons; related visual source files"
+    },
+    {
+      "path": "src/main/resources/assets/huhutalk/textures/block/huhutalk_wifi_texture_7.png",
+      "sha256": "0151690bb8ceb13b8fa7a2fa2960392e276b9efb182add5d0e3a562a8b4a21c9",
+      "category": "original-visual-art",
+      "creator": "罗春",
+      "license": "CC-BY-NC-SA-4.0",
+      "source": "maintainer-confirmed own models, textures and icons; related visual source files"
+    },
+    {
+      "path": "src/main/resources/assets/huhutalk/textures/block/huhutalk_wifi_texture_8.png",
+      "sha256": "9718e6b3f1991fb3b7a3468c3a74068766a0b916b950408d67b7f1c1522dfa23",
+      "category": "original-visual-art",
+      "creator": "罗春",
+      "license": "CC-BY-NC-SA-4.0",
+      "source": "maintainer-confirmed own models, textures and icons; related visual source files"
+    },
+    {
+      "path": "src/main/resources/assets/huhutalk/textures/heart.png",
+      "sha256": "a8dede52416cc0c31b23dd75929702d1a647fae22eaabd82884120a92da80719",
+      "category": "original-visual-art",
+      "creator": "罗春",
+      "license": "CC-BY-NC-SA-4.0",
+      "source": "maintainer-confirmed own models, textures and icons; related visual source files"
+    },
+    {
+      "path": "src/main/resources/assets/huhutalk/textures/huhutalk_symbol.png",
+      "sha256": "6904976581f353b59832093f3b6a35b6331d1a754dd4a7e35e6b83c938c937fc",
+      "category": "original-visual-art",
+      "creator": "罗春",
+      "license": "CC-BY-NC-SA-4.0",
+      "source": "maintainer-confirmed own models, textures and icons; related visual source files"
+    },
+    {
+      "path": "src/main/resources/assets/huhutalk/textures/huhutalk_symbol_legacy.png",
+      "sha256": "56e5e93f64f3105cf723fe786f0584f76800dc1ffa72c4728b09ceaf3a7d507b",
+      "category": "original-visual-art",
+      "creator": "罗春",
+      "license": "CC-BY-NC-SA-4.0",
+      "source": "maintainer-confirmed own models, textures and icons; related visual source files"
+    },
+    {
+      "path": "src/main/resources/assets/huhutalk/textures/icon/camera.png",
+      "sha256": "46294b39624bf347070829d173a8ae9db78a43ac79d42c7c5b19ade7cf7dd038",
+      "category": "original-visual-art",
+      "creator": "罗春",
+      "license": "CC-BY-NC-SA-4.0",
+      "source": "maintainer-confirmed own models, textures and icons; related visual source files"
+    },
+    {
+      "path": "src/main/resources/assets/huhutalk/textures/icon/camera.png.mcmeta",
+      "sha256": "cf08334856115bc1269e9972dfed9b85be4fa5f261b63bbd669c16a484d76098",
+      "category": "original-visual-art",
+      "creator": "罗春",
+      "license": "CC-BY-NC-SA-4.0",
+      "source": "maintainer-confirmed own models, textures and icons; related visual source files"
+    },
+    {
+      "path": "src/main/resources/assets/huhutalk/textures/icon/gallery.png",
+      "sha256": "ac5215162dc70d04edb497596fa9e17936fb8f8ad722ff46c195f6a1918ace04",
+      "category": "original-visual-art",
+      "creator": "罗春",
+      "license": "CC-BY-NC-SA-4.0",
+      "source": "maintainer-confirmed own models, textures and icons; related visual source files"
+    },
+    {
+      "path": "src/main/resources/assets/huhutalk/textures/icon/gallery.png.mcmeta",
+      "sha256": "cf08334856115bc1269e9972dfed9b85be4fa5f261b63bbd669c16a484d76098",
+      "category": "original-visual-art",
+      "creator": "罗春",
+      "license": "CC-BY-NC-SA-4.0",
+      "source": "maintainer-confirmed own models, textures and icons; related visual source files"
+    },
+    {
+      "path": "src/main/resources/assets/huhutalk/textures/icon/settings.png",
+      "sha256": "11e646f4965c4e8ec8bc1c3604bf28dfd42d30b591753c15109c9c600839c1b6",
+      "category": "original-visual-art",
+      "creator": "罗春",
+      "license": "CC-BY-NC-SA-4.0",
+      "source": "maintainer-confirmed own models, textures and icons; related visual source files"
+    },
+    {
+      "path": "src/main/resources/assets/huhutalk/textures/icon/settings.png.mcmeta",
+      "sha256": "cf08334856115bc1269e9972dfed9b85be4fa5f261b63bbd669c16a484d76098",
+      "category": "original-visual-art",
+      "creator": "罗春",
+      "license": "CC-BY-NC-SA-4.0",
+      "source": "maintainer-confirmed own models, textures and icons; related visual source files"
+    },
+    {
+      "path": "src/main/resources/assets/huhutalk/textures/item/phone_3d.png",
+      "sha256": "a0450f520942138ff16ab58514a522e68a95c171acccbd82e1101844da27e77c",
+      "category": "original-visual-art",
+      "creator": "罗春",
+      "license": "CC-BY-NC-SA-4.0",
+      "source": "maintainer-confirmed own models, textures and icons; related visual source files"
+    },
+    {
+      "path": "src/main/resources/assets/huhutalk/textures/item/phone_3d_erased.png",
+      "sha256": "03aca47965f3ec2c9477655d2e475ddfe35838c8307fbbf55fab1ef2caf40dd6",
+      "category": "original-visual-art",
+      "creator": "罗春",
+      "license": "CC-BY-NC-SA-4.0",
+      "source": "maintainer-confirmed own models, textures and icons; related visual source files"
+    },
+    {
+      "path": "src/main/resources/assets/huhutalk/textures/item/phone_camera_2.png",
+      "sha256": "fcc02a181109ed3dfe32945857e31498d581aa5fede0a55ef14caf85de395eb1",
+      "category": "original-visual-art",
+      "creator": "罗春",
+      "license": "CC-BY-NC-SA-4.0",
+      "source": "maintainer-confirmed own models, textures and icons; related visual source files"
+    },
+    {
+      "path": "src/main/resources/assets/huhutalk/textures/item/phone_smart.png",
+      "sha256": "1567735ba67981245f4b79c67f1ee96b4b52d963393e2fcd7c65cd0c19c94081",
+      "category": "original-visual-art",
+      "creator": "罗春",
+      "license": "CC-BY-NC-SA-4.0",
+      "source": "maintainer-confirmed own models, textures and icons; related visual source files"
+    },
+    {
+      "path": "src/main/resources/assets/huhutalk/textures/item/phone_watch.png",
+      "sha256": "68085245c984475b812041b6910297314169110fe276f779e0c0121887793401",
+      "category": "original-visual-art",
+      "creator": "罗春",
+      "license": "CC-BY-NC-SA-4.0",
+      "source": "maintainer-confirmed own models, textures and icons; related visual source files"
+    },
+    {
+      "path": "src/main/resources/assets/huhutalk/textures/item/phone_watch_3d.png",
+      "sha256": "eda108ceb82b9aee2b3a371e95c65a7696842a8f78935ea7927f17d7e50c9859",
+      "category": "original-visual-art",
+      "creator": "罗春",
+      "license": "CC-BY-NC-SA-4.0",
+      "source": "maintainer-confirmed own models, textures and icons; related visual source files"
+    }
+  ]
+}

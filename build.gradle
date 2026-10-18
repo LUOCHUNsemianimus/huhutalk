@@ -209,6 +209,14 @@ tasks.named('jar') {
     // 没有这一行，gradlew build / jar 会直接失败：
     //   > Entry huhutalk.mixins.json is a duplicate but no duplicate handling strategy has been set.
     duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+
+    // 授权声明随 JAR 分发；文件来自仓库根目录，保持原样。
+    into('META-INF') {
+        from('LICENSE', 'LICENSING.md', 'THIRD_PARTY_NOTICES.md', 'NOTICE', 'ASSET_LICENSES.json', 'TEMPLATE_LICENSE.txt')
+        from('LICENSES') {
+            into('LICENSES')
+        }
+    }
 }
 
 // 光影开发环境默认关闭；只有显式 -PshaderDev=true 时才加入 Iris/Sodium 与光影 ZIP。
