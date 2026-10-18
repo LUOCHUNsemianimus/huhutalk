@@ -3,7 +3,6 @@ package com.huhutalk.phone.pages;
 import com.huhutalk.api.phone.ui.PhonePage;
 import com.huhutalk.api.phone.ui.PhoneRow;
 import com.huhutalk.api.phone.ui.PhoneShapes;
-import com.huhutalk.api.phone.ui.PhoneSlider;
 import com.huhutalk.api.phone.ui.PhoneStepper;
 import com.huhutalk.api.phone.ui.PhoneSwitch;
 import com.huhutalk.api.phone.ui.PhoneText;
@@ -58,7 +57,8 @@ import java.util.List;
  *       但 {@link PhoneRow} 的滑块行要求 ≥27px 轨道才不会切过标签（见 {@link #ROW_H}）；</li>
  *   <li>每字耗时 / 单句上限改用 <b>离散档位</b>（50ms / 100ms 一档，上限 3000 / 10000ms），
  *       旧实现是无限 +50 —— 档位表必须有上界，而默认值 500 / 2400 都落在网格上；</li>
- *   <li>字体倍率档位仍是 0.5 / 0.75 / 1.0 / 1.5 / 2.0（与 {@code HuhuTalkClientSettings} 一致）。</li>
+ *   <li>显示类的屏幕比例 / 屏幕大小 / 字体倍率 / 屏幕亮度已迁到「设置」App 的
+ *       {@link DisplayRenderSettingsPage}，本页显示分组只保留 HuhuTalk 图标风格。</li>
  * </ul>
  */
 public class SettingsPage extends PhonePage {
@@ -105,10 +105,6 @@ public class SettingsPage extends PhonePage {
     /** 顶栏标题键（左对齐，见 {@link #renderTopBarExtras}）；渲染时解析，切语言下一帧生效 */
     private static final String TITLE_KEY = "gui.huhutalk.phone_settings.title";
 
-    /** 屏幕比例可选值 */
-    private static final List<String> ASPECT_OPTIONS = List.of("20:9", "9:16", "4:3");
-    /** 字体倍率可选档位（与 {@code HuhuTalkClientSettings} 的档位表一致） */
-    private static final double[] FONT_SCALE_STEPS = {0.5, 0.75, 1.0, 1.5, 2.0};
     /** 每字耗时档位：50ms 起、50ms 一档。上限只为给 stepper 一个有限档位表，远超实用范围 */
     private static final double[] CHAR_TYPING_STEPS = range(50, 3000, 50);
     /** 单句上限档位：100ms 起、100ms 一档 */
@@ -139,10 +135,6 @@ public class SettingsPage extends PhonePage {
 
     private final PhoneStepper charTypingStepper = new PhoneStepper();
     private final PhoneStepper maxTypingStepper = new PhoneStepper();
-    private final PhoneStepper fontScaleStepper = new PhoneStepper();
-
-    private final PhoneSlider phoneSizeSlider = new PhoneSlider();
-    private final PhoneSlider brightnessSlider = new PhoneSlider();
 
     /** 分组（标题 + 行）。构造时建好，之后每帧只重新 layout。 */
     private final List<Section> sections;
@@ -252,25 +244,6 @@ public class SettingsPage extends PhonePage {
         maxTypingStepper.steps(MAX_TYPING_STEPS)
                 .setValue(HuhuTalkClientSettings.getMaxTypingMs())
                 .onChange(v -> HuhuTalkClientSettings.setMaxTypingMs(v.longValue()));
-        fontScaleStepper.steps(FONT_SCALE_STEPS)
-                .setValue(HuhuTalkClientSettings.getUiFontScale())
-                .onChange(v -> HuhuTalkClientSettings.setUiFontScale(v.floatValue()));
-
-        // 屏幕大小：配置是 0.5~1.0，滑块恒为 0~1，所以在回调里映射
-        phoneSizeSlider.setValue(sizeToNormalized(HuhuTalkClientSettings.getPhoneSize()))
-                .onChange(t -> HuhuTalkClientSettings.setPhoneSizeRaw(normalizedToSize(t)))
-                .onCommit(t -> {
-                    HuhuTalkClientSettings.setPhoneSizeRaw(normalizedToSize(t));
-                    HuhuTalkClientSettings.save();
-                });
-
-        // 屏幕亮度：配置本身就是 0~1，直接用
-        brightnessSlider.setValue(HuhuTalkClientSettings.getScreenBrightness())
-                .onChange(t -> HuhuTalkClientSettings.setScreenBrightnessRaw((float) t))
-                .onCommit(t -> {
-                    HuhuTalkClientSettings.setScreenBrightnessRaw((float) t);
-                    HuhuTalkClientSettings.save();
-                });
     }
 
     private List<Section> buildSections() {
@@ -305,19 +278,9 @@ public class SettingsPage extends PhonePage {
                         new CapsuleButton("gui.huhutalk.phone_settings.button.choose_case",
                                 () -> PhoneOverlay.pushPage(new PhoneCasePickerPage()))))));
 
+        // 显示类的其余四项（屏幕比例 / 屏幕大小 / 字体倍率 / 屏幕亮度）已迁到桌面
+        // 「设置」App 的 DisplayRenderSettingsPage；本页只保留 HuhuTalk 图标风格。
         out.add(new Section("gui.huhutalk.phone_settings.section.display", List.of(
-                row(() -> PhoneText.tr("gui.huhutalk.phone_settings.row.aspect",
-                                HuhuTalkClientSettings.getPhoneAspect()),
-                        new CapsuleButton("gui.huhutalk.phone_settings.button.switch", this::cycleAspect)),
-                row(() -> PhoneText.tr("gui.huhutalk.phone_settings.row.phone_size",
-                                Math.round(HuhuTalkClientSettings.getPhoneSize() * 100) + "%"),
-                        phoneSizeSlider),
-                row(() -> PhoneText.tr("gui.huhutalk.phone_settings.row.font_scale",
-                                fontScaleStepper.display()),
-                        fontScaleStepper),
-                row(() -> PhoneText.tr("gui.huhutalk.phone_settings.row.brightness",
-                                Math.round(HuhuTalkClientSettings.getScreenBrightness() * 100) + "%"),
-                        brightnessSlider),
                 row(() -> PhoneText.tr("gui.huhutalk.phone_settings.row.icon_style", iconStyleLabel()),
                         new CapsuleButton("gui.huhutalk.phone_settings.button.switch", this::cycleIconStyle)))));
 
@@ -487,14 +450,6 @@ public class SettingsPage extends PhonePage {
 
         charTypingStepper.setValue(HuhuTalkClientSettings.getCharTypingMs());
         maxTypingStepper.setValue(HuhuTalkClientSettings.getMaxTypingMs());
-        fontScaleStepper.setValue(HuhuTalkClientSettings.getUiFontScale());
-
-        if (!phoneSizeSlider.dragging()) {
-            phoneSizeSlider.setValue(sizeToNormalized(HuhuTalkClientSettings.getPhoneSize()));
-        }
-        if (!brightnessSlider.dragging()) {
-            brightnessSlider.setValue(HuhuTalkClientSettings.getScreenBrightness());
-        }
     }
 
     // ==================== 交互 ====================
@@ -533,14 +488,6 @@ public class SettingsPage extends PhonePage {
 
     // ==================== 数据与文案 ====================
 
-    private static float sizeToNormalized(float size) {
-        return (size - 0.5f) / 0.5f;
-    }
-
-    private static float normalizedToSize(double t) {
-        return (float) (0.5 + t * 0.5);
-    }
-
     /** 手机壳行：返回完整文案，宽度截断交给 {@link #fitRowLabel}（复用现有截断）。 */
     private String phoneCaseLabel() {
         String id = HuhuTalkClientSettings.getPhoneCaseBlock();
@@ -552,14 +499,6 @@ public class SettingsPage extends PhonePage {
     private static String shortName(String id) {
         int idx = id.indexOf(':');
         return idx >= 0 ? id.substring(idx + 1) : id;
-    }
-
-    /** 在 20:9 / 9:16 / 4:3 之间循环。 */
-    private void cycleAspect() {
-        String cur = HuhuTalkClientSettings.getPhoneAspect();
-        int idx = ASPECT_OPTIONS.indexOf(cur);
-        int next = (idx + 1) % ASPECT_OPTIONS.size();
-        HuhuTalkClientSettings.setPhoneAspect(ASPECT_OPTIONS.get(idx < 0 ? 0 : next));
     }
 
     /** 图标风格显示名 */
@@ -590,8 +529,11 @@ public class SettingsPage extends PhonePage {
      * 它替代了旧实现里的 {@code btnW()} / {@code contH()} / {@code capsuleBtn()} /
      * {@code hitButton()} 四段算术 —— 宽度与高度由控件自报，矩形由 {@link PhoneRow} 摆，
      * 命中由 {@link PhoneWidget#hit} 判，三者是同一份数据。
+     * <p>
+     * 包内可见（而非 private）：{@link DisplayRenderSettingsPage} 的屏幕比例行复用同一套
+     * 胶囊按钮，避免在新页再实现第二套按钮控件。
      */
-    private static final class CapsuleButton extends PhoneWidget {
+    static final class CapsuleButton extends PhoneWidget {
 
         /** 按钮文字相对字号（与旧实现 {@code BTN_TEXT_SCALE} 一致） */
         static final float TEXT_SCALE = 0.7f;

@@ -1,5 +1,6 @@
 package com.huhutalk.client.render;
 
+import com.huhutalk.client.settings.HuhuTalkClientSettings;
 import com.huhutalk.phone.PhoneOverlay;
 import com.mojang.blaze3d.pipeline.RenderTarget;
 import com.mojang.blaze3d.pipeline.TextureTarget;
@@ -159,6 +160,9 @@ public final class PhoneScreenTarget {
     // colortex，随后被 TAA/Bloom 当世界内容处理（移动重影 + 泛光）。因此只暂存「原样」的
     // pose / 投影 / 模型视图，等 AFTER_LEVEL（Iris finalize 之后、原版 HUD 之前）再用同一组
     // 矩阵实际绘制。所有矩阵对象静态复用，暂存路径每帧不分配。
+    //
+    // 「墨水屏」开启时不再走这条晚绘路径，而是回到原世界 pass 的即时绘制
+    // （由 HuhuTalkClientSettings.isInkScreenEnabled() 控制；默认关闭 = 保留晚绘）。
     private static boolean pending;
     private static final Matrix4f pendingPose = new Matrix4f();
     private static final Matrix4f pendingProjection = new Matrix4f();
@@ -323,10 +327,13 @@ public final class PhoneScreenTarget {
             return;
         }
 
-        // 光影下此刻仍在 Iris 世界 pass 内：只暂存完全相同的 pose / 投影 / 模型视图，
+        // 光影下此刻仍在 Iris 世界 pass 内：默认只暂存完全相同的 pose / 投影 / 模型视图，
         // 不向世界 colortex 提交屏幕四边形，避免被 TAA/Bloom 处理。
+        // 「墨水屏」开启时主动放弃晚绘，走下面的原世界 pass 即时路径。
         // 晚绘只发生在 AFTER_LEVEL，且这里绝不动机身/手的绘制路径。
-        if (IrisShaderCompat.isShaderPackInUse() && !SelfieCameraTarget.isRendering()) {
+        if (IrisShaderCompat.isShaderPackInUse()
+                && !SelfieCameraTarget.isRendering()
+                && !HuhuTalkClientSettings.isInkScreenEnabled()) {
             pendingPose.set(poseStack.last().pose());
             pendingProjection.set(RenderSystem.getProjectionMatrix());
             pendingModelView.set(RenderSystem.getModelViewMatrix());

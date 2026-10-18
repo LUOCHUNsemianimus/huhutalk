@@ -31,7 +31,7 @@ import java.util.function.Supplier;
  *
  * <h2>与「HuhuTalk 设置页」的分工</h2>
  * 底部导航那个 {@code SettingsPage} 是<b>手机本身的设置</b>（屏幕/亮度/配色/动画…），
- * 本页是<b>桌面 App 级的设置</b>（AI 识图、桌面图标管理…）。
+ * 本页是<b>桌面 App 级的设置</b>（AI 识图、显示与渲染、桌面图标管理…）。
  * 两边的条目不要重复：谁的用户预期是"我在设置 App 里找"，就放本页。
  */
 public class SettingsAppPage extends PhonePage {
@@ -83,6 +83,10 @@ public class SettingsAppPage extends PhonePage {
                     new Entry("gui.huhutalk.settings.vision_model",
                             SettingsAppPage::visionSummary,
                             () -> PhoneOverlay.pushPage(new VisionModelSettingsPage())))),
+            new Section("gui.huhutalk.settings.section.display_render", List.of(
+                    new Entry("gui.huhutalk.settings.display_render",
+                            HuhuTalkClientSettings::getPhoneAspect,
+                            () -> PhoneOverlay.pushPage(new DisplayRenderSettingsPage())))),
             new Section("gui.huhutalk.settings.section.desktop", List.of(
                     new Entry("gui.huhutalk.settings.desktop_icons",
                             SettingsAppPage::desktopSummary,

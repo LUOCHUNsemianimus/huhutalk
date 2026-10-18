@@ -78,6 +78,14 @@ public final class HuhuTalkClientSettings {
     /** 屏幕亮度（0~1，1=满亮度不调；往低调则变暗，最低叠 70% 黑色滤镜） */
     private static float screenBrightness = 1f;
     /**
+     * 「墨水屏」：默认关闭。
+     * <p>
+     * 只控制手机模型屏的绘制路径：关闭时保留 Iris 光影下的晚绘（不参与世界后处理）；
+     * 开启时屏幕四边形回到原世界 pass 即时绘制。它不改世界光影配置、不调亮度，
+     * 也不模拟黑白/低刷新——开关本身只有这一条渲染顺序差异。
+     */
+    private static boolean inkScreenEnabled = false;
+    /**
      * 手机内独立光标的鼠标灵敏度（0.05~2.0）。
      * <p>
      * 与游戏「视角灵敏度」<b>无关</b>：光标吃的是鼠标原始增量 × 本系数 ÷ GUI Scale，
@@ -183,6 +191,8 @@ public final class HuhuTalkClientSettings {
     public static long getMaxTypingMs() { return maxTypingMs; }
     public static float getUiFontScale() { return uiFontScale; }
     public static float getScreenBrightness() { return screenBrightness; }
+    /** 「墨水屏」开关：默认关闭（关闭 = 光影下沿用 Iris 晚绘） */
+    public static boolean isInkScreenEnabled() { return inkScreenEnabled; }
     public static String getHuhutalkIconStyle() { return huhutalkIconStyle; }
 
     /** 读取某女仆手动分组；未手动设置返回 null */
@@ -536,6 +546,12 @@ public final class HuhuTalkClientSettings {
         screenBrightness = Math.max(0f, Math.min(1f, b));
     }
 
+    /** 设置「墨水屏」开关并落盘（默认关闭，缺失该字段的老配置也按关闭处理） */
+    public static void setInkScreenEnabled(boolean enabled) {
+        inkScreenEnabled = enabled;
+        save();
+    }
+
     /** 手机内独立光标灵敏度（钳制 0.05~2.0） */
     public static float getPhoneCursorSensitivity() {
         return phoneCursorSensitivity;
@@ -688,6 +704,8 @@ public final class HuhuTalkClientSettings {
             if (data.uiFontScale > 0f) uiFontScale = Math.max(0.5f, Math.min(2.0f, data.uiFontScale));
             screenBrightness = data.screenBrightness == null
                     ? 1f : Math.max(0f, Math.min(1f, data.screenBrightness));
+            // 可空 Boolean + 缺失时按 false：老配置没有该字段时保持默认关闭
+            inkScreenEnabled = data.inkScreenEnabled != null && data.inkScreenEnabled;
             phoneCursorSensitivity = data.phoneCursorSensitivity == null
                     ? 1.2f : Math.max(0.05f, Math.min(2.0f, data.phoneCursorSensitivity));
             if (data.huhutalkIconStyle != null) setHuhutalkIconStyle(data.huhutalkIconStyle);
@@ -789,6 +807,7 @@ public final class HuhuTalkClientSettings {
             data.maxTypingMs = maxTypingMs;
             data.uiFontScale = uiFontScale;
             data.screenBrightness = screenBrightness;
+            data.inkScreenEnabled = inkScreenEnabled;
             data.phoneCursorSensitivity = phoneCursorSensitivity;
             data.huhutalkIconStyle = huhutalkIconStyle;
             data.maidGroups = maidGroups;
@@ -837,6 +856,8 @@ public final class HuhuTalkClientSettings {
         long maxTypingMs;
         float uiFontScale;
         Float screenBrightness; // 可空：缺失时默认满亮度 1.0
+        /** 可空：缺失/空时默认关闭（老配置文件没有该字段） */
+        Boolean inkScreenEnabled;
         Float phoneCursorSensitivity; // 可空：缺失时默认 1.2
         String huhutalkIconStyle; // 可空：缺失时默认 symbol2
         Map<String, String> maidGroups;

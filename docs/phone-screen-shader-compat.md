@@ -14,8 +14,8 @@ Iris 光影下，第一人称手持渲染发生在 Iris 世界 pass 内部（`Re
 ## 机制
 
 1. `PhoneScreenTarget.renderScreen` 在 `PhoneOverlay.hasModelScreen()`、离屏靶有效、
-   `IrisShaderCompat.isShaderPackInUse()` 为真且不在自拍 pass 时，**不提交世界几何**，
-   只暂存当帧的：
+   `IrisShaderCompat.isShaderPackInUse()` 为真、不在自拍 pass 且**「墨水屏」关闭**时，
+   **不提交世界几何**，只暂存当帧的：
    - `PoseStack.last().pose()`（手持 + 机身局部变换）；
    - `RenderSystem.getProjectionMatrix()`（Iris 手持 `setupGlState` 后的原矩阵，含 Z=0.125 缩放）；
    - `RenderSystem.getModelViewMatrix()`；
@@ -36,6 +36,22 @@ Iris 光影下，第一人称手持渲染发生在 Iris 世界 pass 内部（`Re
 4. 无 Iris 或关闭光影时仍走原来的即时绘制路径；机身/手路径完全不变。
    不修改光影 ZIP、用户配置，不全局关闭 TAA/Bloom，也不新增 Iris 编译期依赖
    （沿用 `IrisShaderCompat` 的可选反射层）。
+
+## 可选策略：墨水屏开关（默认关闭）
+
+设置 App →「显示与渲染」新增「墨水屏」开关（`HuhuTalkClientSettings.isInkScreenEnabled`，
+默认关闭，缺失/空配置按关闭处理，开关值持久化）：
+
+- **关闭（默认）**：保留上面的 Iris 晚绘策略。有光影时屏幕 UI 不进入世界 colortex，
+  因此不参加 TAA/Bloom，屏幕文字/图标保持界面原色。
+- **开启**：`renderScreen` 不再暂存，屏幕四边形回到原世界 pass 的即时路径
+  （与无光影时同一条 `drawScreenQuad`）。此时屏幕 UI 会重新进入光影处理，
+  可能在 TAA/Bloom 下重新出现移动重影或高亮泛光。
+- 没有 Iris 或关闭光影时，两条路径本来就相同，开关可能没有可见差异。
+- 该开关只改变屏幕四边形的绘制时机/是否参与光影，不修改 `FULL_BRIGHT`、
+  不模拟黑白/低刷新/环境亮度，也不改世界光影配置。
+
+开关的两条路径与持久化仍需实机验收；本节只记录设计语义，不宣称该开关已完成运行验收。
 
 ## 实现取舍
 
