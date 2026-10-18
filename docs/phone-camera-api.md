@@ -74,7 +74,7 @@ event.register(PhoneApp.builder(id, "我的相机")
 | `isSelfieMode()` | ❌ 默认 `false` | 当前是否前摄/自拍取景。true 时开前摄离屏 pass、换右手单手持机姿态、普通右键当快门。**只在取景态返回 true**，见 §8 |
 | `supportsCameraFacingSwitch()` | ❌ 默认 `false` | 是否支持前/后摄切换（V 键与页内切换按钮是否生效） |
 | `cameraToggleFacing()` | ❌ 默认空实现 | 切换前摄/后摄；实现者自行判断"现在能不能切" |
-| `cameraUseDefaultHoldPose()` | ❌ 默认 `false` | 相机模式下是否改用常规地图式双手持握（前摄确认页返回 true 把手机放下） |
+| `cameraUseDefaultHoldPose()` | ❌ 默认 `false` | 相机模式下是否改用常规地图式双手持握（聊天内相机的前摄确认页返回 true 把手机放下；桌面相机恒为 false） |
 
 它继承了 `IPhonePage`，所以 `render` / `mouseClicked` / `onBackPressed` 等照常实现。
 
@@ -137,10 +137,12 @@ HuhuTalk 的相机侧键状态机是这样的：
 > **光影（Iris）例外**：Iris 在 `LevelRenderer.renderLevel` 的 "translucent" 处就由
 > `HandRenderer.renderSolid` 把第一人称手 / 手机画进世界 pass，并在 `renderLevel` RETURN 处
 > 把最终合成直接写进主渲染靶，之后才轮到 `AFTER_LEVEL`。因此拍照帧会由
-> `PhoneOverlay.beginWorldCaptureFrame()`（`RenderFrame.Pre` 调用）临时把 `GameRenderer.renderHand`
-> 置 false，抓完在 `consumeWorldCapture` 里立即恢复：无光影时当帧画面完全不变，
-> 光影下只是抓图那一帧看不到手 / 手机。HUD 不受影响（仍在 `renderLevel` 之后才画），
-> 也不要为此改用 `options.hideGui`（会停掉整个 GUI 层）。
+> `PhoneOverlay.beginWorldCaptureFrame()`（`RenderFrameEvent.Pre` 每帧调用）临时把
+> `GameRenderer.renderHand` 置 false；本帧 `AFTER_LEVEL` 的 `consumeWorldCapture()` 在
+> `try` 内调用 `PhotoLibrary.captureMainTargetPng()`，并在 `finally` 中恢复 `renderHand`：
+> 无光影时当帧画面完全不变，光影下只是抓图那一帧看不到手 / 手机。切世界/退出清场时
+> （`resetForNewWorld`）会作废在途的 `grabPending` 并恢复，未兑现的回调不会悬着。
+> HUD 不受影响（仍在 `renderLevel` 之后才画），也不要为此改用 `options.hideGui`（会停掉整个 GUI 层）。
 
 **几个必须知道的点**：
 
@@ -202,13 +204,13 @@ HuhuTalk 的相机侧键状态机是这样的：
 
 | 行为 | 说明 |
 |---|---|
-| **没有「已拍成页」** | 后摄：按下 = 拍照 + 存相册，然后**留在取景界面**继续拍（真机相机的"按几下拍几下"） |
-| **拍照成功不弹气泡** | 后摄没有"确认/重拍"这个反悔设计，快门本身就是反馈；只有**存盘失败**才弹一条提示 |
-| **前摄（自拍）有确认页** | 切到前摄后按下 = 进确认页（整屏照片 + 「重拍 / 保存」两颗按钮）：保存入相册、失败保留可重试、重拍丢当前照片回自拍取景 |
+| **没有「已拍成页」/ 确认页** | 前后摄：按下 = 拍照 + 存相册，然后**留在取景界面**继续拍（真机相机的"按几下拍几下"） |
+| **拍照成功不弹气泡** | 前后摄都没有"确认/重拍"这个反悔设计，快门本身就是反馈；只有**存盘失败**才弹一条提示 |
+| **前摄（自拍）与后摄一致** | 切到前摄后按下 = 直接存相册并留在取景，**没有确认页**；抓图走前摄离屏通路 |
 | **前后摄切换** | 取景态按 V（默认，可重绑定）切换；页内右侧胶囊显示"当前前/后摄 + 切换键名" |
 | **版面与聊天内相机逐项一致** | 顶栏两段文字、四角取景标记、准星、圆形快门、底部黑边都相同——两套相机是同一台手机上的两个入口 |
 | **左下缩略图是纯装饰** | 不参与命中（没有光标），玩家想看照片去聊天页的相册 |
-| **键位** | 侧键 4 = 后摄拍照存盘 / 前摄拍照进确认页 / 确认页保存；侧键 5 = 退出（确认页为"重拍"）；V = 切换前后摄 |
+| **键位** | 侧键 4 = 拍照存盘（前后摄一致）；侧键 5 = 退出；V = 切换前后摄 |
 | **注册方式** | **走公开注册通路**（`PhoneAppRegisterEvent`），一行没往内置表里塞 —— 见 `com.huhutalk.client.CameraAppRegistration` |
 
 > **关于底部黑边**：它不是为了好看，而是<b>遮住模型没掏空的那条带子</b>——手机 3D 模型在屏幕下部
@@ -235,7 +237,7 @@ HuhuTalk 的相机侧键状态机是这样的：
 
 要点：
 
-1. **`isSelfieMode()` 只在取景态返回 true**（已拍成/确认页不算自拍取景）。
+1. **`isSelfieMode()` 只在取景态返回 true**（聊天内相机的已拍成/确认页不算自拍取景）。桌面相机没有确认页，前摄全程处于取景态。
    HuhuTalk 只在"当前页前摄取景 **且** 本地玩家第一人称主手真的举着手机"时才跑前摄离屏 pass，
    所以第三人称、收起手机、手机不在手里都会自动停。
 2. **前摄拍照不要再用 `requestWorldCapture`（那是主画面）**，改用
@@ -243,20 +245,21 @@ HuhuTalk 的相机侧键状态机是这样的：
    未镜像、正常方向的 PNG。回调可能延迟一帧左右，务必用"请求序号 + 页面仍活跃"判废旧请求。
 3. **预览镜像是 HuhuTalk 负责的**：页面只需把 `SelfieCameraTarget.renderPreviewFit(g, x, y, w, h)`
    画进自己的取景框即可。它内部等比 letterbox（固定 2:3），400×600 绝不会被拉伸变形；
-   照片本身与确认页都是**正常方向**（不镜像）。
+   照片本身（以及聊天内相机的确认页）都是**正常方向**（不镜像）。
    取景框应先铺不透明黑再画图：`isReady()==false` 时不要画图，改用 `isFailed()` 区分并给
    「准备中 / 不可用」短提示，**绝不能让主视角或世界透出来冒充自拍**。
 4. **前摄取景的第一人称是右手单手持机、屏朝玩家**（由 `ProPhoneHandRenderer` 统一处理，
-   页面无需自绘手臂）；确认页返回 `cameraUseDefaultHoldPose() == true` 时手机会"放下"，
-   用常规地图式持握看照片。
-5. **透明判据只留给后摄**：`cameraScreenTransparent()` 在前摄取景与前摄确认页都应返回 false
-   （机身实心 + 正常机壳纹理）；后摄取景才返回 true。
+   页面无需自绘手臂）；聊天内相机的前摄确认页返回 `cameraUseDefaultHoldPose() == true` 时
+   手机会"放下"，用常规地图式持握看照片。桌面相机前后摄都停在取景，本方法恒返回 false。
+5. **透明判据只留给后摄**：`cameraScreenTransparent()` 在前摄取景（两个入口）与聊天内相机的
+   前摄确认页都应返回 false（机身实心 + 正常机壳纹理）；后摄取景才返回 true。
 6. **键位**：侧键 4/5 语义与后摄一致（4=主操作、5=返回），**V（可重绑定）= 切换前后摄**。
    相机没有光标，所以切换按钮点不到——页内那颗胶囊只负责显示状态 + 提示键名；
    附属模组做自己的相机时，用 `ClientModEvents.PHONE_CAMERA_FACING.getTranslatedKeyMessage()`
    取真实键名，别硬编码 "V"。
-7. **临时照片 key 用自己的**：聊天相机 `__camshot__`、桌面相机前摄 `__appcamselfieshot__`。
-   共用会把另一台相机"还没处置的那张"覆盖掉。
+7. **临时照片 key 用自己的**：聊天相机 `__camshot__`、桌面相机 `__appcamshot__`
+   （前后摄共用同一个缩略图 key，不会残留第二个 key）。共用会把另一台相机
+   "还没处置的那张"覆盖掉。
 
 > 完整实现细节、验收步骤与已知限制见 [selfie-camera-handoff.md](selfie-camera-handoff.md)。
 
@@ -272,7 +275,7 @@ HuhuTalk 的相机侧键状态机是这样的：
 | `phone/PhoneOverlay.java` | `isCameraMode()` / `isSelfieMode()` / `cameraUseDefaultHoldPose()` / `toggleCameraFacing()` / `cameraSideButton` / `tickCameraHold` / `requestWorldCapture` / `showBubble` |
 | `client/PhotoLibrary.java` | 相册落盘与纹理 |
 | `client/render/SelfieCameraTarget.java` | **前摄离屏取景核心**（预览 / 抓图 / 节流 / 资源释放） |
-| `client/render/ProPhoneHandRenderer.java` | 第一人称持机姿态（后摄取景 / 前摄单手持机 / 确认页地图式） |
+| `client/render/ProPhoneHandRenderer.java` | 第一人称持机姿态（后摄取景 / 前摄单手持机 / 聊天内相机确认页地图式） |
 | `phone/pages/ChatPage.java` | 聊天内相机（多状态相机的参考：取景中 / 已拍成；含前摄） |
 | `event/ClientModEvents.java` | `PHONE_CAMERA_FACING`（V 键）、`RenderFrame.Pre` 里的前摄 pass 开关 |
 | [selfie-camera-handoff.md](selfie-camera-handoff.md) | **前摄交接**（键位、镜像、真实渲染、局部模型姿态、性能、验收步骤） |

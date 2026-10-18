@@ -5,7 +5,8 @@
 - **无 Iris / 关闭光影**：沿用原 400x600 独立离屏靶，直接渲染自拍。
 - **启用 Iris 光影且窗口足够大**：自拍在 `RenderFrame.Pre` 阶段借用真实主渲染靶（不替换其身份、不 resize），
   完整世界渲染后立即把 2:3 中央区域 LINEAR 缩放到 400x600 输出靶；同一帧稍后正常主场景重新清屏覆盖。
-- **极小窗口回退**：`mainRenderTarget` 宽小于 400 或高小于 600 时，不走裁切放大，回退原 400x600 独立渲染，
+- **极小窗口回退**：只有 `mainRenderTarget` 宽 ≥ `IMAGE_WIDTH`(400) 且高 ≥ `IMAGE_HEIGHT`(600) 时才走
+  裁切光影路径；任一低于该像素数就不做裁切放大，回退原 400x600 独立渲染，
   避免把低于照片像素数的画面放大。这是保画质回退，不是全场景性能保证。
 
 保持不变：照片/预览固定 400x600、70° 竖屏 FOV、镜像预览、正常方向保存、拍照/重拍流程、30fps 节流、
@@ -28,8 +29,11 @@ Iris 的帧序会改变「手还没画」这个原版前提：
 - 原版 `GameRenderer.renderLevel` 之后那次 `renderItemInHand` 已被 `MixinGameRenderer`
   `iris$disableVanillaHandRendering` 取消。
 
-因此后摄抓图不能只依赖 `AFTER_LEVEL` 的时机，现由 `PhoneOverlay.beginWorldCaptureFrame()`
-在拍照帧（`RenderFrame.Pre`）临时 `setRenderHand(false)`，`consumeWorldCapture` 抓完立即恢复。
+因此后摄抓图不能只依赖 `AFTER_LEVEL` 的时机：现由 `PhoneOverlay.beginWorldCaptureFrame()`
+在拍照帧（`RenderFrameEvent.Pre`）临时 `setRenderHand(false)`；本帧 `AFTER_LEVEL` 的
+`consumeWorldCapture()` 在 `try` 内调用 `PhotoLibrary.captureMainTargetPng()`，并在 `finally`
+中恢复 `renderHand`。切世界/退出清场时（`resetForNewWorld`）会作废在途的 `grabPending`
+并恢复，未兑现的抓图请求和关手状态都不会留到下一个世界。
 HUD 不在这条通路里（`Gui` 在 `renderLevel` 返回后才画），不要为此改用 `options.hideGui`。
 
 ## 实测记录（2026-10-17）
