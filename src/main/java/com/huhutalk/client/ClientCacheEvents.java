@@ -32,6 +32,8 @@ public class ClientCacheEvents {
         NotificationManager.onWorldChanged(worldKey);
         MaidListCache.clear();
         MaidStatusCache.clear();
+        // 档案读取按连接代次隔离：登录即作废旧世界/旧连接的迟到响应。
+        ArchiveHistoryClient.onConnectionReset();
         SosBindCache.clear();
         SosTaskCache.clear();
         PhoneChatSourceCache.clear();
@@ -87,6 +89,8 @@ public class ClientCacheEvents {
     @SubscribeEvent
     public static void onPlayerLogout(ClientPlayerNetworkEvent.LoggingOut event) {
         ChatHistoryStorage.saveCurrentWorld();
+        // 登出后旧连接的档案响应不得再落到任何页面。
+        ArchiveHistoryClient.onConnectionReset();
         PhoneChatSourceCache.clear();
         PhoneAnimation.reset();
         PhoneOverlay.resetForNewWorld();

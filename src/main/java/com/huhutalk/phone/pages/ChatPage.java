@@ -3055,7 +3055,10 @@ public class ChatPage implements PhoneCameraHost {
         }
 
         if (relX >= w - 24 && relX <= w && relY >= 0 && relY <= navH()) {
-            PhoneOverlay.pushPage(new MaidInfoPage(stableId, maidName));
+            // 隔离演示页不得进入真实女仆资料，避免由此读取真实归档；仅消费点击。
+            if (!demoIsolated) {
+                PhoneOverlay.pushPage(new MaidInfoPage(stableId, maidName));
+            }
             return true;
         }
 

@@ -42,8 +42,8 @@ import java.util.Map;
  * UI：顶栏 #de7e7e；头部大头像（女仆照片）+ 名称/状态（1.75/1.25 倍字号）；页面底取自主题；
  * 全部设置项为圆角卡片（圆角 8）。分三组：
  * <ul>
- *   <li><b>管理</b>：发消息 / 删除记录 / 删除联系人 / 更新头像 / <b>女仆的样貌</b>
- *       （最后一项点一下展开一个内联的多行输入框，填写她的外貌描述，供识图认人用）。</li>
+ *   <li><b>管理</b>：发消息 / 删除记录 / 删除联系人 / 更新头像 / <b>聊天档案</b>（打开独立只读的服务端
+ *       长期档案页） / <b>女仆的样貌</b>（最后一项点一下展开一个内联的多行输入框，填写她的外貌描述，供识图认人用）。</li>
  *   <li><b>SOS呼叫</b>：SOS呼叫（绑定开关）/ SOS工作模式（点击展开原下拉）。</li>
  *   <li><b>分组设置</b>：现有分组选项（默认 + 自定义）+ 末行<b>内联的「新建分组」输入框</b>。</li>
  * </ul>
@@ -355,8 +355,8 @@ public class MaidInfoPage extends PhonePage {
         int headerY, headerH, avatarX, avatarY, avatarH, avatarSize;
         int nameX, nameTop, statusTop;
         int manageTitleY;
-        /** 管理组各行：发消息 / 删除记录 / 删除联系人 / 更新头像 / 女仆的样貌 */
-        int[] cardY = new int[5];
+        /** 管理组各行：发消息 / 删除记录 / 删除联系人 / 更新头像 / 聊天档案 / 女仆的样貌 */
+        int[] cardY = new int[6];
         int manageRectY, manageRectH;
         /** 展开的「女仆的样貌」输入框（逻辑坐标；{@code -1} = 未展开，不渲染也不命中） */
         int appearanceBoxY = -1, appearanceBoxH = 0;
@@ -536,9 +536,11 @@ public class MaidInfoPage extends PhonePage {
                 PhoneText.tr("gui.huhutalk.maid_info.action.delete_history"),
                 PhoneText.tr("gui.huhutalk.maid_info.action.delete_contact"),
                 PhoneText.tr("gui.huhutalk.maid_info.action.update_avatar"),
+                PhoneText.tr("gui.huhutalk.maid_info.action.archive"),
                 PhoneText.tr("gui.huhutalk.maid_info.action.appearance"),
         };
-        int[] labelColors = {c.textPrimary(), c.textPrimary(), c.dangerBg(), 0xFF2E7D32, c.textPrimary()};
+        int[] labelColors = {c.textPrimary(), c.textPrimary(), c.dangerBg(), 0xFF2E7D32,
+                c.textPrimary(), c.textPrimary()};
         for (int i = 0; i < labels.length; i++) {
             int y = originY + scrollY(L.cardY[i]);
             int textY = y + (cardH() - lineH) / 2 + 1;
@@ -972,7 +974,7 @@ public class MaidInfoPage extends PhonePage {
         int cardX = PhoneText.px(10);
         int cardW = width() - PhoneText.px(20);
 
-        // 管理 4 项
+        // 管理 6 项
         if (PhoneLayout.hit(localX, logical, cardX, L.cardY[0], cardW, cardH())) {
             PhoneOverlay.pushPage(new ChatPage(stableId, maidName));
             return true;
@@ -996,8 +998,13 @@ public class MaidInfoPage extends PhonePage {
             updateAvatar();
             return true;
         }
-        // 第 5 行「女仆的样貌」：点一下展开 / 收起下方的多行输入框
+        // 第 5 行「聊天档案」：打开独立只读的服务端长期档案页（不走进实时聊天页）。
         if (PhoneLayout.hit(localX, logical, cardX, L.cardY[4], cardW, cardH())) {
+            PhoneOverlay.pushPage(new ArchiveHistoryPage(stableId, maidName));
+            return true;
+        }
+        // 第 6 行「女仆的样貌」：点一下展开 / 收起下方的多行输入框
+        if (PhoneLayout.hit(localX, logical, cardX, L.cardY[5], cardW, cardH())) {
             maidAppearanceOpen = !maidAppearanceOpen;
             return true;
         }
