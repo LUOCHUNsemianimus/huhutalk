@@ -4,6 +4,7 @@ import com.huhutalk.HuhuTalk;
 import com.huhutalk.api.phone.ui.PhoneText;
 import com.huhutalk.client.ChatHistoryStorage;
 import com.huhutalk.client.ArchiveHistoryClient;
+import com.huhutalk.client.ArchiveAssetClient;
 import com.huhutalk.client.MaidListCache;
 import com.huhutalk.client.MaidStatusCache;
 import com.huhutalk.client.NotificationManager;
@@ -15,6 +16,7 @@ import com.huhutalk.common.SystemText;
 import com.huhutalk.init.HuhuTalkSounds;
 import com.huhutalk.network.S2CVisionSitesPacket;
 import com.huhutalk.network.S2CArchiveHistoryPacket;
+import com.huhutalk.network.S2CArchiveAssetPacket;
 import com.huhutalk.network.S2CPhoneChatSourcePacket;
 import com.huhutalk.network.S2CMaidChatErrorPacket;
 import com.huhutalk.network.S2CMaidChatInfoPacket;
@@ -66,6 +68,27 @@ public class ClientPayloadSetup {
         // 服务端 → 客户端：手机聊天档案的一页只读响应
         registrar.playToClient(S2CArchiveHistoryPacket.TYPE, S2CArchiveHistoryPacket.STREAM_CODEC,
                 ClientPayloadSetup::handleArchiveHistory);
+        // 服务端 → 客户端：按需读取的单张档案图片（二进制，非 base64 JSON）
+        registrar.playToClient(S2CArchiveAssetPacket.TYPE, S2CArchiveAssetPacket.STREAM_CODEC,
+                ClientPayloadSetup::handleArchiveAsset);
+    }
+
+    /** 图片响应先在客户端主线程过状态机/预算校验，再交给图片控制器解码。 */
+    private static void handleArchiveAsset(S2CArchiveAssetPacket packet, IPayloadContext context) {
+        context.enqueueWork(() -> {
+            try {
+                com.huhutalk.core.archive.ArchiveAssetResponse response = packet.toResponse();
+                ArchiveAssetClient.onResponse(response);
+            } catch (com.huhutalk.core.archive.ArchiveException exception) {
+                HuhuTalk.LOGGER.warn("[HuhuTalk] ignored malformed archive asset response",
+                        exception);
+                // 只有身份字段严格匹配当前 pending 时，会话才会以 ERROR 结束它。
+                ArchiveAssetClient.onMalformedResponse(packet.requestId(), packet.maidStableId(),
+                        packet.serverWorldId(), packet.assetHash());
+            } catch (RuntimeException exception) {
+                HuhuTalk.LOGGER.warn("[HuhuTalk] ignored malformed archive asset response", exception);
+            }
+        });
     }
 
     /** 档案响应先在客户端主线程完成 schema/预算/状态校验，再交给独立控制器。 */

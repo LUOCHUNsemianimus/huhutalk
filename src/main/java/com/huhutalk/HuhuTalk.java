@@ -33,6 +33,7 @@ import com.huhutalk.network.C2SMaidChatWithItemsPacket;
 import com.huhutalk.network.C2SRequestMaidListPacket;
 import com.huhutalk.network.C2SRequestMaidStatusPacket;
 import com.huhutalk.network.C2SRequestArchiveHistoryPacket;
+import com.huhutalk.network.C2SRequestArchiveAssetPacket;
 import com.huhutalk.network.C2SRequestSosTaskListPacket;
 import com.huhutalk.network.C2SSetSosModePacket;
 import com.huhutalk.network.C2SSOSPacket;
@@ -101,6 +102,8 @@ public class HuhuTalk {
         NeoForge.EVENT_BUS.addListener(ServerStoppingEvent.class, e -> PhoneChatSourceController.clearAll());
         NeoForge.EVENT_BUS.addListener(ServerStoppingEvent.class,
                 e -> C2SRequestArchiveHistoryPacket.clearRateLimits());
+        NeoForge.EVENT_BUS.addListener(ServerStoppingEvent.class,
+                e -> C2SRequestArchiveAssetPacket.clearRateLimits());
         NeoForge.EVENT_BUS.addListener(PlayerEvent.PlayerLoggedOutEvent.class, e -> PhoneChatSourceController.clearAll());
 
         // 识图平台：服务器起来时补齐本模组需要、而主模组没有的 LLM 站点预设（千帆/混元/阶跃/自定义）。
@@ -145,6 +148,9 @@ public class HuhuTalk {
         // 客户端 → 服务端：按需读取女仆长期聊天档案（只读、固定上界分页）
         registrar.playToServer(C2SRequestArchiveHistoryPacket.TYPE,
                 C2SRequestArchiveHistoryPacket.STREAM_CODEC, C2SRequestArchiveHistoryPacket::handle);
+        // 客户端 → 服务端：按需读取当前档案会话引用的一张图片
+        registrar.playToServer(C2SRequestArchiveAssetPacket.TYPE,
+                C2SRequestArchiveAssetPacket.STREAM_CODEC, C2SRequestArchiveAssetPacket::handle);
         // 客户端 → 服务端：SOS 紧急呼叫
         registrar.playToServer(C2SSOSPacket.TYPE, C2SSOSPacket.STREAM_CODEC, C2SSOSPacket::handle);
         // 客户端 → 服务端：切换 SOS 绑定

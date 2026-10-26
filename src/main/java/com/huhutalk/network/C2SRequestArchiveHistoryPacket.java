@@ -1,8 +1,7 @@
 package com.huhutalk.network;
 
-import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
 import com.huhutalk.HuhuTalk;
-import com.huhutalk.common.MaidStableIdHelper;
+import com.huhutalk.core.archive.ArchiveAccess;
 import com.huhutalk.core.archive.ArchiveException;
 import com.huhutalk.core.archive.ArchiveHistoryProtocol;
 import com.huhutalk.core.archive.ArchiveHistoryRequest;
@@ -10,8 +9,6 @@ import com.huhutalk.core.archive.ArchiveHistoryResponse;
 import com.huhutalk.core.archive.ArchiveHistoryStatus;
 import com.huhutalk.core.archive.ArchiveService;
 import com.huhutalk.core.archive.ArchiveSnapshot;
-import com.huhutalk.core.contact.MaidContactBook;
-import com.huhutalk.core.contact.MaidContactEntry;
 import net.minecraft.network.RegistryFriendlyByteBuf;
 import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.network.codec.StreamCodec;
@@ -112,7 +109,7 @@ public record C2SRequestArchiveHistoryPacket(
             }
 
             // 先做归属校验；无权限时不读 originWorldId、不读归档文件。
-            if (!mayReadArchive(server, player, request.maidStableId())) {
+            if (!ArchiveAccess.mayRead(server, player, request.maidStableId())) {
                 reply(context, ArchiveHistoryResponse.error(request.requestId(),
                         request.maidStableId(), request.expectedServerWorldId(),
                         ArchiveHistoryStatus.NO_PERMISSION));
@@ -166,20 +163,6 @@ public record C2SRequestArchiveHistoryPacket(
         }
         LAST_REQUEST_TICK.put(playerId, now);
         return true;
-    }
-
-    /**
-     * 已加载女仆必须当前归属该玩家；只有女仆未加载时才允许联系人簿归属兜底。
-     * 已加载但归属不符时不能再用旧联系人绕过。
-     */
-    private static boolean mayReadArchive(MinecraftServer server, ServerPlayer player,
-                                          String maidStableId) {
-        EntityMaid maid = MaidStableIdHelper.findMaid(server, maidStableId);
-        if (maid != null) {
-            return player.getUUID().equals(maid.getOwnerUUID());
-        }
-        MaidContactEntry entry = MaidContactBook.get(server).getEntry(maidStableId);
-        return entry != null && player.getUUID().toString().equals(entry.getOwnerUuid());
     }
 
     private static void replyInvalid(C2SRequestArchiveHistoryPacket packet, IPayloadContext context) {

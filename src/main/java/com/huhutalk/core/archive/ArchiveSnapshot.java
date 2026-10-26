@@ -32,7 +32,8 @@ public record ArchiveSnapshot(
         long createdAtEpochMillis,
         List<ArchiveRecord> records
 ) {
-    public static final int CURRENT_SCHEMA_VERSION = 1;
+    public static final int CURRENT_SCHEMA_VERSION = 2;
+    private static final int LEGACY_SCHEMA_VERSION = 1;
 
     private static final Gson GSON = new GsonBuilder()
             .setPrettyPrinting()
@@ -40,6 +41,10 @@ public record ArchiveSnapshot(
             .create();
 
     public ArchiveSnapshot {
+        // 旧辅助构造调用可传 1；规范化后内存与落盘都使用当前版本。
+        if (schemaVersion == LEGACY_SCHEMA_VERSION) {
+            schemaVersion = CURRENT_SCHEMA_VERSION;
+        }
         if (schemaVersion != CURRENT_SCHEMA_VERSION) {
             throw new ArchiveException(ArchiveException.Code.UNSUPPORTED_SCHEMA,
                     "unsupported archive schemaVersion: " + schemaVersion);
@@ -126,7 +131,7 @@ public record ArchiveSnapshot(
         }
         JsonObject object = parsed.getAsJsonObject();
         int schemaVersion = requireInt(object, "schemaVersion");
-        if (schemaVersion != CURRENT_SCHEMA_VERSION) {
+        if (schemaVersion != LEGACY_SCHEMA_VERSION && schemaVersion != CURRENT_SCHEMA_VERSION) {
             throw new ArchiveException(ArchiveException.Code.UNSUPPORTED_SCHEMA,
                     "unsupported archive schemaVersion: " + schemaVersion);
         }
@@ -172,6 +177,9 @@ public record ArchiveSnapshot(
         object.add("attachmentRefs", attachments);
         object.add("relatedEventId", record.relatedEventId() == null
                 ? JsonNull.INSTANCE : new JsonPrimitive(record.relatedEventId()));
+        if (record.event() != null) {
+            object.add("event", record.event().toJson());
+        }
         return object;
     }
 
@@ -200,8 +208,12 @@ public record ArchiveSnapshot(
             attachmentRefs.add(attachment.getAsString());
         }
         String relatedEventId = optionalString(object, "relatedEventId");
+        JsonElement eventElement = object.get("event");
+        ArchiveEvent event = eventElement == null || eventElement.isJsonNull()
+                ? null : ArchiveEvent.fromJson(eventElement);
         return new ArchiveRecord(messageId, turnId, relatedMessageId, source, role, text,
-                recordedAt, originWorldId, originGameTime, sequence, attachmentRefs, relatedEventId);
+                recordedAt, originWorldId, originGameTime, sequence, attachmentRefs,
+                relatedEventId, event);
     }
 
     private static String requireString(JsonObject object, String field) {

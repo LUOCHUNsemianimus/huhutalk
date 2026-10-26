@@ -161,6 +161,18 @@ public record ArchiveHistoryResponse(
             entry.addProperty("role", record.role());
             entry.addProperty("text", record.text());
             entry.addProperty("sequence", record.sequence());
+            entry.addProperty("source", record.source().name());
+            entry.addProperty("turnId", record.turnId());
+            entry.add("relatedMessageId", record.relatedMessageId() == null
+                    ? com.google.gson.JsonNull.INSTANCE
+                    : new com.google.gson.JsonPrimitive(record.relatedMessageId()));
+            JsonArray refs = new JsonArray();
+            for (String ref : record.attachmentRefs()) {
+                refs.add(ref);
+            }
+            entry.add("attachmentRefs", refs);
+            entry.add("event", record.event() == null
+                    ? com.google.gson.JsonNull.INSTANCE : record.event().toJson());
             recordArray.add(entry);
         }
         object.add("records", recordArray);
@@ -191,7 +203,8 @@ public record ArchiveHistoryResponse(
         }
         JsonObject object = parsed.getAsJsonObject();
         int schemaVersion = requireInt(object, "schemaVersion");
-        if (schemaVersion != ArchiveHistoryProtocol.PROTOCOL_SCHEMA_VERSION) {
+        // v1 只含最小文字字段；v2 增加来源/轮次/图片引用/结构化事件。未知版本仍拒绝。
+        if (schemaVersion != 1 && schemaVersion != ArchiveHistoryProtocol.PROTOCOL_SCHEMA_VERSION) {
             throw new ArchiveException(ArchiveException.Code.UNSUPPORTED_SCHEMA,
                     "unsupported archive history schemaVersion: " + schemaVersion);
         }
@@ -227,18 +240,54 @@ public record ArchiveHistoryResponse(
                 throw new ArchiveException(ArchiveException.Code.CORRUPT,
                         "records entries must be objects");
             }
-            records.add(recordFromJson(recordElement.getAsJsonObject()));
+            records.add(recordFromJson(recordElement.getAsJsonObject(), schemaVersion));
         }
         return new ArchiveHistoryResponse(requestId, maidStableId, serverWorldId, status,
                 upperSequence, nextBeforeSequence, hasMore, coveragePartial, scopes, records);
     }
 
-    private static ArchiveHistoryRecord recordFromJson(JsonObject object) {
-        return new ArchiveHistoryRecord(
-                requireString(object, "messageId"),
-                requireString(object, "role"),
-                requireString(object, "text"),
-                requireLong(object, "sequence"));
+    private static ArchiveHistoryRecord recordFromJson(JsonObject object, int schemaVersion) {
+        String messageId = requireString(object, "messageId");
+        String role = requireString(object, "role");
+        String text = requireString(object, "text");
+        long sequence = requireLong(object, "sequence");
+        if (schemaVersion == 1) {
+            // 旧 v1 最小文字响应：补在线纯文本缺省值。
+            return new ArchiveHistoryRecord(messageId, role, text, sequence);
+        }
+        ArchiveSource source = ArchiveSource.fromJson(requireString(object, "source"));
+        String turnId = requireString(object, "turnId");
+        String relatedMessageId = optionalString(object, "relatedMessageId");
+        JsonElement refsElement = object.get("attachmentRefs");
+        if (refsElement == null || !refsElement.isJsonArray()) {
+            throw new ArchiveException(ArchiveException.Code.CORRUPT,
+                    "attachmentRefs must be an array");
+        }
+        List<String> attachmentRefs = new ArrayList<>();
+        for (JsonElement ref : refsElement.getAsJsonArray()) {
+            if (!ref.isJsonPrimitive() || !ref.getAsJsonPrimitive().isString()) {
+                throw new ArchiveException(ArchiveException.Code.CORRUPT,
+                        "attachmentRefs entries must be strings");
+            }
+            attachmentRefs.add(ref.getAsString());
+        }
+        JsonElement eventElement = object.get("event");
+        ArchiveEvent event = eventElement == null || eventElement.isJsonNull()
+                ? null : ArchiveEvent.fromJson(eventElement);
+        return new ArchiveHistoryRecord(messageId, role, text, sequence, source, turnId,
+                relatedMessageId, attachmentRefs, event);
+    }
+
+    private static String optionalString(JsonObject object, String field) {
+        JsonElement element = object.get(field);
+        if (element == null || element.isJsonNull()) {
+            return null;
+        }
+        if (!element.isJsonPrimitive() || !element.getAsJsonPrimitive().isString()) {
+            throw new ArchiveException(ArchiveException.Code.CORRUPT,
+                    field + " must be a string or null");
+        }
+        return element.getAsString();
     }
 
     private static String requireString(JsonObject object, String field) {

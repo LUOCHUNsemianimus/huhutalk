@@ -29,7 +29,7 @@ public class HuhuTalkChatCallback extends LLMCallback {
     private final String stableId;
     /** 是否「女仆悄悄话」（沉浸手机聊天）：开启时临时关闭女仆气泡，女仆回复不出现在聊天栏/头顶气泡 */
     private final boolean immersive;
-    /** 在线纯文本归档 turn；null = 旧构造入口、图片或系统注入，不写纯文本归档。 */
+    /** 在线手机归档 turn（文本或图片）；null = 旧构造入口/系统注入，不写归档。 */
     private final ArchiveTurnContext archiveTurn;
     /** 女仆回复归档 messageId 在构造时生成并复用，避免重复 onSuccess 写多份。 */
     private final String archiveReplyMessageId;
@@ -49,7 +49,7 @@ public class HuhuTalkChatCallback extends LLMCallback {
 
     /**
      * 兼容重载：archiveTurn 非空时才把本回调最终文本回复写入会话归档。
-     * 原构造器保持委托 archiveTurn=null，图片/系统注入仍走原调用。
+     * 原构造器保持委托 archiveTurn=null，系统注入仍走原调用。
      */
     public HuhuTalkChatCallback(MaidAIChatManager chatManager, List<LLMMessage> messages,
                                 ServerPlayer sender, String stableId, boolean immersive,
@@ -78,6 +78,11 @@ public class HuhuTalkChatCallback extends LLMCallback {
         return stableId;
     }
 
+    /** 当前聊天轮次的归档上下文；系统注入/旧构造入口为 null。 */
+    public ArchiveTurnContext getArchiveTurn() {
+        return archiveTurn;
+    }
+
     @Override
     public void onSuccess(ResponseChat responseChat) {
         // 气泡抑制已由 ImmersiveBubbleController 在聊天发起时处理（覆盖整个回复周期 + 全局生效），
@@ -91,6 +96,8 @@ public class HuhuTalkChatCallback extends LLMCallback {
         // 服务端 tick 仍有超时兜底，防止客户端异常导致窗口悬挂。
 
         String replyText = responseChat.getChatText();
+        // 一次性捕获本次回复选中的表情，归档与客户端发送使用同一份事实。
+        String emote = pendingEmote;
 
         // 归档最终回复不依赖 sender 是否在线/存活；归属变化在 service 内校验并只记归档日志。
         if (archiveTurn != null && replyText != null && !replyText.isBlank()
@@ -98,14 +105,13 @@ public class HuhuTalkChatCallback extends LLMCallback {
             if (archiveReplySubmitted.compareAndSet(false, true)) {
                 MinecraftServer server = archiveLevel.getServer();
                 String messageId = archiveReplyMessageId;
-                server.submit(() -> archiveReply(server, messageId, replyText));
+                server.submit(() -> archiveReply(server, messageId, replyText, emote));
             }
         }
 
         if (sender != null && sender.isAlive() && !replyText.isBlank()) {
             if (getMaid().level() instanceof ServerLevel serverLevel) {
                 MinecraftServer server = serverLevel.getServer();
-                String emote = pendingEmote;
                 server.submit(() -> {
                     // 按玩家所在维度应用信号延迟：主世界满格 / 其余维度中等 / 地狱差
                     SignalDelayManager.sendDelayedReply(sender, stableId, replyText, emote);
@@ -132,12 +138,12 @@ public class HuhuTalkChatCallback extends LLMCallback {
         }
     }
 
-    private void archiveReply(MinecraftServer server, String messageId, String replyText) {
+    private void archiveReply(MinecraftServer server, String messageId, String replyText, String emote) {
         try {
-            ArchiveService.recordMaidReply(server, getMaid(), archiveTurn, messageId, replyText);
+            ArchiveService.recordMaidReply(server, getMaid(), archiveTurn, messageId, replyText, emote);
         } catch (ArchiveException exception) {
             // 只限捕获归档错误：不改变原聊天/LLM 错误处理，也不阻断回复发送。
-            LOGGER.error("[HuhuTalk] 在线手机纯文本女仆回复归档失败 turnId={}",
+            LOGGER.error("[HuhuTalk] 在线手机女仆回复归档失败 turnId={}",
                     archiveTurn.turnId(), exception);
         }
     }

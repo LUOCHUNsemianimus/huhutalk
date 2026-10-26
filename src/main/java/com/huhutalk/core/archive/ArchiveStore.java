@@ -89,7 +89,11 @@ public final class ArchiveStore {
         ArchiveRecord stored = draft.withSequence(nextSequence(snapshot));
         List<ArchiveRecord> records = new ArrayList<>(snapshot.records());
         records.add(stored);
-        ArchiveSnapshot updated = snapshot.withRecords(records);
+        // 会话已存在时不能丢弃本次入口声明的 coverage：先文字后图片仍要保留两种 scope。
+        ArchiveSnapshot updated = new ArchiveSnapshot(snapshot.schemaVersion(),
+                snapshot.archiveId(), snapshot.ownerUuid(), snapshot.maidStableId(),
+                snapshot.coverage().merge(coverage), snapshot.originWorldId(),
+                snapshot.createdAtEpochMillis(), records);
         writeSnapshot(archiveFile(ownerUuid, stableId), updated);
         return stored;
     }
@@ -237,7 +241,11 @@ public final class ArchiveStore {
         } else if (!appended.isEmpty()) {
             List<ArchiveRecord> merged = new ArrayList<>(target.records());
             merged.addAll(appended);
-            result = target.withRecords(merged);
+            // 与 appendOrCreate 一致：导入只允许扩大覆盖范围，不能把已有 scope 覆盖掉。
+            result = new ArchiveSnapshot(target.schemaVersion(), target.archiveId(),
+                    target.ownerUuid(), target.maidStableId(),
+                    target.coverage().merge(incoming.coverage()), target.originWorldId(),
+                    target.createdAtEpochMillis(), merged);
             writeSnapshot(archiveFile(targetOwnerUuid, stableId), result);
         } else {
             result = target;
@@ -363,6 +371,7 @@ public final class ArchiveStore {
                 && first.originWorldId().equals(second.originWorldId())
                 && first.originGameTime() == second.originGameTime()
                 && first.attachmentRefs().equals(second.attachmentRefs())
-                && Objects.equals(first.relatedEventId(), second.relatedEventId());
+                && Objects.equals(first.relatedEventId(), second.relatedEventId())
+                && Objects.equals(first.event(), second.event());
     }
 }

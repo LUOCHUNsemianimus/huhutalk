@@ -8,6 +8,10 @@ import com.github.tartaricacid.touhoulittlemaid.item.ItemWirelessIO;
 import com.huhutalk.common.MaidStableIdHelper;
 import com.huhutalk.common.PhoneHelper;
 import com.huhutalk.common.SystemText;
+import com.huhutalk.core.archive.ArchiveAccess;
+import com.huhutalk.core.archive.ArchiveException;
+import com.huhutalk.core.archive.ArchiveTransferFacts;
+import com.huhutalk.core.archive.ArchiveTurnContext;
 import com.huhutalk.core.chat.MaidChatHandler;
 import com.huhutalk.core.chat.PendingSystemMessageBus;
 import net.minecraft.core.BlockPos;
@@ -89,25 +93,42 @@ public final class MaidTransferService {
      * 若某次点击一个都放不下（背包满），则把本批剩余整批丢到玩家脚下并结束，防止反复点/逻辑卡死。
      */
     public static ClaimResult claim(ServerPlayer player, String stableId, String transferId) {
+        if (player == null) {
+            return new ClaimResult(0, 0, false, false);
+        }
+        boolean mayClaim;
+        try {
+            mayClaim = ArchiveAccess.mayRead(player.server, player, stableId);
+        } catch (ArchiveException exception) {
+            mayClaim = false;
+        }
+        if (!mayClaim) {
+            // 未授权不读取/修改收件箱，也不生成成功档案。
+            return new ClaimResult(0, 0, false, false);
+        }
         MaidTransferData data = MaidTransferData.get(player.server);
         List<ItemStack> batch = data.getBatch(stableId, transferId);
         if (batch.isEmpty()) {
+            // 重复领取空批：不写任何领取事件。
             return new ClaimResult(0, 0, true, false);
         }
 
         List<ItemStack> remaining = new ArrayList<>();
+        List<ItemStack> claimed = new ArrayList<>();
         int inserted = 0;
         boolean anyInserted = false;
         for (ItemStack file : batch) {
             // 以玩家整体物品栏(主背包，经实体 ItemHandler capability)为容器做可堆叠插入
             IItemHandler playerInv = player.getCapability(Capabilities.ItemHandler.ENTITY);
             ItemStack original = file.copy();
+            int beforeCount = original.getCount();
             ItemStack leftover = ItemHandlerHelper.insertItemStacked(playerInv, original, false);
+            ArchiveTransferFacts facts = ArchiveTransferFacts.of(beforeCount, leftover.getCount());
             if (leftover.isEmpty()) {
                 // 整份放进了背包
                 inserted++;
                 anyInserted = true;
-            } else if (leftover.getCount() != original.getCount()) {
+            } else if (leftover.getCount() != beforeCount) {
                 // 部分放入（同物品补齐剩余容量）
                 inserted++;
                 anyInserted = true;
@@ -116,33 +137,55 @@ public final class MaidTransferService {
                 // 一个都放不进去
                 remaining.add(original);
             }
+            if (facts.received() > 0) {
+                ItemStack received = original.copy();
+                received.setCount(facts.received());
+                claimed.add(received);
+            }
         }
 
         // 一个都没能放进去 → 背包无空位：整批丢到玩家脚下并结束本批
         if (!anyInserted) {
+            List<ItemStack> dropped = new ArrayList<>();
+            List<ItemStack> dropFailed = new ArrayList<>();
             for (ItemStack drop : batch) {
-                dropAtPlayerFeet(player, drop);
+                ItemStack snapshot = drop.copy();
+                if (dropAndReport(player, drop)) {
+                    dropped.add(snapshot);
+                } else {
+                    dropFailed.add(snapshot);
+                }
             }
             data.removeBatch(stableId, transferId);
+            TransferArchiveRecorder.recordDropped(player, stableId, transferId, dropped, dropFailed);
             return new ClaimResult(0, 0, true, true);
         }
 
         // 部分/全部放入：更新收件箱剩余
         data.setBatchRemaining(stableId, transferId, remaining);
         boolean finished = remaining.isEmpty();
+        TransferArchiveRecorder.recordClaimed(player, stableId, transferId, claimed, finished);
         return new ClaimResult(inserted, remaining.size(), finished, false);
     }
 
     /** 在玩家脚下生成一个物品实体（丢到地上）。须服务端线程。 */
     public static void dropAtPlayerFeet(ServerPlayer player, ItemStack stack) {
+        dropAndReport(player, stack);
+    }
+
+    /**
+     * 真正生成掉落实体并返回是否成功；档案只能使用这个结果记录“实际生成”，
+     * 不能仅因为调用了丢地就声称成功。原生成位置/拾取延迟保持不变。
+     */
+    private static boolean dropAndReport(ServerPlayer player, ItemStack stack) {
         if (stack == null || stack.isEmpty()) {
-            return;
+            return false;
         }
         ServerLevel level = player.serverLevel();
         ItemEntity entity = new ItemEntity(level,
                 player.getX(), player.getY() + 0.3, player.getZ(), stack.copy());
         entity.setPickUpDelay(0);
-        level.addFreshEntity(entity);
+        return level.addFreshEntity(entity);
     }
 
     /** 玩家删除某会话聊天记录时：把该会话收件箱里全部待领文件整批丢到玩家脚下并清空收件箱。 */
@@ -150,11 +193,29 @@ public final class MaidTransferService {
         if (stableId == null) {
             return;
         }
+        if (player == null) {
+            return;
+        }
+        try {
+            if (!ArchiveAccess.mayRead(player.server, player, stableId)) {
+                return;
+            }
+        } catch (ArchiveException exception) {
+            return;
+        }
         MaidTransferData data = MaidTransferData.get(player.server);
         List<ItemStack> files = data.drainConversation(stableId);
+        List<ItemStack> dropped = new ArrayList<>();
+        List<ItemStack> dropFailed = new ArrayList<>();
         for (ItemStack f : files) {
-            dropAtPlayerFeet(player, f);
+            ItemStack snapshot = f.copy();
+            if (dropAndReport(player, f)) {
+                dropped.add(snapshot);
+            } else {
+                dropFailed.add(snapshot);
+            }
         }
+        TransferArchiveRecorder.recordDropped(player, stableId, null, dropped, dropFailed);
     }
 
     // ==================== M→P 物品来源采集 ====================
@@ -254,10 +315,17 @@ public final class MaidTransferService {
 
         public final int code;
         public final String message;
+        /** 成功转移后用于关联本轮回复的归档 turn；归档失败或旧入口为 null。 */
+        public final ArchiveTurnContext archiveTurn;
 
         public SendResult(int code, String message) {
+            this(code, message, null);
+        }
+
+        public SendResult(int code, String message, ArchiveTurnContext archiveTurn) {
             this.code = code;
             this.message = message;
+            this.archiveTurn = archiveTurn;
         }
     }
 
@@ -269,6 +337,15 @@ public final class MaidTransferService {
      */
     public static SendResult sendFromPlayer(ServerPlayer player, String stableId,
                                             List<PlayerSendEntry> entries) {
+        return sendFromPlayer(player, stableId, entries, null);
+    }
+
+    /**
+     * 带随信文字的兼容重载：实际插入后用 leftover 计算真实接收数量并写归档。
+     * 原返回码与库存算法保持不变；部分/全部实际失败只在档案中如实标记。
+     */
+    public static SendResult sendFromPlayer(ServerPlayer player, String stableId,
+                                            List<PlayerSendEntry> entries, String caption) {
         EntityMaid maid = findOwnedAliveMaid(player.server, stableId, player);
         if (maid == null) {
             return new SendResult(SendResult.NO_MAID, SystemText.of("message.huhutalk.transfer.maid_offline"));
@@ -307,15 +384,32 @@ public final class MaidTransferService {
             }
         }
 
-        // 3) 提交：从玩家扣取并真正放入女仆
+        // 3) 提交：从玩家扣取并真正放入女仆；逐栈用 leftover 计算真实接收量
         for (int i = 0; i < removals.size(); i++) {
             int[] rm = removals.get(i);
             player.getInventory().getItem(rm[0]).shrink(rm[1]);
         }
+        List<ItemStack> received = new ArrayList<>();
+        List<ItemStack> failed = new ArrayList<>();
         for (ItemStack stack : toSend) {
-            ItemHandlerHelper.insertItemStacked(maidInv, stack, false);
+            ItemStack snapshot = stack.copy();
+            int beforeCount = snapshot.getCount();
+            ItemStack leftover = ItemHandlerHelper.insertItemStacked(maidInv, stack, false);
+            ArchiveTransferFacts facts = ArchiveTransferFacts.of(beforeCount, leftover.getCount());
+            if (facts.received() > 0) {
+                ItemStack got = snapshot.copy();
+                got.setCount(facts.received());
+                received.add(got);
+            }
+            if (facts.remaining() > 0) {
+                ItemStack miss = snapshot.copy();
+                miss.setCount(facts.remaining());
+                failed.add(miss);
+            }
         }
-        return new SendResult(SendResult.OK, "");
+        ArchiveTurnContext archiveTurn = TransferArchiveRecorder.recordPlayerSend(player, maid,
+                stableId, caption, received, failed);
+        return new SendResult(SendResult.OK, "", archiveTurn);
     }
 
     /** P→M 一条：玩家主背包槽位 + 目标物品 + 数量。 */
@@ -434,6 +528,15 @@ public final class MaidTransferService {
      * 把一批"文件"放入收件箱并推送物品气泡给玩家。返回 true=已推送。
      */
     public static boolean pushBatchToPlayer(ServerPlayer player, String stableId, List<ItemStack> files) {
+        return pushBatchToPlayer(player, stableId, files, null);
+    }
+
+    /**
+     * 带可空归档 turn 的兼容入口：addBatch 成功后按 data.getBatch 的实际持久化列表
+     * 记录 QUEUED，再走原预览/包发送。没有 turn 时仍记录独立事件，不伪造玩家文字。
+     */
+    public static boolean pushBatchToPlayer(ServerPlayer player, String stableId, List<ItemStack> files,
+                                            ArchiveTurnContext archiveTurn) {
         if (player == null || stableId == null || files == null || files.isEmpty()) {
             return false;
         }
@@ -442,6 +545,8 @@ public final class MaidTransferService {
         if (tid == null) {
             return false;
         }
+        List<ItemStack> queued = data.getBatch(stableId, tid);
+        TransferArchiveRecorder.recordQueued(player, stableId, archiveTurn, tid, queued);
         java.util.List<com.huhutalk.phone.ItemTransfer.Preview> previews = new ArrayList<>();
         int shown = Math.min(3, files.size());
         for (int i = 0; i < shown; i++) {
@@ -511,7 +616,7 @@ public final class MaidTransferService {
         }
 
         // 只有女仆可用背包整批放得下才真正转移；否则不扣玩家物品
-        SendResult r = sendFromPlayer(player, stableId, entries);
+        SendResult r = sendFromPlayer(player, stableId, entries, text);
         if (r.code != SendResult.OK) {
             return ChatWithItemsResult.failed(
                     (r.message == null || r.message.isBlank())
@@ -520,13 +625,14 @@ public final class MaidTransferService {
 
         // 已成功转移：让女仆在回复里感知并回应收到的物品
         String sys = sum + "。请自然地回应主人（比如表达收到、感谢，或简单评价这些物品）。";
+        ArchiveTurnContext archiveTurn = r.archiveTurn;
         if (text != null && !text.isBlank()) {
             // 有文字：作为正常用户消息，同时把"收到物品"作为系统说明一并带给 AI
             PendingSystemMessageBus.queue(stableId, sys);
-            MaidChatHandler.handleChat(player, stableId, text, bubbleMute, immersive);
+            MaidChatHandler.handleChat(player, stableId, text, bubbleMute, immersive, archiveTurn);
         } else {
             // 无文字：直接让女仆针对收到的物品主动回应
-            MaidChatHandler.handleSystemInjection(player, stableId, sys);
+            MaidChatHandler.handleSystemInjection(player, stableId, sys, archiveTurn);
         }
         return ChatWithItemsResult.sent(previews, entries.size());
     }

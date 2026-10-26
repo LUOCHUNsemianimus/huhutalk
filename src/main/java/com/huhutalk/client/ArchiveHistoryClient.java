@@ -85,6 +85,11 @@ public final class ArchiveHistoryClient {
         return SESSION.stableId();
     }
 
+    /** 当前连接已确认的服务端 worldId；图片请求必须携带同一值。 */
+    public static String serverWorldId() {
+        return SESSION.serverWorldId();
+    }
+
     private static void send(ArchiveHistoryRequest request) {
         PacketDistributor.sendToServer(new C2SRequestArchiveHistoryPacket(
                 request.requestId(), request.maidStableId(), request.expectedServerWorldId(),

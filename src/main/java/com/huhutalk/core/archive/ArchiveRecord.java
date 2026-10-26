@@ -8,6 +8,7 @@ import java.util.List;
  *
  * @param recordedAtEpochMillis 旧档允许未知时使用 0；新记录使用当前时间。
  * @param sequence              会话内排序键，由存储层分配。
+ * @param event                 可选结构化事件；旧档或纯文本消息为 null。
  */
 public record ArchiveRecord(
         String messageId,
@@ -21,7 +22,8 @@ public record ArchiveRecord(
         long originGameTime,
         long sequence,
         List<String> attachmentRefs,
-        String relatedEventId
+        String relatedEventId,
+        ArchiveEvent event
 ) {
     public ArchiveRecord {
         messageId = ArchiveIds.requireToken(messageId, "messageId");
@@ -64,9 +66,19 @@ public record ArchiveRecord(
         }
     }
 
+    /** 旧 12 参数入口；结构化事件为 null，保持既有调用可编译。 */
+    public ArchiveRecord(String messageId, String turnId, String relatedMessageId,
+                         ArchiveSource source, ArchiveRole role, String text,
+                         long recordedAtEpochMillis, String originWorldId, long originGameTime,
+                         long sequence, List<String> attachmentRefs, String relatedEventId) {
+        this(messageId, turnId, relatedMessageId, source, role, text,
+                recordedAtEpochMillis, originWorldId, originGameTime, sequence,
+                attachmentRefs, relatedEventId, null);
+    }
+
     public ArchiveRecord withSequence(long newSequence) {
         return new ArchiveRecord(messageId, turnId, relatedMessageId, source, role, text,
                 recordedAtEpochMillis, originWorldId, originGameTime, newSequence,
-                attachmentRefs, relatedEventId);
+                attachmentRefs, relatedEventId, event);
     }
 }

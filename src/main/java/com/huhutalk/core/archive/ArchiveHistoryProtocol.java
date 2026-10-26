@@ -18,7 +18,7 @@ import java.util.regex.Pattern;
  * <p>本类不读写文件、不持有 MinecraftServer，也不复制 {@link ArchiveStore} 的持久化逻辑。</p>
  */
 public final class ArchiveHistoryProtocol {
-    public static final int PROTOCOL_SCHEMA_VERSION = 1;
+    public static final int PROTOCOL_SCHEMA_VERSION = 2;
     public static final int MAX_PAGE_SIZE = 20;
     /** 响应 JSON 字符上限（与网络包 stringUtf8 上限一致）。 */
     public static final int MAX_JSON_CHARS = 60_000;
@@ -112,10 +112,15 @@ public final class ArchiveHistoryProtocol {
 
         List<ArchiveHistoryRecord> eligible = new ArrayList<>();
         for (ArchiveRecord record : snapshot.records()) {
-            if (record.role() == ArchiveRole.PLAYER || record.role() == ArchiveRole.MAID) {
-                eligible.add(new ArchiveHistoryRecord(record.messageId(), record.role().name(),
-                        record.text(), record.sequence()));
+            // 玩家/女仆原话始终可见；观察/系统/工具记录只有携带结构化事件时才进入档案视图。
+            boolean conversation = record.role() == ArchiveRole.PLAYER
+                    || record.role() == ArchiveRole.MAID;
+            if (!conversation && record.event() == null) {
+                continue;
             }
+            eligible.add(new ArchiveHistoryRecord(record.messageId(), record.role().name(),
+                    record.text(), record.sequence(), record.source(), record.turnId(),
+                    record.relatedMessageId(), record.attachmentRefs(), record.event()));
         }
         eligible.sort(Comparator.comparingLong(ArchiveHistoryRecord::sequence));
         if (eligible.isEmpty()) {

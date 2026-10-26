@@ -155,6 +155,52 @@ public final class ArchiveStoreBehaviorCheck {
         checkEquals("snapshot json first text", exported.records().get(0).text(),
                 parsed.records().get(0).text());
 
+        // 6b. 旧 schema1 JSON 可读，加载不重写；下一次写入才落为 schema2 并保留旧字段。
+        String v1Json = json.replace(
+                "\"schemaVersion\": " + ArchiveSnapshot.CURRENT_SCHEMA_VERSION,
+                "\"schemaVersion\": 1");
+        ArchiveSnapshot v1Loaded = ArchiveSnapshot.fromJson(v1Json);
+        checkEquals("v1 json normalizes to current schema",
+                ArchiveSnapshot.CURRENT_SCHEMA_VERSION, v1Loaded.schemaVersion());
+        checkEquals("v1 json keeps record count", exported.records().size(),
+                v1Loaded.records().size());
+        ArchiveRecord v1First = v1Loaded.records().get(0);
+        checkEquals("v1 keeps message id", player.messageId(), v1First.messageId());
+        checkEquals("v1 keeps turn id", player.turnId(), v1First.turnId());
+        checkEquals("v1 keeps text", player.text(), v1First.text());
+        checkEquals("v1 keeps recorded time", player.recordedAtEpochMillis(),
+                v1First.recordedAtEpochMillis());
+        checkEquals("v1 keeps sequence", player.sequence(), v1First.sequence());
+        checkEquals("v1 has no event", null, v1First.event());
+        checkEquals("v1 json round-trip writes current schema",
+                ArchiveSnapshot.CURRENT_SCHEMA_VERSION,
+                ArchiveSnapshot.fromJson(v1Loaded.toJson()).schemaVersion());
+
+        Path legacyRoot = base.resolve("legacy-root");
+        Path legacyFile = legacyRoot.resolve(OWNER_A.toString()).resolve(MAID_A + ".json");
+        Files.createDirectories(legacyFile.getParent());
+        Files.writeString(legacyFile, v1Json, StandardCharsets.UTF_8);
+        byte[] beforeLegacyLoad = Files.readAllBytes(legacyFile);
+        ArchiveStore legacyStore = new ArchiveStore(legacyRoot);
+        checkEquals("v1 load keeps old record count", exported.records().size(),
+                legacyStore.load(OWNER_A, MAID_A).orElseThrow().records().size());
+        checkEquals("v1 load does not rewrite file", true,
+                java.util.Arrays.equals(beforeLegacyLoad, Files.readAllBytes(legacyFile)));
+        legacyStore.append(OWNER_A, MAID_A,
+                record("legacy-new", "legacy-turn", null, ArchiveRole.PLAYER, "new", 0L));
+        String legacyAfter = Files.readString(legacyFile, StandardCharsets.UTF_8);
+        checkEquals("next append writes current schema", true,
+                legacyAfter.contains("\"schemaVersion\": " + ArchiveSnapshot.CURRENT_SCHEMA_VERSION));
+        ArchiveSnapshot legacyAfterSnapshot = legacyStore.load(OWNER_A, MAID_A).orElseThrow();
+        checkEquals("schema2 rewrite keeps old record count", exported.records().size() + 1,
+                legacyAfterSnapshot.records().size());
+        checkEquals("schema2 rewrite keeps old message id", player.messageId(),
+                legacyStore.findByMessageId(OWNER_A, MAID_A, player.messageId())
+                        .orElseThrow().messageId());
+        checkEquals("schema2 rewrite keeps old text", player.text(),
+                legacyStore.findByMessageId(OWNER_A, MAID_A, player.messageId())
+                        .orElseThrow().text());
+
         Path importRoot = base.resolve("import-root");
         ArchiveStore importStore = new ArchiveStore(importRoot);
         ArchiveImportResult imported = importStore.importSnapshot(parsed, OWNER_A, MAID_A);
@@ -235,7 +281,9 @@ public final class ArchiveStoreBehaviorCheck {
         Path schemaFile = corruptRoot.resolve(OWNER_A.toString()).resolve(MAID_A + ".json");
         Files.createDirectories(schemaFile.getParent());
         Files.writeString(schemaFile,
-                exported.toJson().replace("\"schemaVersion\": 1", "\"schemaVersion\": 99"),
+                exported.toJson().replace(
+                        "\"schemaVersion\": " + ArchiveSnapshot.CURRENT_SCHEMA_VERSION,
+                        "\"schemaVersion\": 99"),
                 StandardCharsets.UTF_8);
         byte[] beforeSchema = Files.readAllBytes(schemaFile);
         expectFailure("unknown schema rejected", ArchiveException.Code.UNSUPPORTED_SCHEMA,
@@ -359,12 +407,14 @@ public final class ArchiveStoreBehaviorCheck {
                 WORLD_ID, 1L, List.of(record("num-1", "num-turn", null,
                         ArchiveRole.PLAYER, "numeric", 0L)));
         String numericJson = numericBase.toJson();
+        String schemaPrefix =
+                "\"schemaVersion\": " + ArchiveSnapshot.CURRENT_SCHEMA_VERSION;
         expectFailure("fractional schema rejected", ArchiveException.Code.CORRUPT,
                 () -> ArchiveSnapshot.fromJson(numericJson.replace(
-                        "\"schemaVersion\": 1", "\"schemaVersion\": 1.5")));
+                        schemaPrefix, "\"schemaVersion\": 1.5")));
         expectFailure("out-of-int schema rejected", ArchiveException.Code.CORRUPT,
                 () -> ArchiveSnapshot.fromJson(numericJson.replace(
-                        "\"schemaVersion\": 1", "\"schemaVersion\": 3000000000")));
+                        schemaPrefix, "\"schemaVersion\": 3000000000")));
         expectFailure("fractional createdAt rejected", ArchiveException.Code.CORRUPT,
                 () -> ArchiveSnapshot.fromJson(numericJson.replace(
                         "\"createdAtEpochMillis\": 1", "\"createdAtEpochMillis\": 1.5")));
@@ -387,7 +437,7 @@ public final class ArchiveStoreBehaviorCheck {
         Path numericFile = numericRoot.resolve(OWNER_A.toString()).resolve(MAID_B + ".json");
         Files.createDirectories(numericFile.getParent());
         Files.writeString(numericFile, numericJson.replace(
-                "\"schemaVersion\": 1", "\"schemaVersion\": 1.5"), StandardCharsets.UTF_8);
+                schemaPrefix, "\"schemaVersion\": 1.5"), StandardCharsets.UTF_8);
         byte[] beforeNumericFile = Files.readAllBytes(numericFile);
         expectFailure("fractional schema file rejected", ArchiveException.Code.CORRUPT,
                 () -> new ArchiveStore(numericRoot).load(OWNER_A, MAID_B));
@@ -418,6 +468,87 @@ public final class ArchiveStoreBehaviorCheck {
                 () -> maxStore.importSnapshot(maxIncoming, OWNER_A, MAID_B));
         checkEquals("import at sequence limit leaves file unchanged", true,
                 java.util.Arrays.equals(beforeMaxAppend, Files.readAllBytes(maxFile)));
+
+        // 19. 同一会话先文字再图片（及反向）合并 coverage，不丢已有 scope、不重复。
+        ArchiveCoverage imageCoverage = new ArchiveCoverage(true,
+                List.of("online_phone_text", "online_phone_image"));
+        String attachmentHash = "c".repeat(64);
+        ArchiveStore textThenImage = new ArchiveStore(base.resolve("coverage-root-a"));
+        textThenImage.appendOrCreate(OWNER_A, MAID_A, WORLD_ID,
+                ArchiveCoverage.ONLINE_PHONE_TEXT_PARTIAL,
+                record("cov-text-1", "cov-turn-1", null, ArchiveRole.PLAYER, "text first", 0L));
+        ArchiveRecord covImage = textThenImage.appendOrCreate(OWNER_A, MAID_A, WORLD_ID,
+                imageCoverage,
+                new ArchiveRecord("cov-image-1", "cov-turn-2", null,
+                        ArchiveSource.ONLINE_PHONE_IMAGE, ArchiveRole.PLAYER, "", RECORDED_AT,
+                        WORLD_ID, 1L, 0L, List.of(attachmentHash), null,
+                        ArchiveEvent.imageSent()));
+        ArchiveSnapshot textThenImageSnapshot = textThenImage.load(OWNER_A, MAID_A).orElseThrow();
+        checkEquals("text-then-image keeps both scopes",
+                List.of("online_phone_text", "online_phone_image"),
+                textThenImageSnapshot.coverage().scopes());
+        checkEquals("text-then-image coverage stays partial", true,
+                textThenImageSnapshot.coverage().partial());
+        checkEquals("text-then-image keeps image attachment", List.of(attachmentHash),
+                textThenImageSnapshot.records().get(1).attachmentRefs());
+        checkEquals("text-then-image keeps image event", ArchiveEventKind.IMAGE_SENT,
+                covImage.event().kind());
+
+        ArchiveStore imageThenText = new ArchiveStore(base.resolve("coverage-root-b"));
+        imageThenText.appendOrCreate(OWNER_A, MAID_A, WORLD_ID, imageCoverage,
+                new ArchiveRecord("cov-image-2", "cov-turn-3", null,
+                        ArchiveSource.ONLINE_PHONE_IMAGE, ArchiveRole.PLAYER, "", RECORDED_AT,
+                        WORLD_ID, 2L, 0L, List.of(attachmentHash), null,
+                        ArchiveEvent.imageSent()));
+        imageThenText.appendOrCreate(OWNER_A, MAID_A, WORLD_ID,
+                ArchiveCoverage.ONLINE_PHONE_TEXT_PARTIAL,
+                record("cov-text-2", "cov-turn-4", null, ArchiveRole.PLAYER, "text second", 0L));
+        ArchiveSnapshot imageThenTextSnapshot = imageThenText.load(OWNER_A, MAID_A).orElseThrow();
+        checkEquals("image-then-text keeps both scopes without duplicates",
+                List.of("online_phone_text", "online_phone_image"),
+                imageThenTextSnapshot.coverage().scopes());
+
+        // 重开读取与幂等重试：同 ID 同内容不写盘，也不改变 coverage。
+        ArchiveStore coverageReopened = new ArchiveStore(textThenImage.root());
+        checkEquals("coverage survives reopen",
+                List.of("online_phone_text", "online_phone_image"),
+                coverageReopened.load(OWNER_A, MAID_A).orElseThrow().coverage().scopes());
+        Path coverageFile = archiveFile(coverageReopened, OWNER_A, MAID_A);
+        byte[] beforeIdempotent = Files.readAllBytes(coverageFile);
+        ArchiveRecord retried = new ArchiveRecord("cov-image-1", "cov-turn-2", null,
+                ArchiveSource.ONLINE_PHONE_IMAGE, ArchiveRole.PLAYER, "", RECORDED_AT,
+                WORLD_ID, 1L, 0L, List.of(attachmentHash), null, ArchiveEvent.imageSent());
+        coverageReopened.appendOrCreate(OWNER_A, MAID_A, WORLD_ID, imageCoverage, retried);
+        checkEquals("idempotent coverage retry does not rewrite file", true,
+                java.util.Arrays.equals(beforeIdempotent, Files.readAllBytes(coverageFile)));
+        checkEquals("idempotent coverage retry keeps scopes",
+                List.of("online_phone_text", "online_phone_image"),
+                coverageReopened.load(OWNER_A, MAID_A).orElseThrow().coverage().scopes());
+
+        // 导入也只扩大 coverage，并保留目标已有 scope。
+        ArchiveStore coverageImport = new ArchiveStore(base.resolve("coverage-import-root"));
+        ArchiveSnapshot textOnlySnapshot = new ArchiveSnapshot(
+                ArchiveSnapshot.CURRENT_SCHEMA_VERSION, UUID.randomUUID().toString(),
+                OWNER_A.toString(), MAID_A, ArchiveCoverage.ONLINE_PHONE_TEXT_PARTIAL,
+                WORLD_ID, 1L, List.of(record("cov-import-text", "cov-import-turn", null,
+                        ArchiveRole.PLAYER, "import text", 0L)));
+        coverageImport.importSnapshot(textOnlySnapshot, OWNER_A, MAID_A);
+        ArchiveSnapshot importWithImage = new ArchiveSnapshot(
+                ArchiveSnapshot.CURRENT_SCHEMA_VERSION, textOnlySnapshot.archiveId(),
+                OWNER_A.toString(), MAID_A, imageCoverage, WORLD_ID, 1L,
+                List.of(record("cov-import-text", "cov-import-turn", null,
+                                ArchiveRole.PLAYER, "import text", 0L),
+                        new ArchiveRecord("cov-import-image", "cov-import-turn-2", null,
+                                ArchiveSource.ONLINE_PHONE_IMAGE, ArchiveRole.PLAYER, "",
+                                RECORDED_AT, WORLD_ID, 3L, 1L, List.of(attachmentHash), null,
+                                ArchiveEvent.imageSent())));
+        ArchiveImportResult coverageImported = coverageImport.importSnapshot(
+                importWithImage, OWNER_A, MAID_A);
+        checkEquals("coverage import adds image record", 1, coverageImported.importedCount());
+        checkEquals("coverage import skips existing text", 1, coverageImported.skippedCount());
+        checkEquals("coverage import merges scopes",
+                List.of("online_phone_text", "online_phone_image"),
+                coverageImport.load(OWNER_A, MAID_A).orElseThrow().coverage().scopes());
 
         System.out.println("PASS - archive store behavior");
     }

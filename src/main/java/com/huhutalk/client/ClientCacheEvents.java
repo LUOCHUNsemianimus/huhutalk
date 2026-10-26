@@ -34,6 +34,7 @@ public class ClientCacheEvents {
         MaidStatusCache.clear();
         // 档案读取按连接代次隔离：登录即作废旧世界/旧连接的迟到响应。
         ArchiveHistoryClient.onConnectionReset();
+        ArchiveAssetClient.onConnectionReset();
         SosBindCache.clear();
         SosTaskCache.clear();
         PhoneChatSourceCache.clear();
@@ -91,6 +92,7 @@ public class ClientCacheEvents {
         ChatHistoryStorage.saveCurrentWorld();
         // 登出后旧连接的档案响应不得再落到任何页面。
         ArchiveHistoryClient.onConnectionReset();
+        ArchiveAssetClient.onConnectionReset();
         PhoneChatSourceCache.clear();
         PhoneAnimation.reset();
         PhoneOverlay.resetForNewWorld();

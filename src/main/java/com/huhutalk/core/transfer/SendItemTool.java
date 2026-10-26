@@ -8,6 +8,7 @@ import com.github.tartaricacid.touhoulittlemaid.ai.service.function.schema.param
 import com.github.tartaricacid.touhoulittlemaid.ai.service.function.schema.parameter.StringParameter;
 import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
 import com.huhutalk.core.chat.HuhuTalkChatCallback;
+import com.huhutalk.core.archive.ArchiveTurnContext;
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 import net.minecraft.server.level.ServerPlayer;
@@ -114,7 +115,8 @@ public class SendItemTool implements ITool<SendItemTool.Result> {
         for (ItemStack f : files) {
             totalCount += f.getCount();
         }
-        boolean ok = MaidTransferService.pushBatchToPlayer(owner, stableId, files);
+        boolean ok = MaidTransferService.pushBatchToPlayer(owner, stableId, files,
+                hc.getArchiveTurn());
         if (!ok) {
             return callback.addToolResult(
                     "send_item: the transfer could not be completed (internal error). Nothing was removed from you.",

@@ -37,6 +37,7 @@ public final class ArchiveHistoryBehaviorCheck {
         maxCursorValidationDoesNotOverflow();
         footerButtonsUseContentLocalGeometry();
         invalidRequestsAndSchemasAreRejected();
+        mediaRecordsAreIncludedAndReadOnly();
         sessionStateMachineRejectsStaleResponses();
         System.out.println("ArchiveHistoryBehaviorCheck OK");
     }
@@ -225,7 +226,8 @@ public final class ArchiveHistoryBehaviorCheck {
         String goodJson = response.toJson();
 
         expectArchive(() -> ArchiveHistoryProtocol.decodeResponse(
-                        goodJson.replace("\"schemaVersion\":1", "\"schemaVersion\":2")),
+                        goodJson.replace("\"schemaVersion\":" + ArchiveHistoryProtocol.PROTOCOL_SCHEMA_VERSION,
+                                "\"schemaVersion\":999")),
                 ArchiveException.Code.UNSUPPORTED_SCHEMA, "unknown protocol schema");
         expectArchive(() -> ArchiveHistoryProtocol.decodeResponse(
                         "{\"schemaVersion\":1}"),
@@ -234,12 +236,117 @@ public final class ArchiveHistoryBehaviorCheck {
                         goodJson.replace("\"hasMore\":false", "\"hasMore\":\"no\"")),
                 ArchiveException.Code.CORRUPT, "bad boolean field");
         expectArchive(() -> ArchiveSnapshot.fromJson(
-                        snapshot.toJson().replace("\"schemaVersion\": 1", "\"schemaVersion\": 2")),
+                        snapshot.toJson().replace(
+                                "\"schemaVersion\": " + ArchiveSnapshot.CURRENT_SCHEMA_VERSION,
+                                "\"schemaVersion\": 999")),
                 ArchiveException.Code.UNSUPPORTED_SCHEMA, "unknown archive schema");
 
         ArchiveHistoryResponse roundTrip = ArchiveHistoryProtocol.decodeResponse(goodJson);
         check(roundTrip.requestId().equals(response.requestId()), "JSON round-trip requestId");
         check(roundTrip.records().size() == 1, "JSON round-trip record count");
+
+        // 旧 v1 最小文字响应：缺省字段补齐，仍可解码。
+        String v1Json = "{\"schemaVersion\":1,\"requestId\":\"req-v1\","
+                + "\"maidStableId\":\"" + MAID + "\",\"serverWorldId\":\"" + WORLD + "\","
+                + "\"status\":\"OK\",\"upperSequence\":0,\"nextBeforeSequence\":0,"
+                + "\"hasMore\":false,\"coveragePartial\":true,"
+                + "\"coverageScopes\":[\"online_phone_text\"],"
+                + "\"records\":[{\"messageId\":\"m-v1\",\"role\":\"PLAYER\","
+                + "\"text\":\"old v1 text\",\"sequence\":0}]}";
+        ArchiveHistoryResponse v1 = ArchiveHistoryProtocol.decodeResponse(v1Json);
+        check(v1.records().size() == 1, "v1 response keeps its record");
+        check(v1.records().get(0).source() == ArchiveSource.ONLINE_PHONE_TEXT,
+                "v1 response defaults to online phone text source");
+        check(v1.records().get(0).turnId().equals("m-v1"),
+                "v1 response defaults turnId from messageId");
+        check(v1.records().get(0).attachmentRefs().isEmpty(), "v1 response has no attachments");
+        check(v1.records().get(0).event() == null, "v1 response has no event");
+    }
+
+    // ==================== 图片/观察/事件 ====================
+
+    private static void mediaRecordsAreIncludedAndReadOnly() {
+        String hash = "d".repeat(64);
+        String longObservation = "视觉观察原文-" + "x".repeat(4_000);
+        List<ArchiveRecord> records = new ArrayList<>(List.of(
+                new ArchiveRecord("img-1", "turn-img", null, ArchiveSource.ONLINE_PHONE_IMAGE,
+                        ArchiveRole.PLAYER, "", 1_000L, WORLD, 10L, 1_000L, List.of(hash),
+                        null, ArchiveEvent.imageSent()),
+                new ArchiveRecord("obs-1", "turn-img", "img-1", ArchiveSource.OBSERVATION,
+                        ArchiveRole.OBSERVATION, longObservation, 1_000L, WORLD, 11L, 1_001L,
+                        List.of(), null, ArchiveEvent.visionObservation("site-a", "model-a")),
+                new ArchiveRecord("fail-1", "turn-img", "img-1", ArchiveSource.OBSERVATION,
+                        ArchiveRole.SYSTEM, "vision failed reason", 1_000L, WORLD, 12L, 1_002L,
+                        List.of(), null, ArchiveEvent.visionFailed("site-a", "model-a")),
+                new ArchiveRecord("item-1", "turn-item", null, ArchiveSource.TOOL_OUTPUT,
+                        ArchiveRole.TOOL, "items", 1_000L, WORLD, 13L, 1_003L, List.of(),
+                        "transfer-9", ArchiveEvent.itemEvent(ArchiveEventKind.ITEMS_SENT,
+                                ArchiveTransferDirection.PLAYER_TO_MAID,
+                                ArchiveTransferOutcome.SUCCESS,
+                                List.of(new ArchiveItemSummary("minecraft:apple", "Apple", 3,
+                                        "transfer-apple-1")), "transfer-9")),
+                // 无事件的工具记录仍不进入只读档案视图。
+                new ArchiveRecord("hidden-1", "turn-hidden", null, ArchiveSource.TOOL_OUTPUT,
+                        ArchiveRole.TOOL, "raw tool output", 1_000L, WORLD, 14L, 1_004L,
+                        List.of(), null, null),
+                record(1_005L, ArchiveRole.MAID, "图片回复")));
+        ArchiveSnapshot snapshot = snapshot(records);
+        ArchiveHistoryRequest request = request("req-media", MAID, "", -1, -1, 20);
+        ArchiveHistoryResponse response = page(snapshot, request);
+        check(response.status() == ArchiveHistoryStatus.OK, "media page must be OK");
+        check(response.records().size() == 5, "media page includes conversation and event records");
+        check(response.records().stream().noneMatch(r -> r.messageId().equals("hidden-1")),
+                "event-less tool record is excluded");
+
+        ArchiveHistoryRecord image = response.records().get(0);
+        check(image.hasImage(), "image record exposes attachment");
+        check(image.attachmentRefs().equals(List.of(hash)), "image hash survives page");
+        check(image.source() == ArchiveSource.ONLINE_PHONE_IMAGE, "image source survives page");
+        check(image.event().kind() == ArchiveEventKind.IMAGE_SENT, "image event survives page");
+
+        ArchiveHistoryRecord observation = response.records().get(1);
+        check(observation.role().equals("OBSERVATION"), "observation keeps its role");
+        check(observation.source() == ArchiveSource.OBSERVATION, "observation keeps source");
+        check(observation.relatedMessageId().equals("img-1"), "observation keeps parent id");
+        check(observation.text().equals(longObservation), "observation text is not truncated");
+        check(observation.event().visualSite().equals("site-a"), "observation site survives");
+        check(observation.event().visualModel().equals("model-a"), "observation model survives");
+
+        ArchiveHistoryRecord failure = response.records().get(2);
+        check(failure.role().equals("SYSTEM"), "vision failure is a system record");
+        check(failure.event().kind() == ArchiveEventKind.VISION_FAILED,
+                "vision failure kind survives");
+
+        ArchiveHistoryRecord item = response.records().get(3);
+        check(item.event().kind() == ArchiveEventKind.ITEMS_SENT, "item event kind survives");
+        check(item.event().direction() == ArchiveTransferDirection.PLAYER_TO_MAID,
+                "item direction survives");
+        check(item.event().outcome() == ArchiveTransferOutcome.SUCCESS, "item outcome survives");
+        check(item.event().items().get(0).count() == 3, "item real count survives");
+        check(item.event().items().get(0).itemId().equals("minecraft:apple"),
+                "item registry id survives");
+        check(item.event().transferId() == null, "transferId is stripped from the DTO");
+        check(item.event().relatedEventId() == null, "event related id is stripped from the DTO");
+        check(item.event().items().get(0).relatedTransferId() == null,
+                "item transfer id is stripped from the DTO");
+
+        String json = response.toJson();
+        ArchiveHistoryResponse decoded = ArchiveHistoryProtocol.decodeResponse(json);
+        check(decoded.records().size() == 5, "extended page JSON round-trip count");
+        check(decoded.records().get(1).event().visualSite().equals("site-a"),
+                "extended page JSON round-trip observation");
+        check(decoded.records().get(3).event().transferId() == null,
+                "extended page JSON never reintroduces transferId");
+        check(decoded.records().get(3).event().items().get(0).relatedTransferId() == null,
+                "extended page JSON never reintroduces item transfer id");
+
+        // 预算不足时不截断原文：长观察与原话仍按完整文本返回或明确 TOO_LARGE。
+        ArchiveHistoryRequest budget = request("req-media-budget", MAID, "", -1, -1, 20);
+        ArchiveHistoryResponse budgetResponse = page(snapshot, budget);
+        check(budgetResponse.status() == ArchiveHistoryStatus.OK,
+                "media page with long observation fits the budget");
+        check(budgetResponse.records().get(1).text().equals(longObservation),
+                "budget page never truncates observation text");
     }
 
     // ==================== 请求状态机 ====================

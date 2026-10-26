@@ -28,6 +28,7 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 public class MaidChatHandler {
     private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger("huhutalk.maid_chat");
@@ -37,6 +38,16 @@ public class MaidChatHandler {
 
     public static void handleChat(ServerPlayer player, String stableId, String message,
                                   boolean bubbleMute, boolean chatBannerMute) {
+        handleChat(player, stableId, message, bubbleMute, chatBannerMute, null);
+    }
+
+    /**
+     * 带可空归档 turn 的兼容入口：sendFromPlayer 已成功建立物品 turn 时直接复用，
+     * 不再重复 recordPlayerText；null 时保持原纯文本归档逻辑。
+     */
+    public static void handleChat(ServerPlayer player, String stableId, String message,
+                                  boolean bubbleMute, boolean chatBannerMute,
+                                  @Nullable ArchiveTurnContext archiveTurn) {
         EntityMaid maid = findMaidByStableId(player.getServer(), stableId);
         if (maid == null) {
             handleOfflineMessage(player, stableId, message);
@@ -72,16 +83,18 @@ public class MaidChatHandler {
             return;
         }
 
-        // 只有通过现有归属/手机/长度/AI 校验的在线纯文本才建立归档 turn。
-        // 归档失败只记录日志并继续聊天，但不给回调归档上下文，避免写出孤立女仆回复。
-        ArchiveTurnContext archiveTurn = null;
-        try {
-            archiveTurn = ArchiveService.recordPlayerText(player.getServer(), player, maid, stableId, message);
-        } catch (ArchiveException exception) {
-            LOGGER.error("[HuhuTalk] 在线手机纯文本原话归档失败，已继续聊天但不归档本轮回复 stableId={}",
-                    stableId, exception);
+        // 只有通过现有归属/手机/长度/AI 校验的在线纯文本才建立归档 turn；
+        // 来自物品发送的 turn 已包含原话与物品事件，不能重复写玩家消息。
+        ArchiveTurnContext turn = archiveTurn;
+        if (turn == null) {
+            try {
+                turn = ArchiveService.recordPlayerText(player.getServer(), player, maid, stableId, message);
+            } catch (ArchiveException exception) {
+                LOGGER.error("[HuhuTalk] 在线手机纯文本原话归档失败，已继续聊天但不归档本轮回复 stableId={}",
+                        stableId, exception);
+            }
         }
-        final ArchiveTurnContext archiveTurnIn = archiveTurn;
+        final ArchiveTurnContext archiveTurnIn = turn;
 
         manager.addUserHistory(message);
 
@@ -127,7 +140,13 @@ public class MaidChatHandler {
      * [SYSTEM 离线汇总] [SYSTEM 设定] [SYSTEM 摘要(可选)] [历史] [USER 引导回应]
      */
     public static void handleSystemInjection(ServerPlayer player, String stableId, String systemText) {
-        handleSystemInjection(player, stableId, systemText, null, false);
+        handleSystemInjection(player, stableId, systemText, null, false, null);
+    }
+
+    /** 无文字物品发送触发的系统注入：复用已建立的物品 turn，让回复与物品事件同轮归档。 */
+    public static void handleSystemInjection(ServerPlayer player, String stableId, String systemText,
+                                             @Nullable ArchiveTurnContext archiveTurn) {
+        handleSystemInjection(player, stableId, systemText, null, false, archiveTurn);
     }
 
     /**
@@ -142,6 +161,12 @@ public class MaidChatHandler {
      */
     public static void handleSystemInjection(ServerPlayer player, String stableId, String systemText,
                                              @Nullable String closingUserText, boolean systemTextLast) {
+        handleSystemInjection(player, stableId, systemText, closingUserText, systemTextLast, null);
+    }
+
+    public static void handleSystemInjection(ServerPlayer player, String stableId, String systemText,
+                                             @Nullable String closingUserText, boolean systemTextLast,
+                                             @Nullable ArchiveTurnContext archiveTurn) {
         EntityMaid maid = findMaidByStableId(player.getServer(), stableId);
         if (maid == null) return;
         MaidAIChatManager manager = maid.getAiChatManager();
@@ -165,7 +190,8 @@ public class MaidChatHandler {
         messages.add(LLMMessage.userChat(maid, closingUserText != null ? closingUserText
                 : "主人就站在你面前，正期待着你的反应。请综合以上所有信息，给他一个自然的、发自内心的回应。"));
 
-        HuhuTalkChatCallback callback = new HuhuTalkChatCallback(manager, messages, player, stableId);
+        HuhuTalkChatCallback callback = new HuhuTalkChatCallback(manager, messages, player, stableId,
+                false, archiveTurn);
         site.client().chat(callback);
     }
 
@@ -231,23 +257,53 @@ public class MaidChatHandler {
         final String userTextIn = userText == null ? "" : userText;
         final EntityMaid maidIn = maid;
         final ServerPlayer playerIn = player;
+        final MinecraftServer serverIn = player.getServer();
 
         // 识图平台由玩家在手机设置里选（「识图模型」页）；服务端只在会话内按 UUID 缓存这份选择。
         // 从未同步过时 VisionSettings 会给出默认值（deepseek），于是老玩家行为与改造前一致。
         VisionSettings.Selection visionSel = VisionSettings.get(player.getUUID());
+        final String visionSiteId = visionSel.siteId();
+        final String visionModel = visionSel.resolveModel();
         // 人设：主人样貌来自会话缓存（客户端推），女仆样貌来自本包（按窗口取）。
         // 两端都再清洗一次 —— 客户端可以被改包，服务端不能假设它守规矩。
         final String playerLook = VisionAppearance.clean(visionSel.playerAppearance());
         final String maidLook = VisionAppearance.clean(maidAppearance);
+
+        // 图片 turn 在既有校验全部通过后、识图调用前落档；caption 可空。
+        // 归档失败只限捕获 ArchiveException 并记录日志，不阻断正常识图/聊天。
+        ArchiveTurnContext archiveTurn = null;
+        try {
+            archiveTurn = ArchiveService.recordPlayerImage(serverIn, player, maid,
+                    stableId, imageData, userText);
+        } catch (ArchiveException exception) {
+            LOGGER.error("[HuhuTalk] 图片原始消息归档失败，继续识图但不归档本轮 stableId={}",
+                    stableId, exception);
+        }
+        final ArchiveTurnContext archiveTurnIn = archiveTurn;
+        final String visionEventMessageId = UUID.randomUUID().toString();
+
         VisionService.describe(imageData, VisionService.buildPrompt(playerLook, maidLook),
-                        visionSel.siteId(), visionSel.resolveModel())
+                        visionSiteId, visionModel)
                 .whenComplete((desc, throwable) -> {
                     if (throwable != null) {
                         LOGGER.error("[HuhuTalk] 识图失败 stableId={}", stableIdIn, throwable);
-                        PacketDistributor.sendToPlayer(playerIn,
-                                new S2CMaidChatErrorPacket(stableIdIn,
-                                        SystemText.of("message.huhutalk.chat.vision_failed",
-                                                SystemText.errorDetail(throwable))));
+                        // 归档失败事件与原错误通知一起回服务端线程；不额外调用任何模型。
+                        serverIn.submit(() -> {
+                            if (archiveTurnIn != null) {
+                                try {
+                                    ArchiveService.recordVisionFailure(serverIn, maidIn,
+                                            archiveTurnIn, visionEventMessageId,
+                                            "vision_request_failed", visionSiteId, visionModel);
+                                } catch (ArchiveException exception) {
+                                    LOGGER.error("[HuhuTalk] 识图失败事件归档失败 turnId={}",
+                                            archiveTurnIn.turnId(), exception);
+                                }
+                            }
+                            PacketDistributor.sendToPlayer(playerIn,
+                                    new S2CMaidChatErrorPacket(stableIdIn,
+                                            SystemText.of("message.huhutalk.chat.vision_failed",
+                                                    SystemText.errorDetail(throwable))));
+                        });
                         return;
                     }
                     if (!maidIn.isAlive()) {
@@ -255,7 +311,25 @@ public class MaidChatHandler {
                     }
                     LOGGER.info("[HuhuTalk] 识图成功 stableId={}, descLen={}", stableIdIn, desc == null ? 0 : desc.length());
                     // 回到服务端线程再做 LLM 调用（TLM 强制主线程）
-                    playerIn.getServer().submit(() -> {
+                    serverIn.submit(() -> {
+                        if (archiveTurnIn != null) {
+                            try {
+                                if (desc != null && !desc.isBlank()) {
+                                    // 描述原文完整入档，不截断；角色是 OBSERVATION，不是主人原话。
+                                    ArchiveService.recordVisionObservation(serverIn,
+                                            maidIn, archiveTurnIn, visionEventMessageId, desc,
+                                            visionSiteId, visionModel);
+                                } else {
+                                    ArchiveService.recordVisionFailure(serverIn,
+                                            maidIn, archiveTurnIn, visionEventMessageId,
+                                            "vision returned an empty description",
+                                            visionSiteId, visionModel);
+                                }
+                            } catch (ArchiveException exception) {
+                                LOGGER.error("[HuhuTalk] 识图观察/失败归档失败 turnId={}",
+                                        archiveTurnIn.turnId(), exception);
+                            }
+                        }
                         // 女仆悄悄话：抑制该女仆头顶气泡（全局生效）
                         if (bubbleMute) {
                             ImmersiveBubbleController.suppress(maidIn);
@@ -268,7 +342,8 @@ public class MaidChatHandler {
                         // 发起调用后再把用户文字写入历史，供后续对话记住本条；图片描述本身不写历史。
                         List<LLMMessage> messages = buildImageMessages(manager, playerIn, desc, userTextIn,
                                 identityNote(playerLook, maidLook));
-                        HuhuTalkChatCallback callback = new HuhuTalkChatCallback(manager, messages, playerIn, stableIdIn, bubbleMute);
+                        HuhuTalkChatCallback callback = new HuhuTalkChatCallback(manager, messages,
+                                playerIn, stableIdIn, bubbleMute, archiveTurnIn);
                         // 手机来源窗口：图片消息同样来自手机
                         PhoneChatSourceController.open(maidIn);
                         site.client().chat(callback);
