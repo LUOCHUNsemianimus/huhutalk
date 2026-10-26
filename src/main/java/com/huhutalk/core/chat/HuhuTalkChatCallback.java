@@ -6,20 +6,34 @@ import com.github.tartaricacid.touhoulittlemaid.ai.manager.response.ResponseChat
 import com.github.tartaricacid.touhoulittlemaid.ai.service.llm.LLMMessage;
 import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
 import com.huhutalk.common.SystemText;
+import com.huhutalk.core.archive.ArchiveException;
+import com.huhutalk.core.archive.ArchiveService;
+import com.huhutalk.core.archive.ArchiveTurnContext;
 import com.huhutalk.network.S2CMaidChatErrorPacket;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.neoforge.network.PacketDistributor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 import java.net.http.HttpRequest;
 import java.util.List;
+import java.util.UUID;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 public class HuhuTalkChatCallback extends LLMCallback {
+    private static final Logger LOGGER = LoggerFactory.getLogger("huhutalk.archive");
+
     private final ServerPlayer sender;
     private final String stableId;
     /** 是否「女仆悄悄话」（沉浸手机聊天）：开启时临时关闭女仆气泡，女仆回复不出现在聊天栏/头顶气泡 */
     private final boolean immersive;
+    /** 在线纯文本归档 turn；null = 旧构造入口、图片或系统注入，不写纯文本归档。 */
+    private final ArchiveTurnContext archiveTurn;
+    /** 女仆回复归档 messageId 在构造时生成并复用，避免重复 onSuccess 写多份。 */
+    private final String archiveReplyMessageId;
+    private final AtomicBoolean archiveReplySubmitted = new AtomicBoolean(false);
     /** 本次回复待附带的表情资源路径（空串=无）。由 {@link SendEmoteTool} 调用 {@link #attachEmote} 设置 */
     private String pendingEmote = "";
 
@@ -30,10 +44,22 @@ public class HuhuTalkChatCallback extends LLMCallback {
 
     public HuhuTalkChatCallback(MaidAIChatManager chatManager, List<LLMMessage> messages,
                                 ServerPlayer sender, String stableId, boolean immersive) {
+        this(chatManager, messages, sender, stableId, immersive, null);
+    }
+
+    /**
+     * 兼容重载：archiveTurn 非空时才把本回调最终文本回复写入会话归档。
+     * 原构造器保持委托 archiveTurn=null，图片/系统注入仍走原调用。
+     */
+    public HuhuTalkChatCallback(MaidAIChatManager chatManager, List<LLMMessage> messages,
+                                ServerPlayer sender, String stableId, boolean immersive,
+                                ArchiveTurnContext archiveTurn) {
         super(chatManager, messages);
         this.sender = sender;
         this.stableId = stableId;
         this.immersive = immersive;
+        this.archiveTurn = archiveTurn;
+        this.archiveReplyMessageId = archiveTurn == null ? "" : UUID.randomUUID().toString();
         this.needAddTools = true;
     }
 
@@ -65,6 +91,17 @@ public class HuhuTalkChatCallback extends LLMCallback {
         // 服务端 tick 仍有超时兜底，防止客户端异常导致窗口悬挂。
 
         String replyText = responseChat.getChatText();
+
+        // 归档最终回复不依赖 sender 是否在线/存活；归属变化在 service 内校验并只记归档日志。
+        if (archiveTurn != null && replyText != null && !replyText.isBlank()
+                && getMaid().level() instanceof ServerLevel archiveLevel) {
+            if (archiveReplySubmitted.compareAndSet(false, true)) {
+                MinecraftServer server = archiveLevel.getServer();
+                String messageId = archiveReplyMessageId;
+                server.submit(() -> archiveReply(server, messageId, replyText));
+            }
+        }
+
         if (sender != null && sender.isAlive() && !replyText.isBlank()) {
             if (getMaid().level() instanceof ServerLevel serverLevel) {
                 MinecraftServer server = serverLevel.getServer();
@@ -92,6 +129,16 @@ public class HuhuTalkChatCallback extends LLMCallback {
                                             SystemText.errorDetail(throwable))));
                 });
             }
+        }
+    }
+
+    private void archiveReply(MinecraftServer server, String messageId, String replyText) {
+        try {
+            ArchiveService.recordMaidReply(server, getMaid(), archiveTurn, messageId, replyText);
+        } catch (ArchiveException exception) {
+            // 只限捕获归档错误：不改变原聊天/LLM 错误处理，也不阻断回复发送。
+            LOGGER.error("[HuhuTalk] 在线手机纯文本女仆回复归档失败 turnId={}",
+                    archiveTurn.turnId(), exception);
         }
     }
 

@@ -9,6 +9,9 @@ import com.huhutalk.common.PhoneHelper;
 import com.huhutalk.common.StableIdProvider;
 import com.huhutalk.common.SystemText;
 import com.huhutalk.common.vision.VisionAppearance;
+import com.huhutalk.core.archive.ArchiveException;
+import com.huhutalk.core.archive.ArchiveService;
+import com.huhutalk.core.archive.ArchiveTurnContext;
 import com.huhutalk.core.contact.MaidContactBook;
 import com.huhutalk.core.contact.MaidContactEntry;
 import com.huhutalk.core.vision.VisionService;
@@ -69,6 +72,17 @@ public class MaidChatHandler {
             return;
         }
 
+        // 只有通过现有归属/手机/长度/AI 校验的在线纯文本才建立归档 turn。
+        // 归档失败只记录日志并继续聊天，但不给回调归档上下文，避免写出孤立女仆回复。
+        ArchiveTurnContext archiveTurn = null;
+        try {
+            archiveTurn = ArchiveService.recordPlayerText(player.getServer(), player, maid, stableId, message);
+        } catch (ArchiveException exception) {
+            LOGGER.error("[HuhuTalk] 在线手机纯文本原话归档失败，已继续聊天但不归档本轮回复 stableId={}",
+                    stableId, exception);
+        }
+        final ArchiveTurnContext archiveTurnIn = archiveTurn;
+
         manager.addUserHistory(message);
 
         // 手机来源窗口：本条消息来自手机 → 通知客户端播放「使用手机」附加动画
@@ -95,7 +109,8 @@ public class MaidChatHandler {
                     messages.add(0, LLMMessage.systemChat(maidIn, String.join("\n", pending)));
                 }
             }
-            HuhuTalkChatCallback callback = new HuhuTalkChatCallback(manager, messages, player, stableIdIn, bubbleMute);
+            HuhuTalkChatCallback callback = new HuhuTalkChatCallback(manager, messages, player, stableIdIn,
+                    bubbleMute, archiveTurnIn);
             site.client().chat(callback);
         };
 
