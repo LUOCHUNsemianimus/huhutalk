@@ -1,5 +1,8 @@
 # HuhuTalk
 
+> **Forge 1.20.1 branch:** release **1.1.0-forge1.20.1**, requiring Java 17, Forge 47.4.16 and Touhou Little Maid 1.5.3+ for Forge.
+> [Forge release notes](docs/releases/1.1.0-forge1.20.1.md). The original NeoForge 1.21.1 overview follows below.
+
 [简体中文](README.md) · [Changelog](CHANGELOG.md) · [1.1.0 release notes](docs/releases/1.1.0.md)
 
 A phone-style remote chat and photography add-on for **Touhou Little Maid** on **Minecraft 1.21.1 / NeoForge**. Current version: **1.1.0**.

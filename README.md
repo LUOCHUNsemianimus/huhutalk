@@ -1,11 +1,12 @@
 # HuhuTalk（狐狐 Talk）
 
-> **Forge 1.20.1 移植分支提示**：本分支 `port/forge-1.20.1` 是独立候选版，目标为 Minecraft 1.20.1 /
-> Forge 47.4.16 / Java 17 / 车万女仆 1.5.3 Forge（最低 1.5.3）。候选版说明见
+> **Forge 1.20.1 移植分支提示**：本分支 `port/forge-1.20.1` 发布版本为 **1.1.0-forge1.20.1**，目标为 Minecraft 1.20.1 /
+> Forge 47.4.16 / Java 17 / 车万女仆 1.5.3 Forge（最低 1.5.3）。版本说明见
 > [docs/forge-port-status.md](docs/forge-port-status.md)，人工验收清单见
 > [docs/forge-port-acceptance.md](docs/forge-port-acceptance.md)，本轮工作日志见
 > [docs/worklogs/2026-10-27-forge-1201-port.md](docs/worklogs/2026-10-27-forge-1201-port.md)。
-> 原 NeoForge 1.21.1 工程与 pianchang 实例未改动；下方正文保留原 1.21.1 发布说明。
+> 2026-10-27 用户已确认正常使用场景的功能逻辑验收通过。
+> [Forge 1.20.1 发布说明](docs/releases/1.1.0-forge1.20.1.md)。下方正文保留原 NeoForge 1.21.1 发布说明。
 
 [English](README.en.md) · [更新日志 / Changelog](CHANGELOG.md) · [1.1.0 发布说明](docs/releases/1.1.0.md)
 

@@ -77,6 +77,32 @@ minecraft {
                         file('../.workflow/projects/huhutalk-forge-1201/runtime/client-smoke').absolutePath
                 args '--quickPlaySingleplayer', 'port-smoke', '--width', '1280', '--height', '720'
             }
+
+            // 仅显式 -PsupplyRescueSmoke：加入「真实补给 + 死亡救援」复现驱动，
+            // 复用同一隔离世界 port-smoke，输出到独立目录；不打开旧 portSmoke 开关。
+            if (project.hasProperty('supplyRescueSmoke')) {
+                mods {
+                    "${mod_id}" {
+                        source sourceSets.gametest
+                    }
+                }
+                property 'huhutalk.supplyRescueSmoke', 'true'
+                property 'huhutalk.supplyRescueSmokeOutput',
+                        file('../.workflow/projects/huhutalk-forge-1201/runtime/supply-rescue-smoke').absolutePath
+                // 驱动在任何世界修改前用 server.getWorldPath(ROOT).toRealPath() 核对这个绝对路径，
+                // 不匹配即 fatal 退出，保证只操作 port-smoke 隔离存档。
+                property 'huhutalk.supplyRescueSmokeWorld',
+                        file('run/saves/port-smoke').absolutePath
+                // 显式 -PsupplyRescueDropInventory 时让死亡阶段走原生掉落语义
+                // （keepInventory=false），默认仍保持 true，不改变既有复现语义。
+                property 'huhutalk.supplyRescueDropInventory',
+                        project.hasProperty('supplyRescueDropInventory').toString()
+                // 显式 -PsupplyRescueNoMaidPhone 时不给新建女仆佩戴手机，
+                // 用于验证无手机负例；默认 false 保持既有正例语义。
+                property 'huhutalk.supplyRescueNoMaidPhone',
+                        project.hasProperty('supplyRescueNoMaidPhone').toString()
+                args '--quickPlaySingleplayer', 'port-smoke', '--width', '1280', '--height', '720'
+            }
         }
 
         server {
