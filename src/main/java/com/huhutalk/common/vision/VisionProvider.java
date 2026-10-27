@@ -61,6 +61,6 @@ public record VisionProvider(
         if (defaultModel != null && !defaultModel.isBlank()) {
             return defaultModel;
         }
-        return models.isEmpty() ? "" : models.getFirst();
+        return models.isEmpty() ? "" : models.get(0);
     }
 }

@@ -27,7 +27,7 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 @Mixin(GeckoModelLoader.class)
 public abstract class GeckoModelLoaderMixin {
 
-    @Inject(method = "registerMaidAnimations", at = @At("HEAD"))
+    @Inject(method = "registerMaidAnimations", at = @At("HEAD"), remap = false)
     private static void huhutalk$injectPhoneAnimation(ResourceLocation id, AnimationFile animationFile, CallbackInfo ci) {
         PhoneAnimationHandler.ensureAnimations(animationFile);
     }

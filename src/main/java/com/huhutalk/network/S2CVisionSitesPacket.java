@@ -2,10 +2,10 @@ package com.huhutalk.network;
 
 import com.huhutalk.common.vision.VisionProviders;
 import com.huhutalk.core.vision.VisionSites;
-import net.minecraft.network.RegistryFriendlyByteBuf;
-import net.minecraft.network.codec.ByteBufCodecs;
-import net.minecraft.network.codec.StreamCodec;
-import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.network.FriendlyByteBuf;
+import com.huhutalk.network.transport.ByteBufCodecs;
+import com.huhutalk.network.transport.StreamCodec;
+import com.huhutalk.network.transport.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 import org.jetbrains.annotations.NotNull;
 
@@ -28,9 +28,9 @@ import java.util.List;
 public record S2CVisionSitesPacket(List<SiteEntry> sites, boolean canEdit) implements CustomPacketPayload {
 
     public static final CustomPacketPayload.Type<S2CVisionSitesPacket> TYPE =
-            new Type<>(ResourceLocation.fromNamespaceAndPath("huhutalk", "vision_sites"));
+            new Type<>(new net.minecraft.resources.ResourceLocation("huhutalk", "vision_sites"));
 
-    public static final StreamCodec<RegistryFriendlyByteBuf, S2CVisionSitesPacket> STREAM_CODEC =
+    public static final StreamCodec<FriendlyByteBuf, S2CVisionSitesPacket> STREAM_CODEC =
             StreamCodec.composite(
                     SiteEntry.STREAM_CODEC.apply(ByteBufCodecs.list(256)),
                     S2CVisionSitesPacket::sites,
@@ -61,16 +61,16 @@ public record S2CVisionSitesPacket(List<SiteEntry> sites, boolean canEdit) imple
      */
     public record SiteEntry(String siteId, String url, boolean hasKey) {
 
-        public static final StreamCodec<RegistryFriendlyByteBuf, SiteEntry> STREAM_CODEC =
+        public static final StreamCodec<FriendlyByteBuf, SiteEntry> STREAM_CODEC =
                 StreamCodec.of(SiteEntry::write, SiteEntry::read);
 
-        private static void write(RegistryFriendlyByteBuf buf, SiteEntry e) {
+        private static void write(FriendlyByteBuf buf, SiteEntry e) {
             buf.writeUtf(e.siteId);
             buf.writeUtf(e.url == null ? "" : e.url);
             buf.writeBoolean(e.hasKey);
         }
 
-        private static SiteEntry read(RegistryFriendlyByteBuf buf) {
+        private static SiteEntry read(FriendlyByteBuf buf) {
             return new SiteEntry(buf.readUtf(), buf.readUtf(), buf.readBoolean());
         }
     }

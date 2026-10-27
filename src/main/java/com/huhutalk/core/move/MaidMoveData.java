@@ -51,7 +51,7 @@ public final class MaidMoveData {
     public static final int WALK_DIST = 64;
 
     private static final ResourceLocation ATTACK_TASK =
-            ResourceLocation.fromNamespaceAndPath("touhou_little_maid", "attack");
+            new net.minecraft.resources.ResourceLocation("touhou_little_maid", "attack");
 
     // ============ 临时调大范围的全局状态 ============
     private static final int TMP_WORK = 64;

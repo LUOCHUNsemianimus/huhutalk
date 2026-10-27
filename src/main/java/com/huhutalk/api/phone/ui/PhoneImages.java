@@ -12,7 +12,7 @@ import net.minecraft.resources.ResourceLocation;
  *   <li>女仆头像：{@code MaidAvatarManager.getOrLoadTexture(stableId)} / {@code getTextureSize(stableId)}</li>
  *   <li>图库照片：{@code PhotoLibrary.getOrLoadTexture(key)} / {@code getTextureSize(key)}</li>
  *   <li>玩家皮肤：{@code ((AbstractClientPlayer) player).getSkin().texture()}，头颅正面是 8×8 子区域</li>
- *   <li>资源包里的图：{@code ResourceLocation.fromNamespaceAndPath("mymod", "textures/icon/x.png")}</li>
+ *   <li>资源包里的图：{@code new net.minecraft.resources.ResourceLocation("mymod", "textures/icon/x.png")}</li>
  * </ul>
  * 所以这里只提供「贴图 → 矩形」的四种画法，不引入第二套图片类型。
  *

@@ -17,8 +17,8 @@ import com.huhutalk.core.transfer.SendItemTool;
 import com.huhutalk.init.HuhuTalkItems;
 import net.minecraft.client.renderer.entity.EntityRendererProvider;
 import net.minecraft.world.entity.Mob;
-import net.neoforged.api.distmarker.Dist;
-import net.neoforged.api.distmarker.OnlyIn;
+import net.minecraftforge.api.distmarker.Dist;
+import net.minecraftforge.api.distmarker.OnlyIn;
 
 /**
  * 车万女仆(TLM)扩展入口。

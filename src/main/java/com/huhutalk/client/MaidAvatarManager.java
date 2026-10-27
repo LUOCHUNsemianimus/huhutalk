@@ -75,7 +75,7 @@ public final class MaidAvatarManager {
         try {
             NativeImage image = NativeImage.read(Files.newInputStream(file));
             DynamicTexture tex = new DynamicTexture(image);
-            ResourceLocation rl = ResourceLocation.fromNamespaceAndPath("huhutalk", "avatars/" + sanitize(stableId));
+            ResourceLocation rl = new net.minecraft.resources.ResourceLocation("huhutalk", "avatars/" + sanitize(stableId));
             Minecraft.getInstance().getTextureManager().register(rl, tex);
             CACHE.put(stableId, rl);
             DIMS.put(stableId, new int[]{image.getWidth(), image.getHeight()});
@@ -206,8 +206,8 @@ public final class MaidAvatarManager {
                     VertexSorting.DISTANCE_TO_ORIGIN);
             // 模型视图：把相机拉回，使 z≈0 的内容落在投影 near/far 内（与 GUI 一致，否则被裁掉）
             var mv = RenderSystem.getModelViewStack();
-            mv.pushMatrix();
-            mv.setTranslation(0.0F, 0.0F, -2000.0F);
+            mv.pushPose();
+            mv.last().pose().setTranslation(0.0F, 0.0F, -2000.0F);
             RenderSystem.applyModelViewMatrix();
 
             PoseStack pose = new PoseStack();
@@ -227,7 +227,7 @@ public final class MaidAvatarManager {
             mc.renderBuffers().bufferSource().endBatch();
 
             // 恢复模型视图
-            mv.popMatrix();
+            mv.popPose();
             RenderSystem.applyModelViewMatrix();
 
             // 读取像素（fb 此时仍是当前读写帧缓冲）

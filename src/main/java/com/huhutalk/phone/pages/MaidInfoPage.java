@@ -29,7 +29,7 @@ import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.FormattedCharSequence;
-import net.neoforged.neoforge.network.PacketDistributor;
+import com.huhutalk.network.transport.PacketDistributor;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
@@ -312,7 +312,7 @@ public class MaidInfoPage extends PhonePage {
 
     /** 把 {@code v} 钳制到 {@code [0, max]}（下拉光标与滚动窗口起点用） */
     private static int clamp(int v, int max) {
-        return Math.clamp(v, 0, max);
+        return net.minecraft.util.Mth.clamp(v, 0, max);
     }
 
     // ==================== 骨架钩子 ====================

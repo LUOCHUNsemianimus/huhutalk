@@ -1,12 +1,13 @@
 package com.huhutalk.core.rescue;
 
-import net.minecraft.core.component.DataComponents;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.LingeringPotionItem;
+import net.minecraft.world.item.PotionItem;
 import net.minecraft.world.item.SplashPotionItem;
-import net.minecraft.world.item.alchemy.PotionContents;
+import net.minecraft.world.item.alchemy.PotionUtils;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
@@ -46,7 +47,7 @@ public final class RescuePotion {
 
     // ==================== 判定 ====================
 
-    /** 是否是一瓶"药水"（带 POTION_CONTENTS 组件） */
+    /** 是否是一瓶"药水"（药水物品，或显式带有 Potion/CustomPotionEffects NBT） */
     public static boolean isPotion(@Nullable ItemStack stack) {
         return contentsOf(stack) != null;
     }
@@ -58,12 +59,12 @@ public final class RescuePotion {
 
     /** 是否抗火系：效果里含防火 */
     public static boolean isFireResistance(@Nullable ItemStack stack) {
-        PotionContents contents = contentsOf(stack);
-        if (contents == null) {
+        List<MobEffectInstance> effects = contentsOf(stack);
+        if (effects == null) {
             return false;
         }
-        for (MobEffectInstance effect : contents.getAllEffects()) {
-            if (effect.getEffect().is(MobEffects.FIRE_RESISTANCE)) {
+        for (MobEffectInstance effect : effects) {
+            if (effect.getEffect() == MobEffects.FIRE_RESISTANCE) {
                 return true;
             }
         }
@@ -74,16 +75,16 @@ public final class RescuePotion {
 
     /** 这瓶药水理论上能回的血量（点）。非治疗药水返回 0。 */
     public static int healAmount(@Nullable ItemStack stack) {
-        PotionContents contents = contentsOf(stack);
-        if (contents == null) {
+        List<MobEffectInstance> effects = contentsOf(stack);
+        if (effects == null) {
             return 0;
         }
         int total = 0;
-        for (MobEffectInstance effect : contents.getAllEffects()) {
-            if (effect.getEffect().is(MobEffects.HEAL)) {
+        for (MobEffectInstance effect : effects) {
+            if (effect.getEffect() == MobEffects.HEAL) {
                 // 瞬间治疗：4 点 × 2^amplifier（原版语义）
                 total += 4 << clamp(effect.getAmplifier(), 0, 10);
-            } else if (effect.getEffect().is(MobEffects.REGENERATION)) {
+            } else if (effect.getEffect() == MobEffects.REGENERATION) {
                 // 再生：每 (50 >> amplifier) tick 回 1 点
                 int interval = 50 >> clamp(effect.getAmplifier(), 0, 5);
                 total += Math.max(1, effect.getDuration() / Math.max(1, interval));
@@ -99,13 +100,13 @@ public final class RescuePotion {
      * 否则再生会被算两次（救援那边是 {@code setHealth} 一次性结算，口径不同，别混用）。
      */
     public static int instantHealAmount(@Nullable ItemStack stack) {
-        PotionContents contents = contentsOf(stack);
-        if (contents == null) {
+        List<MobEffectInstance> effects = contentsOf(stack);
+        if (effects == null) {
             return 0;
         }
         int total = 0;
-        for (MobEffectInstance effect : contents.getAllEffects()) {
-            if (effect.getEffect().is(MobEffects.HEAL)) {
+        for (MobEffectInstance effect : effects) {
+            if (effect.getEffect() == MobEffects.HEAL) {
                 total += 4 << clamp(effect.getAmplifier(), 0, 10);
             }
         }
@@ -132,12 +133,12 @@ public final class RescuePotion {
      */
     public static List<MobEffectInstance> lastingEffects(@Nullable ItemStack stack) {
         List<MobEffectInstance> out = new ArrayList<>();
-        PotionContents contents = contentsOf(stack);
-        if (contents == null) {
+        List<MobEffectInstance> effects = contentsOf(stack);
+        if (effects == null) {
             return out;
         }
-        for (MobEffectInstance effect : contents.getAllEffects()) {
-            if (effect.getEffect().value().isInstantenous()) {
+        for (MobEffectInstance effect : effects) {
+            if (effect.getEffect().isInstantenous()) {
                 continue;
             }
             out.add(new MobEffectInstance(effect));
@@ -152,18 +153,27 @@ public final class RescuePotion {
 
     /** 药水液色（用于在死亡坐标喷药水粒子）。非药水返回 -1。 */
     public static int colorOf(@Nullable ItemStack stack) {
-        PotionContents contents = contentsOf(stack);
-        return contents == null ? -1 : contents.getColor();
+        List<MobEffectInstance> effects = contentsOf(stack);
+        return effects == null ? -1 : PotionUtils.getColor(stack);
     }
 
     // ==================== 内部 ====================
 
     @Nullable
-    private static PotionContents contentsOf(@Nullable ItemStack stack) {
+    private static List<MobEffectInstance> contentsOf(@Nullable ItemStack stack) {
         if (stack == null || stack.isEmpty()) {
             return null;
         }
-        return stack.get(DataComponents.POTION_CONTENTS);
+        // 1.20.1 药水没有 DataComponents：药水物品（含喷溅/滞留子类）或显式药水 NBT 才是药水。
+        // 清水没有任何效果，但仍必须 isPotion=true，所以不能用 effects.isEmpty() 反推。
+        boolean potionItem = stack.getItem() instanceof PotionItem;
+        CompoundTag tag = stack.getTag();
+        boolean tagged = tag != null
+                && (tag.contains(PotionUtils.TAG_POTION) || tag.contains(PotionUtils.TAG_CUSTOM_POTION_EFFECTS));
+        if (!potionItem && !tagged) {
+            return null;
+        }
+        return PotionUtils.getMobEffects(stack);
     }
 
     private static int clamp(int value, int min, int max) {

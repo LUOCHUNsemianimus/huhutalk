@@ -1,8 +1,15 @@
 {
-  "type": "touhou_little_maid:altar_recipe_serializers",
-  "category": "misc",
-  "entity": "minecraft:item",
-  "group": "altar_recipe",
+  "type": "touhou_little_maid:altar_crafting",
+  "output": {
+    "type": "minecraft:item",
+    "nbt": {
+      "Item": {
+        "id": "huhutalk:phone_smart",
+        "Count": 1
+      }
+    }
+  },
+  "power": 4.0,
   "ingredients": [
     {
       "item": "huhutalk:phone_watch"
@@ -22,11 +29,5 @@
     {
       "item": "minecraft:diamond"
     }
-  ],
-  "lang": "jei.touhou_little_maid.altar_craft.item_craft.result",
-  "power": 4.0,
-  "result": {
-    "count": 1,
-    "id": "huhutalk:phone_smart"
-  }
+  ]
 }

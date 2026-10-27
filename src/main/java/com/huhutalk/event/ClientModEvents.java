@@ -1,5 +1,6 @@
 package com.huhutalk.event;
 
+import com.huhutalk.HuhuTalk;
 import com.huhutalk.client.render.PhoneScreenTarget;
 import com.huhutalk.client.render.ProPhoneHandRenderer;
 import com.huhutalk.client.render.SelfieCameraTarget;
@@ -15,21 +16,18 @@ import com.huhutalk.phone.pages.ChatPage;
 import com.mojang.blaze3d.platform.InputConstants;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.Minecraft;
-import net.minecraft.resources.ResourceLocation;
-import net.neoforged.api.distmarker.Dist;
-import net.neoforged.bus.api.SubscribeEvent;
-import net.neoforged.fml.common.EventBusSubscriber;
-import net.neoforged.neoforge.client.event.CalculatePlayerTurnEvent;
-import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
-import net.neoforged.neoforge.client.event.ClientTickEvent;
-import net.neoforged.neoforge.client.event.RegisterGuiLayersEvent;
-import net.neoforged.neoforge.client.event.RegisterKeyMappingsEvent;
-import net.neoforged.neoforge.client.event.RenderFrameEvent;
-import net.neoforged.neoforge.client.event.RenderLevelStageEvent;
-import net.neoforged.neoforge.network.PacketDistributor;
+import net.minecraftforge.api.distmarker.Dist;
+import net.minecraftforge.event.TickEvent;
+import net.minecraftforge.eventbus.api.SubscribeEvent;
+import net.minecraftforge.fml.common.Mod.EventBusSubscriber;
+import net.minecraftforge.client.event.ClientPlayerNetworkEvent;
+import net.minecraftforge.client.event.RegisterGuiOverlaysEvent;
+import net.minecraftforge.client.event.RegisterKeyMappingsEvent;
+import net.minecraftforge.client.event.RenderLevelStageEvent;
+import com.huhutalk.network.transport.PacketDistributor;
 import org.lwjgl.glfw.GLFW;
 
-@EventBusSubscriber(value = Dist.CLIENT)
+@EventBusSubscriber(modid = HuhuTalk.MOD_ID, value = Dist.CLIENT)
 public class ClientModEvents {
     public static final KeyMapping TOGGLE_PHONE = new KeyMapping(
             "key.huhutalk.toggle_phone", GLFW.GLFW_KEY_O, "key.category.huhutalk");
@@ -59,7 +57,6 @@ public class ClientModEvents {
     /** 正在按住 H 说话的聊天页（用于松手时停止录音） */
     private static ChatPage quickVoicePage = null;
 
-    @SubscribeEvent
     public static void registerKeys(RegisterKeyMappingsEvent event) {
         event.register(TOGGLE_PHONE);
         event.register(QUICK_VOICE);
@@ -138,7 +135,7 @@ public class ClientModEvents {
     /**
      * 在「操控屏幕」态下压低视角转速。
      * <p>
-     * <b>硬约束</b>：不处于该状态时<b>完全不碰</b>这个事件 —— 既保持原版行为，也不覆盖其他模组的修改。
+     * <b>硬约束</b>：不处于该状态时<b>完全不改</b>这个输入值 —— 既保持原版行为，也不覆盖其他模组的修改。
      * MODEL 态要求<b>三件事同时成立</b>：「UI 已掏出 + 主手举着 Pro 手机 + 低头 ≥ 阈值」
      * （见 §5.7-35）。这里再额外放行一次"光标在顶栏"。
      * 可见性与"手里到底有没有手机"两关一起查 ⇒ 绝不可能污染徒手 / 拿着别的物品 / 第三人称 / 开着界面等任何其他状态。
@@ -154,21 +151,23 @@ public class ClientModEvents {
      * 原版曲线：{@code d2 = sens*0.6+0.2}、{@code d3 = d2³}、{@code d4 = d3*8}，最终转动量 ∝ d4。
      * 想让转动变成 k 倍，需要 {@code d2' = d2 · k^(1/3)}，反解得 {@code sens' = (d2'−0.2)/0.6}。
      */
-    @SubscribeEvent
-    public static void onCalculatePlayerTurn(CalculatePlayerTurnEvent event) {
+    public static double adjustMouseSensitivity(double sensitivity) {
         // FLOATING：O 显式召唤的屏幕空间窗口，光标/侧键照用，但视角不因它降速
         if (PhoneOverlay.isFloatingScreen()
                 || !PhoneOverlay.isScreenControl()
                 || PhoneOverlay.isCursorInTopBar()) {
-            return;
+            return sensitivity;
         }
-        double d2 = event.getMouseSensitivity() * 0.6 + 0.2;
+        double d2 = sensitivity * 0.6 + 0.2;
         double scaled = d2 * Math.cbrt(CAMERA_TURN_SCALE);
-        event.setMouseSensitivity(Math.max(0.0, (scaled - 0.2) / 0.6));
+        return Math.max(0.0, (scaled - 0.2) / 0.6);
     }
 
     @SubscribeEvent
-    public static void onClientTick(ClientTickEvent.Post event) {
+    public static void onClientTick(TickEvent.ClientTickEvent event) {
+        if (event.phase != TickEvent.Phase.END) {
+            return;
+        }
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null) return;
 
@@ -213,7 +212,11 @@ public class ClientModEvents {
      * 主手没拿 Pro 手机（或第三人称 / 开着界面）时完全不跑离屏渲染，做到关屏零开销。
      */
     @SubscribeEvent
-    public static void onRenderFramePre(RenderFrameEvent.Pre event) {
+    public static void onRenderTickStart(TickEvent.RenderTickEvent event) {
+        if (event.phase != TickEvent.Phase.START) {
+            return;
+        }
+        final float partialTick = event.renderTickTime;
         // 自拍 pass 自身是通过 renderLevel 嵌套渲染的，这个钩子不应在 pass 内再被触发；
         // 保险起见直接早退，免得任何状态在自拍帧里被二次推进。
         if (SelfieCameraTarget.isRendering()) {
@@ -236,14 +239,14 @@ public class ClientModEvents {
                 && PhoneOverlay.isModelScreen();
         SelfieCameraTarget.setActive(selfie);
         if (selfie) {
-            SelfieCameraTarget.update(event.getPartialTick());
+            SelfieCameraTarget.update(partialTick);
             // 自拍靶刚更新（或至少这一帧有有效画面）：标脏模型屏，
             // 让稍后 PhoneScreenTarget.update 把最新一帧镜像预览复制进手机屏纹理。
             PhoneScreenTarget.markDirty();
         }
 
         if (ProPhoneHandRenderer.isActive()) {
-            PhoneScreenTarget.update(event.getPartialTick().getGameTimeDeltaTicks());
+            PhoneScreenTarget.update(partialTick);
         } else {
             PhoneScreenTarget.markDirty();
         }
@@ -254,11 +257,10 @@ public class ClientModEvents {
         PhoneOverlay.beginWorldCaptureFrame();
     }
 
-    @SubscribeEvent
-    public static void registerGuiLayers(RegisterGuiLayersEvent event) {
+    public static void registerGuiOverlays(RegisterGuiOverlaysEvent event) {
         event.registerAboveAll(
-                ResourceLocation.fromNamespaceAndPath("huhutalk", "phone_overlay"),
-                (guiGraphics, deltaTracker) -> PhoneOverlay.render(guiGraphics, deltaTracker.getGameTimeDeltaTicks())
+                "phone_overlay",
+                (gui, guiGraphics, partialTick, width, height) -> PhoneOverlay.render(guiGraphics, partialTick)
         );
     }
 
@@ -295,5 +297,27 @@ public class ClientModEvents {
         // 再补画本帧 Iris 世界 pass 中暂存的手机屏幕（机身/手仍已由 Iris 世界 pass 绘制）。
         PhoneOverlay.consumeWorldCapture();
         PhoneScreenTarget.renderAfterLevel();
+    }
+
+    /**
+     * MOD 总线专属注册：键位与 GUI Overlay 都必须在 MOD 初始化阶段登记。
+     * <p>
+     * 外层类继续承载默认 GAME 总线的游戏事件；这里只保留转调，避免把注册类事件
+     * 误挂到 GAME 总线导致键位/Overlay 不生效。
+     */
+    @EventBusSubscriber(modid = HuhuTalk.MOD_ID, value = Dist.CLIENT, bus = EventBusSubscriber.Bus.MOD)
+    public static final class ModBusEvents {
+        private ModBusEvents() {
+        }
+
+        @SubscribeEvent
+        public static void registerKeys(RegisterKeyMappingsEvent event) {
+            ClientModEvents.registerKeys(event);
+        }
+
+        @SubscribeEvent
+        public static void registerGuiOverlays(RegisterGuiOverlaysEvent event) {
+            ClientModEvents.registerGuiOverlays(event);
+        }
     }
 }

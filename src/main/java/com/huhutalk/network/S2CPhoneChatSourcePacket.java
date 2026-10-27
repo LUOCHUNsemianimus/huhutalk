@@ -1,9 +1,9 @@
 package com.huhutalk.network;
 
-import net.minecraft.network.RegistryFriendlyByteBuf;
-import net.minecraft.network.codec.ByteBufCodecs;
-import net.minecraft.network.codec.StreamCodec;
-import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.network.FriendlyByteBuf;
+import com.huhutalk.network.transport.ByteBufCodecs;
+import com.huhutalk.network.transport.StreamCodec;
+import com.huhutalk.network.transport.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 import org.jetbrains.annotations.NotNull;
 
@@ -22,9 +22,9 @@ import org.jetbrains.annotations.NotNull;
  */
 public record S2CPhoneChatSourcePacket(String stableId, boolean active) implements CustomPacketPayload {
     public static final Type<S2CPhoneChatSourcePacket> TYPE =
-            new Type<>(ResourceLocation.fromNamespaceAndPath("huhutalk", "phone_chat_source"));
+            new Type<>(new net.minecraft.resources.ResourceLocation("huhutalk", "phone_chat_source"));
 
-    public static final StreamCodec<RegistryFriendlyByteBuf, S2CPhoneChatSourcePacket> STREAM_CODEC =
+    public static final StreamCodec<FriendlyByteBuf, S2CPhoneChatSourcePacket> STREAM_CODEC =
             StreamCodec.composite(
                     ByteBufCodecs.STRING_UTF8,
                     S2CPhoneChatSourcePacket::stableId,

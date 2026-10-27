@@ -5,9 +5,9 @@ import com.huhutalk.api.phone.PhoneApp;
 import com.huhutalk.api.phone.PhoneAppRegisterEvent;
 import com.huhutalk.phone.pages.GalleryPage;
 import net.minecraft.resources.ResourceLocation;
-import net.neoforged.api.distmarker.Dist;
-import net.neoforged.bus.api.SubscribeEvent;
-import net.neoforged.fml.common.EventBusSubscriber;
+import net.minecraftforge.api.distmarker.Dist;
+import net.minecraftforge.eventbus.api.SubscribeEvent;
+import net.minecraftforge.fml.common.Mod.EventBusSubscriber;
 
 /**
  * 把桌面「图库」App 注册到 HuhuTalk 自己的桌面上。
@@ -32,7 +32,7 @@ public final class GalleryAppRegistration {
 
     /** 桌面图标贴图（256×256，铺满图标方块）：assets/huhutalk/textures/icon/gallery.png */
     private static final ResourceLocation ICON_TEXTURE =
-            ResourceLocation.fromNamespaceAndPath(HuhuTalk.MOD_ID, "textures/icon/gallery.png");
+            new net.minecraft.resources.ResourceLocation(HuhuTalk.MOD_ID, "textures/icon/gallery.png");
     private static final int ICON_SIZE = 256;
 
     private GalleryAppRegistration() {
@@ -41,7 +41,7 @@ public final class GalleryAppRegistration {
     @SubscribeEvent
     public static void onRegisterPhoneApps(PhoneAppRegisterEvent event) {
         event.register(PhoneApp
-                .builder(ResourceLocation.fromNamespaceAndPath(HuhuTalk.MOD_ID, "gallery"), "图库")
+                .builder(new net.minecraft.resources.ResourceLocation(HuhuTalk.MOD_ID, "gallery"), "图库")
                 .color(ICON_COLOR)
                 .icon(ICON_TEXTURE, ICON_SIZE, ICON_SIZE)
                 .slot(GALLERY_SLOT)

@@ -1,13 +1,13 @@
 package com.huhutalk.network;
 
 import com.huhutalk.core.transfer.MaidTransferService;
-import net.minecraft.network.RegistryFriendlyByteBuf;
-import net.minecraft.network.codec.ByteBufCodecs;
-import net.minecraft.network.codec.StreamCodec;
-import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.network.FriendlyByteBuf;
+import com.huhutalk.network.transport.ByteBufCodecs;
+import com.huhutalk.network.transport.StreamCodec;
+import com.huhutalk.network.transport.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
-import net.neoforged.neoforge.network.handling.IPayloadContext;
+import com.huhutalk.network.transport.IPayloadContext;
 import org.jetbrains.annotations.NotNull;
 
 /**
@@ -16,9 +16,9 @@ import org.jetbrains.annotations.NotNull;
  */
 public record C2SDropTransferInboxPacket(String stableId) implements CustomPacketPayload {
     public static final CustomPacketPayload.Type<C2SDropTransferInboxPacket> TYPE =
-            new CustomPacketPayload.Type<>(ResourceLocation.fromNamespaceAndPath("huhutalk", "drop_transfer_inbox"));
+            new CustomPacketPayload.Type<>(new net.minecraft.resources.ResourceLocation("huhutalk", "drop_transfer_inbox"));
 
-    public static final StreamCodec<RegistryFriendlyByteBuf, C2SDropTransferInboxPacket> STREAM_CODEC =
+    public static final StreamCodec<FriendlyByteBuf, C2SDropTransferInboxPacket> STREAM_CODEC =
             StreamCodec.composite(
                     ByteBufCodecs.STRING_UTF8, C2SDropTransferInboxPacket::stableId,
                     C2SDropTransferInboxPacket::new

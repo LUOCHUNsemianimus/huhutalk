@@ -2,13 +2,13 @@ package com.huhutalk.network;
 
 import com.huhutalk.core.waypoint.WaypointCache;
 import com.huhutalk.core.waypoint.WaypointEntry;
-import net.minecraft.network.RegistryFriendlyByteBuf;
-import net.minecraft.network.codec.ByteBufCodecs;
-import net.minecraft.network.codec.StreamCodec;
-import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.network.FriendlyByteBuf;
+import com.huhutalk.network.transport.ByteBufCodecs;
+import com.huhutalk.network.transport.StreamCodec;
+import com.huhutalk.network.transport.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
-import net.neoforged.neoforge.network.handling.IPayloadContext;
+import com.huhutalk.network.transport.IPayloadContext;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
@@ -20,9 +20,9 @@ import java.util.List;
 public record C2SSyncWaypointsPacket(List<WaypointEntry> waypoints) implements CustomPacketPayload {
 
     public static final CustomPacketPayload.Type<C2SSyncWaypointsPacket> TYPE =
-            new Type<>(ResourceLocation.fromNamespaceAndPath("huhutalk", "sync_waypoints"));
+            new Type<>(new net.minecraft.resources.ResourceLocation("huhutalk", "sync_waypoints"));
 
-    public static final StreamCodec<RegistryFriendlyByteBuf, C2SSyncWaypointsPacket> STREAM_CODEC =
+    public static final StreamCodec<FriendlyByteBuf, C2SSyncWaypointsPacket> STREAM_CODEC =
             StreamCodec.composite(
                     WaypointEntry.STREAM_CODEC.apply(ByteBufCodecs.list(1000)),
                     C2SSyncWaypointsPacket::waypoints,

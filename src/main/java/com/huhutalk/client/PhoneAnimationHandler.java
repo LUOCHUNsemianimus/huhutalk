@@ -40,7 +40,7 @@ public final class PhoneAnimationHandler {
 
     /** 我们的动画文件（只含 huhutalk_phone_* 三个动画） */
     public static final ResourceLocation ANIMATION_FILE =
-            ResourceLocation.fromNamespaceAndPath(HuhuTalk.MOD_ID, "animation/huhutalk_phone.animation.json");
+            new net.minecraft.resources.ResourceLocation(HuhuTalk.MOD_ID, "animation/huhutalk_phone.animation.json");
 
     /** 已解析的动画文件缓存；解析失败时为 null，下次注入会重试 */
     private static volatile AnimationFile parsedCache = null;

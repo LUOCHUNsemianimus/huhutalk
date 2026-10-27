@@ -21,36 +21,54 @@ import com.huhutalk.init.HuhuTalkBlocks;
 import com.huhutalk.init.HuhuTalkCreativeTabs;
 import com.huhutalk.init.HuhuTalkItems;
 import com.huhutalk.init.HuhuTalkSounds;
-import com.huhutalk.network.C2SMaidChatPacket;
-import com.huhutalk.network.C2SMaidImageChatPacket;
 import com.huhutalk.network.C2SClaimTransferPacket;
+import com.huhutalk.network.C2SDeleteContactPacket;
+import com.huhutalk.network.C2SDropTransferInboxPacket;
+import com.huhutalk.network.C2SMaidChatPacket;
+import com.huhutalk.network.C2SMaidChatWithItemsPacket;
+import com.huhutalk.network.C2SMaidImageChatPacket;
 import com.huhutalk.network.C2SPhoneTypingDonePacket;
 import com.huhutalk.network.C2SPotionRescueSettingPacket;
 import com.huhutalk.network.C2SRemoteSupplyReplySettingPacket;
-import com.huhutalk.network.C2SDeleteContactPacket;
-import com.huhutalk.network.C2SDropTransferInboxPacket;
-import com.huhutalk.network.C2SMaidChatWithItemsPacket;
+import com.huhutalk.network.C2SRequestArchiveAssetPacket;
+import com.huhutalk.network.C2SRequestArchiveHistoryPacket;
 import com.huhutalk.network.C2SRequestMaidListPacket;
 import com.huhutalk.network.C2SRequestMaidStatusPacket;
-import com.huhutalk.network.C2SRequestArchiveHistoryPacket;
-import com.huhutalk.network.C2SRequestArchiveAssetPacket;
 import com.huhutalk.network.C2SRequestSosTaskListPacket;
-import com.huhutalk.network.C2SSetSosModePacket;
+import com.huhutalk.network.C2SRequestVisionSitesPacket;
 import com.huhutalk.network.C2SSOSPacket;
+import com.huhutalk.network.C2SSetSosModePacket;
 import com.huhutalk.network.C2SSyncWaypointsPacket;
 import com.huhutalk.network.C2SToggleSosBindPacket;
-import com.huhutalk.network.C2SRequestVisionSitesPacket;
 import com.huhutalk.network.C2SVisionSelectionPacket;
 import com.huhutalk.network.C2SVisionSiteEditPacket;
-import net.neoforged.bus.api.IEventBus;
-import net.neoforged.fml.common.Mod;
-import net.neoforged.neoforge.common.NeoForge;
-import net.neoforged.neoforge.event.RegisterCommandsEvent;
-import net.neoforged.neoforge.event.entity.player.PlayerEvent;
-import net.neoforged.neoforge.event.server.ServerAboutToStartEvent;
-import net.neoforged.neoforge.event.server.ServerStoppingEvent;
-import net.neoforged.neoforge.event.tick.ServerTickEvent;
-import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
+import com.huhutalk.network.S2CArchiveAssetPacket;
+import com.huhutalk.network.S2CArchiveHistoryPacket;
+import com.huhutalk.network.S2CMaidChatErrorPacket;
+import com.huhutalk.network.S2CMaidChatInfoPacket;
+import com.huhutalk.network.S2CMaidChatResponsePacket;
+import com.huhutalk.network.S2CMaidDeliveredPacket;
+import com.huhutalk.network.S2CMaidItemClaimResultPacket;
+import com.huhutalk.network.S2CMaidItemTransferPacket;
+import com.huhutalk.network.S2CMaidItemsSendResultPacket;
+import com.huhutalk.network.S2CMaidListPacket;
+import com.huhutalk.network.S2CMaidStatusPacket;
+import com.huhutalk.network.S2CPhoneChatSourcePacket;
+import com.huhutalk.network.S2CSosBindPacket;
+import com.huhutalk.network.S2CSosTaskListPacket;
+import com.huhutalk.network.S2CVisionSitesPacket;
+import com.huhutalk.network.transport.PacketTransport;
+import com.huhutalk.network.transport.PayloadRegistrar;
+import net.minecraftforge.event.TickEvent;
+import net.minecraftforge.eventbus.api.EventPriority;
+import net.minecraftforge.eventbus.api.IEventBus;
+import net.minecraftforge.fml.common.Mod;
+import net.minecraftforge.fml.javafmlmod.FMLJavaModLoadingContext;
+import net.minecraftforge.common.MinecraftForge;
+import net.minecraftforge.event.RegisterCommandsEvent;
+import net.minecraftforge.event.entity.player.PlayerEvent;
+import net.minecraftforge.event.server.ServerAboutToStartEvent;
+import net.minecraftforge.event.server.ServerStoppingEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -59,7 +77,9 @@ public class HuhuTalk {
     public static final String MOD_ID = "huhutalk";
     public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
 
-    public HuhuTalk(IEventBus modEventBus) {
+    public HuhuTalk(FMLJavaModLoadingContext context) {
+        IEventBus modEventBus = context.getModEventBus();
+
         // ========== 注册物品 / 方块 ==========
         HuhuTalkItems.ITEMS.register(modEventBus);
         HuhuTalkBlocks.BLOCKS.register(modEventBus);
@@ -68,70 +88,91 @@ public class HuhuTalk {
 
         // ========== 新增在这里 ==========
         // 注册游戏总线事件处理器（服务端、客户端通用）
-        NeoForge.EVENT_BUS.register(new FilmTransformHandler());
-        NeoForge.EVENT_BUS.register(new MaidScanTicker());
-        NeoForge.EVENT_BUS.register(new MaidDeathHandler());
-        NeoForge.EVENT_BUS.register(new MaidStatusTicker());
+        MinecraftForge.EVENT_BUS.register(new FilmTransformHandler());
+        MinecraftForge.EVENT_BUS.register(new MaidScanTicker());
+        MinecraftForge.EVENT_BUS.register(new MaidDeathHandler());
+        MinecraftForge.EVENT_BUS.register(new MaidStatusTicker());
         // 玩家死亡远程救援：死亡登记 + 5s 对账 + 重生位置重定向（服务端权威，多人可用）
-        NeoForge.EVENT_BUS.register(new PlayerRescueHook());
+        MinecraftForge.EVENT_BUS.register(new PlayerRescueHook());
         // 远程补给：工作期计数 + 血/饱食自动补给 + 手机留痕（需求 2）
-        NeoForge.EVENT_BUS.register(new RemoteSupplyHook());
-        NeoForge.EVENT_BUS.register(new TicketManager());
-        NeoForge.EVENT_BUS.addListener(RegisterCommandsEvent.class, ModCommands::register);
-        NeoForge.EVENT_BUS.addListener(ServerStoppingEvent.class, e -> MaidMoveData.restoreOnServerStop());
-        NeoForge.EVENT_BUS.addListener(ServerStoppingEvent.class, e -> ImmersiveBubbleController.restoreAll());
-        NeoForge.EVENT_BUS.addListener(ServerStoppingEvent.class, e -> ChatBannerMuteController.restoreAll());
+        MinecraftForge.EVENT_BUS.register(new RemoteSupplyHook());
+        MinecraftForge.EVENT_BUS.register(new TicketManager());
+        MinecraftForge.EVENT_BUS.addListener(EventPriority.NORMAL, false, RegisterCommandsEvent.class, ModCommands::register);
+        MinecraftForge.EVENT_BUS.addListener(EventPriority.NORMAL, false, ServerStoppingEvent.class, e -> MaidMoveData.restoreOnServerStop());
+        MinecraftForge.EVENT_BUS.addListener(EventPriority.NORMAL, false, ServerStoppingEvent.class, e -> ImmersiveBubbleController.restoreAll());
+        MinecraftForge.EVENT_BUS.addListener(EventPriority.NORMAL, false, ServerStoppingEvent.class, e -> ChatBannerMuteController.restoreAll());
         // 玩家进入世界时清空其路径点缓存，客户端随后会重新同步当前世界的路径点，
         // 避免上一存档的路径点残留、被 move_to 工具误用（跨存档污染）
-        NeoForge.EVENT_BUS.addListener(PlayerEvent.PlayerLoggedInEvent.class,
+        MinecraftForge.EVENT_BUS.addListener(EventPriority.NORMAL, false, PlayerEvent.PlayerLoggedInEvent.class,
                 e -> com.huhutalk.core.waypoint.WaypointCache.clearPlayer(e.getEntity().getUUID()));
         // 开局礼包：每个存档、每个玩家一次，发 Pro 版手机、电话手表、WiFi 方块各一个
         // （标记写在 SavedData 里 → 随存档走）
-        NeoForge.EVENT_BUS.addListener(PlayerEvent.PlayerLoggedInEvent.class, PlayerStarterKit::onPlayerLoggedIn);
-        NeoForge.EVENT_BUS.addListener(PlayerEvent.PlayerLoggedOutEvent.class, e -> ImmersiveBubbleController.restoreAll());
-        NeoForge.EVENT_BUS.addListener(PlayerEvent.PlayerLoggedOutEvent.class, e -> ChatBannerMuteController.restoreAll());
-        NeoForge.EVENT_BUS.addListener(ServerTickEvent.Post.class, e -> MaidMoveData.tickMoveQueue());
-        // 信号延迟队列：每 tick 对账，到点投递延迟的 AI 聊天回复
-        NeoForge.EVENT_BUS.addListener(ServerTickEvent.Post.class, e -> SignalDelayManager.tick(e.getServer()));
-        // 女仆悄悄话气泡抑制：每 tick 对账，到点恢复被抑制女仆的气泡
-        NeoForge.EVENT_BUS.addListener(ServerTickEvent.Post.class, e -> ImmersiveBubbleController.tick(e.getServer()));
-        // 沉浸式聊天公屏抑制：每 tick 对账，到点清除过期静音标记
-        NeoForge.EVENT_BUS.addListener(ServerTickEvent.Post.class, e -> ChatBannerMuteController.tick(e.getServer()));
-        // 手机聊天来源窗口：每 tick 兜底关闭超时窗口（LLM 长时间无响应保护）
-        NeoForge.EVENT_BUS.addListener(ServerTickEvent.Post.class, e -> PhoneChatSourceController.tick(e.getServer()));
-        NeoForge.EVENT_BUS.addListener(ServerStoppingEvent.class, e -> PhoneChatSourceController.clearAll());
-        NeoForge.EVENT_BUS.addListener(ServerStoppingEvent.class,
+        MinecraftForge.EVENT_BUS.addListener(EventPriority.NORMAL, false, PlayerEvent.PlayerLoggedInEvent.class, PlayerStarterKit::onPlayerLoggedIn);
+        MinecraftForge.EVENT_BUS.addListener(EventPriority.NORMAL, false, PlayerEvent.PlayerLoggedOutEvent.class, e -> ImmersiveBubbleController.restoreAll());
+        MinecraftForge.EVENT_BUS.addListener(EventPriority.NORMAL, false, PlayerEvent.PlayerLoggedOutEvent.class, e -> ChatBannerMuteController.restoreAll());
+        // 退出时释放该玩家的半包重组缓冲/预算；停服时全部清空。
+        MinecraftForge.EVENT_BUS.addListener(EventPriority.NORMAL, false, PlayerEvent.PlayerLoggedOutEvent.class,
+                e -> PacketTransport.clearServerPlayer(e.getEntity().getUUID()));
+        MinecraftForge.EVENT_BUS.addListener(EventPriority.NORMAL, false, ServerStoppingEvent.class, e -> PacketTransport.clearAll());
+        // 服务端 tick 统一走 Forge 1.20.1 的 TickEvent.ServerTickEvent END 阶段。
+        // 注意：救援/补给 hook 也注册在同一事件总线；本监听器在它们之后注册，
+        // MaidNarrativeBus 仍保持“救援/补给 submit 之后 flush”的原顺序。
+        MinecraftForge.EVENT_BUS.addListener(EventPriority.NORMAL, false, TickEvent.ServerTickEvent.class, HuhuTalk::onServerTick);
+        MinecraftForge.EVENT_BUS.addListener(EventPriority.NORMAL, false, ServerStoppingEvent.class, e -> PhoneChatSourceController.clearAll());
+        MinecraftForge.EVENT_BUS.addListener(EventPriority.NORMAL, false, ServerStoppingEvent.class,
                 e -> C2SRequestArchiveHistoryPacket.clearRateLimits());
-        NeoForge.EVENT_BUS.addListener(ServerStoppingEvent.class,
+        MinecraftForge.EVENT_BUS.addListener(EventPriority.NORMAL, false, ServerStoppingEvent.class,
                 e -> C2SRequestArchiveAssetPacket.clearRateLimits());
-        NeoForge.EVENT_BUS.addListener(PlayerEvent.PlayerLoggedOutEvent.class, e -> PhoneChatSourceController.clearAll());
+        MinecraftForge.EVENT_BUS.addListener(EventPriority.NORMAL, false, PlayerEvent.PlayerLoggedOutEvent.class, e -> PhoneChatSourceController.clearAll());
 
         // 识图平台：服务器起来时补齐本模组需要、而主模组没有的 LLM 站点预设（千帆/混元/阶跃/自定义）。
         // 用 ServerAboutToStart 而不是 mod 构造期，是因为主模组的站点表要到它自己的 common setup
         // 才由 SerializerRegister.init() → AvailableSites.init() 建好；服务器启动必然晚于那一步。
         // 该方法是幂等的「缺失才建」，不会覆盖玩家已有的任何站点配置。
-        NeoForge.EVENT_BUS.addListener(ServerAboutToStartEvent.class, e -> VisionSites.ensureDefaults());
+        MinecraftForge.EVENT_BUS.addListener(EventPriority.NORMAL, false, ServerAboutToStartEvent.class, e -> VisionSites.ensureDefaults());
         // 「识图走哪个平台」是纯会话偏好（客户端每次登录重推），登出即清、停服全清，避免长开服累积
-        NeoForge.EVENT_BUS.addListener(PlayerEvent.PlayerLoggedOutEvent.class,
+        MinecraftForge.EVENT_BUS.addListener(EventPriority.NORMAL, false, PlayerEvent.PlayerLoggedOutEvent.class,
                 e -> VisionSettings.clear(e.getEntity().getUUID()));
-        NeoForge.EVENT_BUS.addListener(ServerStoppingEvent.class, e -> VisionSettings.clearAll());
+        MinecraftForge.EVENT_BUS.addListener(EventPriority.NORMAL, false, ServerStoppingEvent.class, e -> VisionSettings.clearAll());
 
         // 女仆叙事总线（任务 1 × 任务 2 的兼容层）：救援与补给的"要她说的话"在这里合并成同一轮注入。
         // ⚠ 必须注册在 PlayerRescueHook / RemoteSupplyHook 之后：它们的 ServerTick 钩子会 submit 事件，
         //   本监听器随后 flush，这样同一 tick 提交的事件就能被合并（见 §12）。
-        NeoForge.EVENT_BUS.addListener(ServerTickEvent.Post.class, e -> MaidNarrativeBus.tick(e.getServer()));
-        NeoForge.EVENT_BUS.addListener(ServerStoppingEvent.class, e -> MaidNarrativeBus.clearAll());
-        NeoForge.EVENT_BUS.addListener(PlayerEvent.PlayerLoggedOutEvent.class,
-                e -> MaidNarrativeBus.onPlayerGone(e.getEntity().getUUID()));
+        // 该 flush 已合并进上面的 onServerTick，保持同一 END 阶段与注册顺序。
 
-        modEventBus.addListener(RegisterPayloadHandlersEvent.class, this::setupPackets);
+        // ========== 网络：底层只注册一个 Forge SimpleChannel WirePacket ==========
+        PayloadRegistrar registrar = PacketTransport.initCommon();
+        // C2S 描述和 handler 由共同端登记；专用服也会登记，但不会加载任何客户端类。
+        registerServerboundPayloads(registrar);
+        // S2C 描述在双方同顺序登记；专用服只登记 descriptor，不注册客户端 handler。
+        registerClientboundDescriptors(registrar);
+        // S2C 的真实 handler 绑定属于物理客户端：由 ClientPayloadSetup 上的
+        // @Mod.EventBusSubscriber(Dist.CLIENT, bus = MOD) 在 FMLClientSetupEvent 中完成。
+        // common 构造不引用任何客户端类，专用服不会加载 ClientPayloadSetup/LocalPlayer。
     }
 
-    private void setupPackets(RegisterPayloadHandlersEvent event) {
-        var registrar = event.registrar(MOD_ID);
+    private static void onServerTick(TickEvent.ServerTickEvent event) {
+        if (event.phase != TickEvent.Phase.END) {
+            return;
+        }
+        PacketTransport.tick();
+        MaidMoveData.tickMoveQueue();
+        // 信号延迟队列：每 tick 对账，到点投递延迟的 AI 聊天回复
+        SignalDelayManager.tick(event.getServer());
+        // 女仆悄悄话气泡抑制：每 tick 对账，到点恢复被抑制女仆的气泡
+        ImmersiveBubbleController.tick(event.getServer());
+        // 沉浸式聊天公屏抑制：每 tick 对账，到点清除过期静音标记
+        ChatBannerMuteController.tick(event.getServer());
+        // 手机聊天来源窗口：每 tick 兜底关闭超时窗口（LLM 长时间无响应保护）
+        PhoneChatSourceController.tick(event.getServer());
+        // 必须最后 flush：救援/补给 hook 已在同一 tick 的 END 阶段 submit。
+        MaidNarrativeBus.tick(event.getServer());
+    }
+
+    private static void registerServerboundPayloads(PayloadRegistrar registrar) {
         // 客户端 → 服务端：聊天消息
         registrar.playToServer(C2SMaidChatPacket.TYPE, C2SMaidChatPacket.STREAM_CODEC, C2SMaidChatPacket::handle);
-        // 客户端 → 服务端：带一张图片的聊天（图片走 vision_tmp 共享目录，包内只传 token）
+        // 客户端 → 服务端：带一张图片的聊天（图片字节内联，分片由 transport 负责）
         registrar.playToServer(C2SMaidImageChatPacket.TYPE, C2SMaidImageChatPacket.STREAM_CODEC, C2SMaidImageChatPacket::handle);
         // 客户端 → 服务端：领取女仆发来的物品（M→P 传文件）
         registrar.playToServer(C2SClaimTransferPacket.TYPE, C2SClaimTransferPacket.STREAM_CODEC, C2SClaimTransferPacket::handle);
@@ -171,6 +212,27 @@ public class HuhuTalk {
         registrar.playToServer(C2SRequestVisionSitesPacket.TYPE, C2SRequestVisionSitesPacket.STREAM_CODEC, C2SRequestVisionSitesPacket::handle);
         registrar.playToServer(C2SVisionSiteEditPacket.TYPE, C2SVisionSiteEditPacket.STREAM_CODEC, C2SVisionSiteEditPacket::handle);
         registrar.playToServer(C2SVisionSelectionPacket.TYPE, C2SVisionSelectionPacket.STREAM_CODEC, C2SVisionSelectionPacket::handle);
-        // 注意：S2C 包在 ClientPayloadSetup 中注册
+    }
+
+    /**
+     * 共同端登记 15 个 S2C 描述。专用服也会执行这里，以便识别/拒绝错误方向的包；
+     * 这里的代码不引用任何 {@code net.minecraft.client.*} 类。
+     */
+    private static void registerClientboundDescriptors(PayloadRegistrar registrar) {
+        registrar.playToClient(S2CMaidChatResponsePacket.TYPE, S2CMaidChatResponsePacket.STREAM_CODEC);
+        registrar.playToClient(S2CMaidChatErrorPacket.TYPE, S2CMaidChatErrorPacket.STREAM_CODEC);
+        registrar.playToClient(S2CMaidChatInfoPacket.TYPE, S2CMaidChatInfoPacket.STREAM_CODEC);
+        registrar.playToClient(S2CMaidDeliveredPacket.TYPE, S2CMaidDeliveredPacket.STREAM_CODEC);
+        registrar.playToClient(S2CMaidItemTransferPacket.TYPE, S2CMaidItemTransferPacket.STREAM_CODEC);
+        registrar.playToClient(S2CMaidItemClaimResultPacket.TYPE, S2CMaidItemClaimResultPacket.STREAM_CODEC);
+        registrar.playToClient(S2CMaidItemsSendResultPacket.TYPE, S2CMaidItemsSendResultPacket.STREAM_CODEC);
+        registrar.playToClient(S2CMaidListPacket.TYPE, S2CMaidListPacket.STREAM_CODEC);
+        registrar.playToClient(S2CMaidStatusPacket.TYPE, S2CMaidStatusPacket.STREAM_CODEC);
+        registrar.playToClient(S2CSosBindPacket.TYPE, S2CSosBindPacket.STREAM_CODEC);
+        registrar.playToClient(S2CSosTaskListPacket.TYPE, S2CSosTaskListPacket.STREAM_CODEC);
+        registrar.playToClient(S2CPhoneChatSourcePacket.TYPE, S2CPhoneChatSourcePacket.STREAM_CODEC);
+        registrar.playToClient(S2CVisionSitesPacket.TYPE, S2CVisionSitesPacket.STREAM_CODEC);
+        registrar.playToClient(S2CArchiveHistoryPacket.TYPE, S2CArchiveHistoryPacket.STREAM_CODEC);
+        registrar.playToClient(S2CArchiveAssetPacket.TYPE, S2CArchiveAssetPacket.STREAM_CODEC);
     }
 }

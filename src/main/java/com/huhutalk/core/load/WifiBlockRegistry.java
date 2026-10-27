@@ -1,6 +1,5 @@
 package com.huhutalk.core.load;
 
-import net.minecraft.core.HolderLookup;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
@@ -34,8 +33,7 @@ public class WifiBlockRegistry extends SavedData {
     @NotNull
     public static WifiBlockRegistry get(MinecraftServer server) {
         return server.overworld().getDataStorage().computeIfAbsent(
-                new SavedData.Factory<>(WifiBlockRegistry::new, WifiBlockRegistry::load),
-                DATA_NAME
+                WifiBlockRegistry::load, WifiBlockRegistry::new, DATA_NAME
         );
     }
 
@@ -78,7 +76,7 @@ public class WifiBlockRegistry extends SavedData {
     }
 
     @Override
-    public CompoundTag save(CompoundTag tag, HolderLookup.Provider registries) {
+    public CompoundTag save(CompoundTag tag) {
         CompoundTag root = new CompoundTag();
         for (Map.Entry<ResourceKey<Level>, Set<ChunkPos>> e : positions.entrySet()) {
             ListTag list = new ListTag();
@@ -94,14 +92,14 @@ public class WifiBlockRegistry extends SavedData {
         return tag;
     }
 
-    public static WifiBlockRegistry load(CompoundTag tag, HolderLookup.Provider registries) {
+    public static WifiBlockRegistry load(CompoundTag tag) {
         WifiBlockRegistry registry = new WifiBlockRegistry();
         if (tag.contains("wifi", Tag.TAG_COMPOUND)) {
             CompoundTag root = tag.getCompound("wifi");
             for (String dim : root.getAllKeys()) {
                 ResourceKey<Level> key;
                 try {
-                    key = ResourceKey.create(Registries.DIMENSION, ResourceLocation.parse(dim));
+                    key = ResourceKey.create(Registries.DIMENSION, new net.minecraft.resources.ResourceLocation(dim));
                 } catch (Exception e) {
                     // 损坏/异常维度标识：跳过该条，避免整个注册表加载崩溃
                     continue;

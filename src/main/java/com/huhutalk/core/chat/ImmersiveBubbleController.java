@@ -94,7 +94,7 @@ public final class ImmersiveBubbleController {
     /** 在服务端所有已加载维度里按 UUID 查找女仆实体。 */
     private static EntityMaid findMaidByUuid(UUID uuid) {
         net.minecraft.server.MinecraftServer server =
-                net.neoforged.neoforge.server.ServerLifecycleHooks.getCurrentServer();
+                net.minecraftforge.server.ServerLifecycleHooks.getCurrentServer();
         if (server == null) {
             return null;
         }

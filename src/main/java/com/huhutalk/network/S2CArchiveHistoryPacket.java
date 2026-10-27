@@ -1,10 +1,10 @@
 package com.huhutalk.network;
 
 import com.huhutalk.core.archive.ArchiveHistoryProtocol;
-import net.minecraft.network.RegistryFriendlyByteBuf;
-import net.minecraft.network.codec.ByteBufCodecs;
-import net.minecraft.network.codec.StreamCodec;
-import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.network.FriendlyByteBuf;
+import com.huhutalk.network.transport.ByteBufCodecs;
+import com.huhutalk.network.transport.StreamCodec;
+import com.huhutalk.network.transport.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 import org.jetbrains.annotations.NotNull;
 
@@ -18,9 +18,9 @@ import org.jetbrains.annotations.NotNull;
 public record S2CArchiveHistoryPacket(String payloadJson) implements CustomPacketPayload {
     public static final CustomPacketPayload.Type<S2CArchiveHistoryPacket> TYPE =
             new CustomPacketPayload.Type<>(
-                    ResourceLocation.fromNamespaceAndPath("huhutalk", "archive_history"));
+                    new net.minecraft.resources.ResourceLocation("huhutalk", "archive_history"));
 
-    public static final StreamCodec<RegistryFriendlyByteBuf, S2CArchiveHistoryPacket> STREAM_CODEC =
+    public static final StreamCodec<FriendlyByteBuf, S2CArchiveHistoryPacket> STREAM_CODEC =
             StreamCodec.composite(
                     ByteBufCodecs.stringUtf8(ArchiveHistoryProtocol.MAX_JSON_CHARS),
                     S2CArchiveHistoryPacket::payloadJson,

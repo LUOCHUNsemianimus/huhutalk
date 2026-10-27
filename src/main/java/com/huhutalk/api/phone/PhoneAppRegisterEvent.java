@@ -1,6 +1,6 @@
 package com.huhutalk.api.phone;
 
-import net.neoforged.bus.api.Event;
+import net.minecraftforge.eventbus.api.Event;
 
 /**
  * 请求注册手机桌面 App 的事件，由 HuhuTalk 在<b>首次需要桌面 App 列表时</b>广播一次。

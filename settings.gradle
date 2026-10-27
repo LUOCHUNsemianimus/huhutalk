@@ -1,9 +1,23 @@
 pluginManagement {
     repositories {
         gradlePluginPortal()
+        mavenCentral()
+        // ForgeGradle 6 发布在 MinecraftForge Maven；插件门户之外保留官方源。
+        maven {
+            name = 'MinecraftForge'
+            url = 'https://maven.minecraftforge.net/'
+        }
+        // MixinGradle 插件仓库。
+        maven {
+            name = 'Sponge'
+            url = 'https://repo.spongepowered.org/repository/maven-public/'
+        }
     }
 }
 
 plugins {
-    id 'org.gradle.toolchains.foojay-resolver-convention' version '1.0.0'
+    // 仅用于在缺少 JDK 17 的机器上按 toolchain 自动定位；本机已绑定 JDK 17。
+    id 'org.gradle.toolchains.foojay-resolver-convention' version '0.7.0'
 }
+
+rootProject.name = 'huhutalk-forge-1.20.1'

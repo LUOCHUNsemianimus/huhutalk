@@ -34,7 +34,7 @@ import java.util.List;
 public class TaskRemoteSupply implements IMaidTask {
 
     public static final ResourceLocation UID =
-            ResourceLocation.fromNamespaceAndPath(HuhuTalk.MOD_ID, "remote_supply");
+            new net.minecraft.resources.ResourceLocation(HuhuTalk.MOD_ID, "remote_supply");
 
     /** 单例：任务本质无状态，状态都在 {@link RemoteSupplySessions} 里 */
     public static final TaskRemoteSupply INSTANCE = new TaskRemoteSupply();

@@ -124,7 +124,7 @@ public class MaidContactEntry {
             return Level.OVERWORLD;
         }
         try {
-            return ResourceKey.create(Registries.DIMENSION, ResourceLocation.parse(dimension));
+            return ResourceKey.create(Registries.DIMENSION, new net.minecraft.resources.ResourceLocation(dimension));
         } catch (Exception e) {
             return Level.OVERWORLD;
         }

@@ -230,9 +230,9 @@ public final class RescueNarrative {
             return "你";
         }
         if (otherNames.size() == 1) {
-            return "你和" + otherNames.getFirst();
+            return "你和" + otherNames.get(0);
         }
-        return "你和" + otherNames.getFirst() + "他们";
+        return "你和" + otherNames.get(0) + "他们";
     }
 
     /** 本段记账区间里除开口者之外，还投递过药水的女仆名（顺序稳定，去重）。 */

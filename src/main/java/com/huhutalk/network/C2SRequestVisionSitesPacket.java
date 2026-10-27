@@ -2,12 +2,12 @@ package com.huhutalk.network;
 
 import com.github.tartaricacid.touhoulittlemaid.util.GameModeUtil;
 import com.huhutalk.core.vision.VisionSites;
-import net.minecraft.network.RegistryFriendlyByteBuf;
-import net.minecraft.network.codec.StreamCodec;
-import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.network.FriendlyByteBuf;
+import com.huhutalk.network.transport.StreamCodec;
+import com.huhutalk.network.transport.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
-import net.neoforged.neoforge.network.handling.IPayloadContext;
+import com.huhutalk.network.transport.IPayloadContext;
 import org.jetbrains.annotations.NotNull;
 
 /**
@@ -19,9 +19,9 @@ import org.jetbrains.annotations.NotNull;
 public record C2SRequestVisionSitesPacket() implements CustomPacketPayload {
 
     public static final CustomPacketPayload.Type<C2SRequestVisionSitesPacket> TYPE =
-            new Type<>(ResourceLocation.fromNamespaceAndPath("huhutalk", "request_vision_sites"));
+            new Type<>(new net.minecraft.resources.ResourceLocation("huhutalk", "request_vision_sites"));
 
-    public static final StreamCodec<RegistryFriendlyByteBuf, C2SRequestVisionSitesPacket> STREAM_CODEC =
+    public static final StreamCodec<FriendlyByteBuf, C2SRequestVisionSitesPacket> STREAM_CODEC =
             StreamCodec.of((buf, packet) -> {
             }, buf -> new C2SRequestVisionSitesPacket());
 

@@ -13,7 +13,7 @@ import com.huhutalk.network.S2CMaidChatErrorPacket;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
-import net.neoforged.neoforge.network.PacketDistributor;
+import com.huhutalk.network.transport.PacketDistributor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

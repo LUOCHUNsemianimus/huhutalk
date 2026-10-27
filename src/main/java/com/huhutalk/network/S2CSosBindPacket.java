@@ -1,9 +1,9 @@
 package com.huhutalk.network;
 
-import net.minecraft.network.RegistryFriendlyByteBuf;
-import net.minecraft.network.codec.ByteBufCodecs;
-import net.minecraft.network.codec.StreamCodec;
-import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.network.FriendlyByteBuf;
+import com.huhutalk.network.transport.ByteBufCodecs;
+import com.huhutalk.network.transport.StreamCodec;
+import com.huhutalk.network.transport.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 import org.jetbrains.annotations.NotNull;
 
@@ -16,9 +16,9 @@ import java.util.List;
  */
 public record S2CSosBindPacket(List<SosModeEntry> bindings) implements CustomPacketPayload {
     public static final Type<S2CSosBindPacket> TYPE =
-            new Type<>(ResourceLocation.fromNamespaceAndPath("huhutalk", "sos_bind"));
+            new Type<>(new net.minecraft.resources.ResourceLocation("huhutalk", "sos_bind"));
 
-    public static final StreamCodec<RegistryFriendlyByteBuf, S2CSosBindPacket> STREAM_CODEC =
+    public static final StreamCodec<FriendlyByteBuf, S2CSosBindPacket> STREAM_CODEC =
             StreamCodec.composite(
                     SosModeEntry.STREAM_CODEC.apply(ByteBufCodecs.list(512)),
                     S2CSosBindPacket::bindings,
@@ -32,7 +32,7 @@ public record S2CSosBindPacket(List<SosModeEntry> bindings) implements CustomPac
 
     /** 一条 SOS 绑定：女仆 stableId + 其工作模式 taskUid */
     public record SosModeEntry(String stableId, String taskUid) {
-        public static final StreamCodec<RegistryFriendlyByteBuf, SosModeEntry> STREAM_CODEC =
+        public static final StreamCodec<FriendlyByteBuf, SosModeEntry> STREAM_CODEC =
                 StreamCodec.composite(
                         ByteBufCodecs.STRING_UTF8,
                         SosModeEntry::stableId,

@@ -162,7 +162,7 @@ public class ManualPage extends PhonePage {
             return false;
         }
         // 手册是纯客户端的东西，服务端注册没有意义 —— 与 PhoneAppRegistry 一致，挡掉而不是抛异常
-        if (net.neoforged.fml.loading.FMLEnvironment.dist != net.neoforged.api.distmarker.Dist.CLIENT) {
+        if (net.minecraftforge.fml.loading.FMLEnvironment.dist != net.minecraftforge.api.distmarker.Dist.CLIENT) {
             com.huhutalk.HuhuTalk.LOGGER.warn("[HuhuTalk/Manual] 非客户端环境尝试注册手册栏目「{}」，已忽略", title);
             return false;
         }

@@ -22,7 +22,7 @@ import java.util.List;
  */
 public class TaskMoveTo implements IMaidTask {
     public static final ResourceLocation UID =
-            ResourceLocation.fromNamespaceAndPath(HuhuTalk.MOD_ID, "move_to");
+            new net.minecraft.resources.ResourceLocation(HuhuTalk.MOD_ID, "move_to");
 
     /** 单例：任务本质无状态，状态在行为实例里 */
     public static final TaskMoveTo INSTANCE = new TaskMoveTo();

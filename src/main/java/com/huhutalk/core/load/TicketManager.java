@@ -16,8 +16,8 @@ import net.minecraft.util.Unit;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
-import net.neoforged.bus.api.SubscribeEvent;
-import net.neoforged.neoforge.event.tick.ServerTickEvent;
+import net.minecraftforge.event.TickEvent;
+import net.minecraftforge.eventbus.api.SubscribeEvent;
 import org.slf4j.Logger;
 
 import java.util.HashMap;
@@ -59,7 +59,10 @@ public class TicketManager {
     private final Map<String, ActiveTicket> active = new HashMap<>();
 
     @SubscribeEvent
-    public void onServerTick(ServerTickEvent.Post event) {
+    public void onServerTick(TickEvent.ServerTickEvent event) {
+        if (event.phase != TickEvent.Phase.END) {
+            return;
+        }
         MinecraftServer server = event.getServer();
         if (server == null) {
             return;
@@ -175,7 +178,7 @@ public class TicketManager {
         private void removeTicket(MinecraftServer server) {
             ServerLevel level = resolve(server);
             if (level != null) {
-                level.getChunkSource().removeRegionTicket(MAID_TICKET, chunk, 0, Unit.INSTANCE);
+                level.getChunkSource().removeRegionTicket(MAID_TICKET, chunk, 0, Unit.INSTANCE, true);
             }
         }
     }

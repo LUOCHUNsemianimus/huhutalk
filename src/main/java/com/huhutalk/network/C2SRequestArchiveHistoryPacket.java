@@ -9,14 +9,14 @@ import com.huhutalk.core.archive.ArchiveHistoryResponse;
 import com.huhutalk.core.archive.ArchiveHistoryStatus;
 import com.huhutalk.core.archive.ArchiveService;
 import com.huhutalk.core.archive.ArchiveSnapshot;
-import net.minecraft.network.RegistryFriendlyByteBuf;
-import net.minecraft.network.codec.ByteBufCodecs;
-import net.minecraft.network.codec.StreamCodec;
-import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.network.FriendlyByteBuf;
+import com.huhutalk.network.transport.ByteBufCodecs;
+import com.huhutalk.network.transport.StreamCodec;
+import com.huhutalk.network.transport.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
-import net.neoforged.neoforge.network.handling.IPayloadContext;
+import com.huhutalk.network.transport.IPayloadContext;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.HashMap;
@@ -41,13 +41,13 @@ public record C2SRequestArchiveHistoryPacket(
 ) implements CustomPacketPayload {
 
     public static final Type<C2SRequestArchiveHistoryPacket> TYPE =
-            new Type<>(ResourceLocation.fromNamespaceAndPath("huhutalk", "request_archive_history"));
+            new Type<>(new net.minecraft.resources.ResourceLocation("huhutalk", "request_archive_history"));
 
     /** 1.21.1 的 ByteBufCodecs 没有 LONG 常量；手写固定 8 字节编解码。 */
-    private static final StreamCodec<RegistryFriendlyByteBuf, Long> LONG_CODEC =
-            StreamCodec.of((buf, value) -> buf.writeLong(value), RegistryFriendlyByteBuf::readLong);
+    private static final StreamCodec<FriendlyByteBuf, Long> LONG_CODEC =
+            StreamCodec.of((buf, value) -> buf.writeLong(value), FriendlyByteBuf::readLong);
 
-    public static final StreamCodec<RegistryFriendlyByteBuf, C2SRequestArchiveHistoryPacket> STREAM_CODEC =
+    public static final StreamCodec<FriendlyByteBuf, C2SRequestArchiveHistoryPacket> STREAM_CODEC =
             StreamCodec.composite(
                     ByteBufCodecs.stringUtf8(ArchiveHistoryRequest.MAX_REQUEST_ID_CHARS),
                     C2SRequestArchiveHistoryPacket::requestId,

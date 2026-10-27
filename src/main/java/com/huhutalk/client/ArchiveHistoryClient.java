@@ -7,7 +7,7 @@ import com.huhutalk.core.archive.ArchiveHistorySession;
 import com.huhutalk.core.archive.ArchiveHistoryStatus;
 import com.huhutalk.network.C2SRequestArchiveHistoryPacket;
 import com.huhutalk.phone.PhoneOverlay;
-import net.neoforged.neoforge.network.PacketDistributor;
+import com.huhutalk.network.transport.PacketDistributor;
 
 import java.util.List;
 

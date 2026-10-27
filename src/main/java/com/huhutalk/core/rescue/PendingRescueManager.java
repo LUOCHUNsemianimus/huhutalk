@@ -20,8 +20,8 @@ import java.util.UUID;
  * 在玩家登出 / 服务器停止时清理，避免长开服上的内存泄漏与跨会话串味。
  *
  * <h2>线程约定</h2>
- * 本类的所有入口（{@code LivingDeathEvent} / {@code PlayerRespawnPositionEvent} /
- * {@code ServerTickEvent.Post} / 玩家登出）都发生在<b>服务端主线程</b>，
+ * 本类的所有入口（{@code LivingDeathEvent} / {@code PlayerList.respawn} 的 Mixin Redirect /
+ * {@code TickEvent.ServerTickEvent} / 玩家登出）都发生在<b>服务端主线程</b>，
  * 因此内部直接用 {@link HashMap}，无需并发容器。
  *
  * <h2>不再管"反复死亡统计"</h2>
@@ -159,6 +159,17 @@ public final class PendingRescueManager {
         if (rescue != null) {
             RESPAWN_REDIRECT.put(rescue.playerId(), rescue);
         }
+    }
+
+    /**
+     * 只读查看该玩家当前的重生重定向（没有则返回 null）。
+     * <p>供 {@code PlayerListRescueMixin} 的多个 Redirect 共用：它们在一次重生里会被调用多次，
+     * 不能读一次就清掉。真正的清理仍由调用方在 {@code finally} 里
+     * {@link #consumeRespawnRedirect(UUID)} 完成。
+     */
+    @Nullable
+    public static PendingRescue peekRespawnRedirect(UUID playerId) {
+        return playerId == null ? null : RESPAWN_REDIRECT.get(playerId);
     }
 
     /** 取出并清除该玩家的重生重定向（没有则返回 null）。 */

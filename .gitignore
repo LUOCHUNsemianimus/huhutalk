@@ -41,3 +41,7 @@ repo/
 !**/src/**/repo/
 **/__pycache__/
 *.pyc
+
+### HuhuTalk 资源迁移运行期产物（本地可恢复备份，不删除）
+tools/forge-port-resources-backup/
+tools/forge-port-resources.log

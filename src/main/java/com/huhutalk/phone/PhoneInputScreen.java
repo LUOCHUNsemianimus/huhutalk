@@ -17,9 +17,9 @@ import org.lwjgl.glfw.GLFW;
  * - 鼠标点击发送按钮直接发送（输入状态下也生效）
  * - 上下键按视觉行移动光标（真多行编辑体验）
  * <p>
- * ⚠️ 手动移动光标必须用 moveCursorTo(int, boolean)：
- * 第二参数是"是否扩展选区"，传 false 表示同时收拢选区端点，
- * 即"移动光标并清除选区"。1.21.1 的 EditBox 没有 (int) 或 (int, int) 重载。
+ * ⚠️ 手动移动光标必须调用 {@link #moveCursorWithoutSelection(int)}：
+ * 目标版本的 {@code EditBox} 只有 {@code moveCursorTo(int)}，它不会收拢原有选区端点；
+ * 这里显式把高亮位置同步到新光标，保持旧语义「移动光标并清除选区」。
  */
 public class PhoneInputScreen extends Screen {
     private final ChatPage chatPage;
@@ -38,8 +38,8 @@ public class PhoneInputScreen extends Screen {
         this.hiddenBox.setTextColor(0x00000000);
         this.hiddenBox.setFocused(true);
         this.hiddenBox.setValue(chatPage.getCurrentInputText());
-        // ✅ 光标移到末尾；false = 不扩展选区（同时清除选区）
-        this.hiddenBox.moveCursorTo(chatPage.getCurrentInputText().length(), false);
+        // ✅ 光标移到末尾；同时清除选区
+        moveCursorWithoutSelection(chatPage.getCurrentInputText().length());
         this.hiddenBox.setResponder(chatPage::onInputChanged);
         this.addRenderableWidget(this.hiddenBox);
         syncCursorToChatPage();
@@ -50,6 +50,12 @@ public class PhoneInputScreen extends Screen {
         if (hiddenBox != null) {
             chatPage.setCursorIndex(hiddenBox.getCursorPosition());
         }
+    }
+
+    /** 移动光标并清除选区（目标 EditBox 无 boolean 参数，显式收拢高亮端点） */
+    private void moveCursorWithoutSelection(int index) {
+        this.hiddenBox.moveCursorTo(index);
+        this.hiddenBox.setHighlightPos(this.hiddenBox.getCursorPosition());
     }
 
     @Override
@@ -80,15 +86,15 @@ public class PhoneInputScreen extends Screen {
         // 上方向键：移动到上一视觉行的相同列
         if (keyCode == GLFW.GLFW_KEY_UP) {
             chatPage.moveCursorUp();
-            // ✅ false = 不扩展选区，光标和选区端点一起移动
-            this.hiddenBox.moveCursorTo(chatPage.getCursorIndex(), false);
+            // ✅ 不扩展选区，光标和选区端点一起移动
+            moveCursorWithoutSelection(chatPage.getCursorIndex());
             syncCursorToChatPage();
             return true;
         }
         // 下方向键：移动到下一视觉行的相同列
         if (keyCode == GLFW.GLFW_KEY_DOWN) {
             chatPage.moveCursorDown();
-            this.hiddenBox.moveCursorTo(chatPage.getCursorIndex(), false);
+            moveCursorWithoutSelection(chatPage.getCursorIndex());
             syncCursorToChatPage();
             return true;
         }
@@ -126,8 +132,8 @@ public class PhoneInputScreen extends Screen {
             // 点击输入框区域：定位光标到对应字符
             if (chatPage.isInputAreaHitScreen(mouseX, mouseY)) {
                 int cursorIndex = chatPage.getCursorIndexAtScreen(mouseX, mouseY);
-                // ✅ false = 清除潜在假选区
-                this.hiddenBox.moveCursorTo(cursorIndex, false);
+                // ✅ 清除潜在假选区
+                moveCursorWithoutSelection(cursorIndex);
                 syncCursorToChatPage();
                 return true;
             }
@@ -141,14 +147,14 @@ public class PhoneInputScreen extends Screen {
     }
 
     @Override
-    public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
+    public boolean mouseScrolled(double mouseX, double mouseY, double scrollY) {
         // 滚轮滚动输入框：向上滚（scrollY > 0）显示更早内容
         if (scrollY != 0) {
             // 每格滚动一行（1 表示向上滚动一行，-1 表示向下滚动一行）
             chatPage.scrollInput((int) Math.signum(scrollY));
             return true;
         }
-        return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
+        return super.mouseScrolled(mouseX, mouseY, scrollY);
     }
 
     @Override

@@ -107,7 +107,7 @@ public class PhoneCasePickerPage extends PhonePage {
             boolean selected = id.equals(HuhuTalkClientSettings.getPhoneCaseBlock());
             g.fill(x, y, x + w, y + h, selected ? scheme.accentSoftActive() : 0x33FFFFFF);
 
-            Item item = BuiltInRegistries.ITEM.get(ResourceLocation.parse(id));
+            Item item = BuiltInRegistries.ITEM.get(new net.minecraft.resources.ResourceLocation(id));
             if (item != null) {
                 g.renderItem(new ItemStack(item), x + 3, y + 3);
             }

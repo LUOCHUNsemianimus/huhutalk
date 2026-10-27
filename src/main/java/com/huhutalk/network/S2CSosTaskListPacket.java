@@ -1,9 +1,9 @@
 package com.huhutalk.network;
 
-import net.minecraft.network.RegistryFriendlyByteBuf;
-import net.minecraft.network.codec.ByteBufCodecs;
-import net.minecraft.network.codec.StreamCodec;
-import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.network.FriendlyByteBuf;
+import com.huhutalk.network.transport.ByteBufCodecs;
+import com.huhutalk.network.transport.StreamCodec;
+import com.huhutalk.network.transport.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 import org.jetbrains.annotations.NotNull;
 
@@ -16,9 +16,9 @@ import java.util.List;
  */
 public record S2CSosTaskListPacket(List<String> taskUids) implements CustomPacketPayload {
     public static final Type<S2CSosTaskListPacket> TYPE =
-            new Type<>(ResourceLocation.fromNamespaceAndPath("huhutalk", "sos_task_list"));
+            new Type<>(new net.minecraft.resources.ResourceLocation("huhutalk", "sos_task_list"));
 
-    public static final StreamCodec<RegistryFriendlyByteBuf, S2CSosTaskListPacket> STREAM_CODEC =
+    public static final StreamCodec<FriendlyByteBuf, S2CSosTaskListPacket> STREAM_CODEC =
             StreamCodec.composite(
                     ByteBufCodecs.STRING_UTF8.apply(ByteBufCodecs.list(256)),
                     S2CSosTaskListPacket::taskUids,

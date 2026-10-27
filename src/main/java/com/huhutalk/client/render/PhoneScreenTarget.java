@@ -19,7 +19,6 @@ import net.minecraft.client.renderer.texture.AbstractTexture;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.packs.resources.ResourceManager;
 import org.joml.Matrix4f;
-import org.joml.Matrix4fStack;
 import org.joml.Vector4f;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL14;
@@ -241,16 +240,16 @@ public final class PhoneScreenTarget {
         RenderSystem.setProjectionMatrix(
                 new Matrix4f().setOrtho(0.0F, usedCanvasW, (float) usedPixelHeight / usedGuiScale, 0.0F, 1000.0F, 21000.0F),
                 VertexSorting.ORTHOGRAPHIC_Z);
-        Matrix4fStack modelView = RenderSystem.getModelViewStack();
-        modelView.pushMatrix();
-        modelView.setTranslation(0.0F, 0.0F, -11000.0F);
+        PoseStack modelView = RenderSystem.getModelViewStack();
+        modelView.pushPose();
+        modelView.last().pose().setTranslation(0.0F, 0.0F, -11000.0F);
         RenderSystem.applyModelViewMatrix();
 
         GuiGraphics graphics = new GuiGraphics(mc, mc.renderBuffers().bufferSource());
         PhoneOverlay.renderExternal(graphics, partialTick, usedCanvasW, usedCanvasH);
         graphics.flush();
 
-        modelView.popMatrix();
+        modelView.popPose();
         RenderSystem.applyModelViewMatrix();
         Lighting.setupFor3DItems();
         RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
@@ -296,7 +295,7 @@ public final class PhoneScreenTarget {
         if (location == null) {
             // 把离屏靶的颜色纹理包成 AbstractTexture（覆写 getId 指向它），注册进 TextureManager，
             // 就能用原版 RenderType.text(loc) 采样它 —— 与 MapRenderer 的动态地图纹理同一套路。
-            ResourceLocation path = ResourceLocation.fromNamespaceAndPath("huhutalk", "phone_screen_dynamic");
+            ResourceLocation path = new net.minecraft.resources.ResourceLocation("huhutalk", "phone_screen_dynamic");
             mc.getTextureManager().register(path, new FboTexture());
             location = path;
             renderType = RenderType.text(path);
@@ -445,14 +444,14 @@ public final class PhoneScreenTarget {
 
         // 原版配对：连带 VertexSorting 一起保存/恢复，不重新估算 FOV 或手持 pose
         RenderSystem.backupProjectionMatrix();
-        Matrix4fStack modelView = RenderSystem.getModelViewStack();
-        modelView.pushMatrix();
+        PoseStack modelView = RenderSystem.getModelViewStack();
+        modelView.pushPose();
         try {
             // Iris finalize 已把最终画面写进真实主靶；这里显式绑定，不替换主靶身份
             mainTarget.bindWrite(true);
             RenderSystem.setProjectionMatrix(pendingProjection, pendingSorting);
-            modelView.identity();
-            modelView.mul(pendingModelView);
+            modelView.last().pose().identity();
+            modelView.last().pose().mul(pendingModelView);
             RenderSystem.applyModelViewMatrix();
 
             // 保持真实世界深度层级：启用深度测试，屏幕仍会被更近的世界几何遮挡
@@ -484,7 +483,7 @@ public final class PhoneScreenTarget {
                 RenderSystem.disableCull();
             }
 
-            modelView.popMatrix();
+            modelView.popPose();
             RenderSystem.applyModelViewMatrix();
             RenderSystem.restoreProjectionMatrix();
             mainTarget.bindWrite(true);
@@ -549,15 +548,15 @@ public final class PhoneScreenTarget {
     private static void emitQuad(VertexConsumer consumer, Matrix4f matrix, int light,
                                  float u0, float u1, float vTop, float vBot, boolean frontCcw) {
         if (frontCcw) {
-            consumer.addVertex(matrix, SCREEN_X0, SCREEN_Y0, SCREEN_Z).setColor(-1).setUv(u0, vBot).setLight(light);
-            consumer.addVertex(matrix, SCREEN_X1, SCREEN_Y0, SCREEN_Z).setColor(-1).setUv(u1, vBot).setLight(light);
-            consumer.addVertex(matrix, SCREEN_X1, SCREEN_Y1, SCREEN_Z).setColor(-1).setUv(u1, vTop).setLight(light);
-            consumer.addVertex(matrix, SCREEN_X0, SCREEN_Y1, SCREEN_Z).setColor(-1).setUv(u0, vTop).setLight(light);
+            consumer.vertex(matrix, SCREEN_X0, SCREEN_Y0, SCREEN_Z).color(255, 255, 255, 255).uv(u0, vBot).uv2(light).endVertex();
+            consumer.vertex(matrix, SCREEN_X1, SCREEN_Y0, SCREEN_Z).color(255, 255, 255, 255).uv(u1, vBot).uv2(light).endVertex();
+            consumer.vertex(matrix, SCREEN_X1, SCREEN_Y1, SCREEN_Z).color(255, 255, 255, 255).uv(u1, vTop).uv2(light).endVertex();
+            consumer.vertex(matrix, SCREEN_X0, SCREEN_Y1, SCREEN_Z).color(255, 255, 255, 255).uv(u0, vTop).uv2(light).endVertex();
         } else {
-            consumer.addVertex(matrix, SCREEN_X0, SCREEN_Y1, SCREEN_Z).setColor(-1).setUv(u0, vTop).setLight(light);
-            consumer.addVertex(matrix, SCREEN_X1, SCREEN_Y1, SCREEN_Z).setColor(-1).setUv(u1, vTop).setLight(light);
-            consumer.addVertex(matrix, SCREEN_X1, SCREEN_Y0, SCREEN_Z).setColor(-1).setUv(u1, vBot).setLight(light);
-            consumer.addVertex(matrix, SCREEN_X0, SCREEN_Y0, SCREEN_Z).setColor(-1).setUv(u0, vBot).setLight(light);
+            consumer.vertex(matrix, SCREEN_X0, SCREEN_Y1, SCREEN_Z).color(255, 255, 255, 255).uv(u0, vTop).uv2(light).endVertex();
+            consumer.vertex(matrix, SCREEN_X1, SCREEN_Y1, SCREEN_Z).color(255, 255, 255, 255).uv(u1, vTop).uv2(light).endVertex();
+            consumer.vertex(matrix, SCREEN_X1, SCREEN_Y0, SCREEN_Z).color(255, 255, 255, 255).uv(u1, vBot).uv2(light).endVertex();
+            consumer.vertex(matrix, SCREEN_X0, SCREEN_Y0, SCREEN_Z).color(255, 255, 255, 255).uv(u0, vBot).uv2(light).endVertex();
         }
     }
 

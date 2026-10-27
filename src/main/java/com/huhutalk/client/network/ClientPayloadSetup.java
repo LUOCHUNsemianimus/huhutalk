@@ -35,21 +35,34 @@ import com.huhutalk.phone.pages.ChatPage;
 import com.huhutalk.util.MessageSplitter;
 import com.huhutalk.core.archive.ArchiveHistoryProtocol;
 import com.huhutalk.core.archive.ArchiveHistoryResponse;
-import net.neoforged.api.distmarker.Dist;
-import net.neoforged.bus.api.SubscribeEvent;
-import net.neoforged.fml.common.EventBusSubscriber;
-import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
-import net.neoforged.neoforge.network.handling.IPayloadContext;
+import com.huhutalk.network.transport.IPayloadContext;
+import com.huhutalk.network.transport.PacketTransport;
+import com.huhutalk.network.transport.PayloadRegistrar;
+import net.minecraft.client.Minecraft;
+import net.minecraftforge.api.distmarker.Dist;
+import net.minecraftforge.eventbus.api.SubscribeEvent;
+import net.minecraftforge.fml.common.Mod;
+import net.minecraftforge.fml.event.lifecycle.FMLClientSetupEvent;
 
-@EventBusSubscriber(modid = HuhuTalk.MOD_ID, value = Dist.CLIENT)
+@Mod.EventBusSubscriber(modid = HuhuTalk.MOD_ID, value = Dist.CLIENT, bus = Mod.EventBusSubscriber.Bus.MOD)
 public class ClientPayloadSetup {
     /** 两条固定到达通知的精确编码；只有 info 与之完全相等才按到达通知处理（参数化/普通 info 不受影响）。 */
     private static final String ARRIVED_GUARD = SystemText.of("message.huhutalk.move.arrived_guard");
     private static final String ARRIVED_WAIT = SystemText.of("message.huhutalk.move.arrived_wait");
 
+    /**
+     * 客户端 MOD 生命周期唯一入口：在 FMLClientSetupEvent 的 deferred work 中绑定 15 个 S2C handler。
+     * 该阶段早于任何世界加入/网络登录，因此不会丢失初始化；服务端因 subscriber 的
+     * {@code Dist.CLIENT} 过滤而不会加载本类。
+     */
     @SubscribeEvent
-    public static void onRegisterPayloads(RegisterPayloadHandlersEvent event) {
-        var registrar = event.registrar(HuhuTalk.MOD_ID);
+    public static void onClientSetup(FMLClientSetupEvent event) {
+        event.enqueueWork(ClientPayloadSetup::registerHandlers);
+    }
+
+    public static void registerHandlers() {
+        PacketTransport.setClientPlayerSupplier(() -> Minecraft.getInstance().player);
+        PayloadRegistrar registrar = PacketTransport.registrar();
         registrar.playToClient(S2CMaidChatResponsePacket.TYPE, S2CMaidChatResponsePacket.STREAM_CODEC, ClientPayloadSetup::handleResponse);
         registrar.playToClient(S2CMaidChatErrorPacket.TYPE, S2CMaidChatErrorPacket.STREAM_CODEC, ClientPayloadSetup::handleError);
         registrar.playToClient(S2CMaidChatInfoPacket.TYPE, S2CMaidChatInfoPacket.STREAM_CODEC, ClientPayloadSetup::handleInfo);

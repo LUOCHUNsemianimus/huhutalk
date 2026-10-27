@@ -1,129 +1,172 @@
+// HuhuTalk —— Minecraft 1.20.1 / Forge 47.4.16 / Java 17
+// 由 NeoForge 1.21.1 工程迁移而来：本文件只负责构建与打包，
+// 业务源码的 API 适配由后续任务卡逐步完成，不能因为 gradle 配置就宣称整库已可编译。
+
 plugins {
     id 'java-library'
     id 'maven-publish'
-    id 'net.neoforged.moddev' version '2.0.142'
     id 'idea'
-}
-
-tasks.named('wrapper', Wrapper).configure {
-    distributionType = Wrapper.DistributionType.BIN
+    // 固定 ForgeGradle 版本，避免动态区间解析漂移。
+    id 'net.minecraftforge.gradle' version '6.0.54'
+    // MixinGradle：生成 refmap、把 huhutalk.mixins.json 写入 Manifest 的 MixinConfigs。
+    id 'org.spongepowered.mixin' version '0.7.38'
 }
 
 version = mod_version
 group = mod_group_id
 
-sourceSets.main.resources {
-    srcDir('src/generated/resources')
-    exclude("**/*.bbmodel")
-    exclude("src/generated/**/.cache")
-}
-
-repositories {
-    exclusiveContent {
-        forRepository {
-            maven {
-                url "https://api.modrinth.com/maven"
-            }
-        }
-        filter {
-            includeGroup "maven.modrinth"
-        }
-    }
-    maven { url = "https://maven.neoforged.net/releases" }
-    maven {
-        url = "https://maven.blamejared.com" // JourneyMap API
-        content {
-            includeGroup "info.journeymap"
-        }
-    }
-    mavenCentral()
-}
-
-// 声明 localRuntime 配置：仅供开发环境运行时使用（不打包进最终模组）。
-// 必须在 dependencies 块之前声明，否则 dependencies { localRuntime(...) } 会找不到方法。
-configurations {
-    localRuntime
-}
-
-dependencies {
-    // 车万女仆 编译期依赖（不打包进最终产物，玩家需自行安装）
-    compileOnly("maven.modrinth:R0bDWFAW:1.5.3-neoforge+mc1.21.1")
-
-    // JourneyMap 编译期依赖（可选软依赖，用于读取玩家路径点。不打包，玩家无需强制安装）。
-    // 版本 ID 3AZpZoxN = 1.21.1-6.0.0-beta.53+neoforge（Modrinth）。仅用于本侧查看/编译其 API。
-    compileOnly("maven.modrinth:journeymap:3AZpZoxN")
-
-    // JourneyMap 仅加入开发环境运行时（localRuntime，不打包），便于在游戏内测试路径点功能。
-    localRuntime("maven.modrinth:journeymap:3AZpZoxN")
-
-    // JourneyMap API（含 Waypoint 等接口类，在主 jar 之外单独发布）。编译期依赖。
-    // exclude 旧的 curse.maven 依赖（会拉来一个 Forge 旧版 JourneyMap）
-    compileOnly("info.journeymap:journeymap-api-neoforge:2.0.0-1.21.1") {
-        exclude(group: "curse.maven")
-    }
-}
+// 中文展示文本放在 Gradle 源码里（UTF-8）；gradle.properties 只保存 ASCII 参数。
+ext.mod_authors = '罗春'
 
 base {
     archivesName = mod_id
 }
 
-java.toolchain.languageVersion = JavaLanguageVersion.of(21)
+// Mojang 在 1.18+ 发行 Java 17；本工程同样以 Java 17 为编译与运行目标。
+java.toolchain.languageVersion = JavaLanguageVersion.of(17)
 
-neoForge {
-    version = project.neo_version
+println "Java: ${System.getProperty 'java.version'}, JVM: ${System.getProperty 'java.vm.version'} (${System.getProperty 'java.vendor'}), Arch: ${System.getProperty 'os.arch'}"
 
-    parchment {
-        mappingsVersion = project.parchment_mappings_version
-        minecraftVersion = project.parchment_minecraft_version
+// 原生 Forge GameTest 使用独立源集：只参与构建/开发运行，不进入正式 jar。
+sourceSets {
+    gametest {
+        // 显式 setSrcDirs 取代重复的 srcDir：默认源集本身已含 src/gametest/java 与
+        // src/gametest/resources，再 add 一次会让 processGametestResources 看到两份
+        // port_empty.nbt 并报 duplicate。这里固定为同一组目录，不排除任何资源。
+        java.setSrcDirs(['src/gametest/java'])
+        resources.setSrcDirs(['src/gametest/resources'])
+        compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
+        runtimeClasspath += sourceSets.gametest.output + sourceSets.main.output + sourceSets.main.runtimeClasspath
     }
+}
+
+minecraft {
+    // 官方 Mojang 映射（official 1.20.1）。
+    mappings channel: mapping_channel, version: mapping_version
+
+    // 让 IDE 运行前把 processResources 的输出放到正确位置（Forge 标准做法）。
+    copyIdeResources = true
 
     runs {
+        configureEach {
+            workingDirectory project.file('run')
+
+            property 'forge.logging.markers', 'REGISTRIES'
+            property 'forge.logging.console.level', 'debug'
+
+            mods {
+                "${mod_id}" {
+                    source sourceSets.main
+                }
+            }
+        }
+
         client {
-            client()
-            systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
+            property 'forge.enabledGameTestNamespaces', mod_id
+
+            // 仅显式 -PportSmoke 时把驱动所在源集加入客户端，并打开隔离的
+            // quickPlay 世界与固定分辨率；普通 client/server 与正式 jar 不包含测试类。
+            if (project.hasProperty('portSmoke')) {
+                mods {
+                    "${mod_id}" {
+                        source sourceSets.gametest
+                    }
+                }
+                property 'huhutalk.portSmoke', 'true'
+                property 'huhutalk.portSmokeOutput',
+                        file('../.workflow/projects/huhutalk-forge-1201/runtime/client-smoke').absolutePath
+                args '--quickPlaySingleplayer', 'port-smoke', '--width', '1280', '--height', '720'
+            }
         }
 
         server {
-            server()
-            programArgument '--nogui'
-            systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
+            property 'forge.enabledGameTestNamespaces', mod_id
+            args '--nogui'
         }
 
         gameTestServer {
-            type = "gameTestServer"
-            systemProperty 'neoforge.enabledGameTestNamespaces', project.mod_id
+            property 'forge.enabledGameTestNamespaces', mod_id
+
+            // 只有 GameTest 专用 run 追加验证源集；client/server/生产 jar 不追加。
+            mods {
+                "${mod_id}" {
+                    source sourceSets.gametest
+                }
+            }
         }
 
         data {
-            data()
-            programArguments.addAll '--mod', project.mod_id, '--all',
-                    '--output', file('src/generated/resources/').getAbsolutePath(),
-                    '--existing', file('src/main/resources/').getAbsolutePath()
-        }
+            workingDirectory project.file('run-data')
 
-        configureEach {
-            systemProperty 'forge.logging.markers', 'REGISTRIES'
-            logLevel = org.slf4j.event.Level.DEBUG
-        }
-    }
-
-    mods {
-        "${mod_id}" {
-            sourceSet(sourceSets.main)
+            args '--mod', mod_id, '--all',
+                    '--output', file('src/generated/resources/'),
+                    '--existing', file('src/main/resources/')
         }
     }
 }
 
-configurations {
-    localRuntime
-    runtimeClasspath.extendsFrom localRuntime
+// 开发/生产环境都需要 Mixin：refmap 由注解处理器生成，配置名与源码现有文件一致。
+mixin {
+    add sourceSets.main, "${mod_id}.refmap.json"
+    config "${mod_id}.mixins.json"
 }
 
-var generateModMetadata = tasks.register("generateModMetadata", ProcessResources) {
+sourceSets.main.resources {
+    srcDir 'src/generated/resources'
+    exclude '**/*.bbmodel'
+    exclude 'src/generated/**/.cache'
+}
+
+repositories {
+    // Modrinth Maven：按官方 ForgeGradle 说明把 fg.repository 一并放进 forRepositories，
+    // 否则 ForgeGradle 注入的仓库会让 exclusiveContent 的解析范围不完整。
+    exclusiveContent {
+        forRepository {
+            maven {
+                name = 'Modrinth'
+                url = 'https://api.modrinth.com/maven'
+            }
+        }
+        forRepositories(fg.repository)
+        filter {
+            includeGroup 'maven.modrinth'
+        }
+    }
+
+    // Mixin 注解处理器（org.spongepowered:mixin:0.8.5:processor）。
+    maven {
+        name = 'Sponge'
+        url = 'https://repo.spongepowered.org/repository/maven-public/'
+        content {
+            includeGroup 'org.spongepowered'
+        }
+    }
+
+    mavenCentral()
+}
+
+dependencies {
+    // Forge 47.4.16 / MC 1.20.1（userdev 由 ForgeGradle 解析）。
+    minecraft "net.minecraftforge:forge:${minecraft_version}-${forge_version}"
+
+    // 车万女仆 1.5.3 Forge：编译与开发运行期依赖，不打包进最终 jar。
+    implementation fg.deobf('maven.modrinth:R0bDWFAW:g1SKoGQJ')
+
+    // JourneyMap 5.10.3 Forge：可选软依赖（只读取路径点），不打包。
+    compileOnly fg.deobf('maven.modrinth:journeymap:r7FWVNCs')
+    runtimeOnly fg.deobf('maven.modrinth:journeymap:r7FWVNCs')
+
+    // Mixin 注解处理器：生成 huhutalk.refmap.json。
+    annotationProcessor 'org.spongepowered:mixin:0.8.5:processor'
+}
+
+// 把 gradle.properties 中的 ASCII 参数注入 mods.toml。
+tasks.named('processResources', ProcessResources).configure {
     var replaceProperties = [
             minecraft_version      : minecraft_version,
             minecraft_version_range: minecraft_version_range,
-            neo_version            : neo_version,
+            forge_version          : forge_version,
+            forge_version_range    : forge_version_range,
             loader_version_range   : loader_version_range,
             mod_id                 : mod_id,
             mod_name               : mod_name,
@@ -131,21 +174,45 @@ var generateModMetadata = tasks.register("generateModMetadata", ProcessResources
             mod_version            : mod_version,
     ]
     inputs.properties replaceProperties
-    // 用 filter 逐变量替换，避免 Groovy 模板引擎把模板中的中文括号等误当作表达式解析
-    filter { line ->
-        replaceProperties.entrySet().stream()
-                .reduce(line, (acc, e) -> acc.replace("\${" + e.key + "}", String.valueOf(e.value)), (a, b) -> a)
+
+    filesMatching(['META-INF/mods.toml']) {
+        expand replaceProperties + [project: project]
     }
-    from "src/main/templates"
-    into "build/generated/sources/modMetadata"
 }
-sourceSets.main.resources.srcDir generateModMetadata
-neoForge.ideSyncTask generateModMetadata
+
+tasks.named('jar', Jar).configure {
+    manifest {
+        attributes([
+                'Specification-Title'     : mod_id,
+                'Specification-Vendor'    : mod_authors,
+                'Specification-Version'   : '1',
+                'Implementation-Title'    : project.name,
+                'Implementation-Version'  : project.version.toString(),
+                'Implementation-Vendor'   : mod_authors,
+                'Implementation-Timestamp': new Date().format("yyyy-MM-dd'T'HH:mm:ssZ"),
+                // MixinGradle 也会写入；显式保留，确保生产端加载同一份配置。
+                'MixinConfigs'            : "${mod_id}.mixins.json",
+        ])
+    }
+
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+
+    // 授权声明随 JAR 分发；文件来自仓库根目录，保持原样。
+    into('META-INF') {
+        from('LICENSE', 'LICENSING.md', 'THIRD_PARTY_NOTICES.md', 'NOTICE', 'ASSET_LICENSES.json', 'TEMPLATE_LICENSE.txt')
+        from('LICENSES') {
+            into('LICENSES')
+        }
+    }
+
+    // 生产环境需要 reobf；开发运行使用未混淆 jar。
+    finalizedBy 'reobfJar'
+}
 
 publishing {
     publications {
         register('mavenJava', MavenPublication) {
-            from components.java
+            artifact jar
         }
     }
     repositories {
@@ -157,7 +224,13 @@ publishing {
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
+    options.release = 17
+    // 完整报告整库移植错误：默认 -Xmaxerrs=100 会截断后续错误，1500 足够覆盖本库。
+    options.compilerArgs += ['-Xmaxerrs', '1500']
 }
+
+// build/check 必须编译独立 GameTest 源集；不使用排除或 ignoreFailures。
+check.dependsOn tasks.named('gametestClasses')
 
 idea {
     module {
@@ -166,61 +239,9 @@ idea {
     }
 }
 
-// ── 开发环境资源镜像（runClient 用）─────────────────────────────────────────────
-// 为什么需要它（2026-10-11 用 FML 的 DEBUG 日志定案，不是猜的）：
-//   ModDevGradle 通过环境变量 MOD_CLASSES 把该模组的内容目录交给 FML，本工程是两个：
-//     huhutalk%%...\build\classes\java\main;huhutalk%%...\build\resources\main
-//   FML 只为**其中一个**目录建 mod file（即该模组的资源根），日志原文：
-//     Loading mod file ...\build\classes\java\main with languages [LanguageSpec[...javafml...]]
-//   资源根落在 classes 目录，而 processResources 的输出在 build/resources/main，
-//   于是 runClient 里 assets/huhutalk/** 读不到。
-//   ⚠ 注意别把这个和"黑方块"混为一谈：黑方块的直接原因是模型 JSON 解析失败
-//     （见 HuhuTalk_电话手表_交接文档 §10），与资源根无关。这个镜像只解决开发期资源可见性。
-//
-// 副作用与对策：classes 目录里于是有了 assets/data/META-INF 的第二份副本，而
-// jar 的内容来自 sourceSets.main.output（= classes 目录 + resources 目录），
-// 会报 "Entry huhutalk.mixins.json is a duplicate" —— 由下面的 duplicatesStrategy 兜住。
-//
-// ⚠⚠ 为什么这里**必须**写成 processResources 的 doLast，而不能注册成正式任务：
-//   Gradle 9 的 task-dependency validation 会对**每一个**把 build/classes/java/main
-//   当输入的任务报错，而且是一个一个冒出来的：
-//     注册成任务后，先打 :jar   -> "uses this output of task ':mirrorDevResources' without
-//                                    declaring an explicit dependency"
-//     给 jar 加 dependsOn 后，再打 :runClient ->
-//                "A problem was found with the configuration of task ':runClient' (type 'RunGameTask')
-//                 Gradle detected a problem with the following location: ...\build\classes\java\main"
-//   要"正确"就得给 jar / runClient / runServer / runData / runGameTestServer … 挨个加 dependsOn，
-//   而且今后每新增一个消费者都会重新踩一次。
-//   写成 doLast 里的普通文件写入、**不由任何任务声明为输出**，Gradle 就看不到这层目录重叠，
-//   于是不会报 —— 这也正是 §4 那版能跑通 runClient 的原因。
-//   代价：processResources 处于 UP-TO-DATE 时 doLast 不执行（镜像不自愈）。
-//   可接受：镜像内容只在资源变化后才需要更新，那时 processResources 必然重跑。
-tasks.named('processResources').configure {
-    doLast {
-        copy {
-            from layout.buildDirectory.dir('resources/main')
-            into layout.buildDirectory.dir('classes/java/main')
-        }
-    }
-}
-
-tasks.named('jar') {
-    // 镜像目录不是 jar 的正式内容来源，重复项取第一份即可（两份字节完全相同）。
-    // 没有这一行，gradlew build / jar 会直接失败：
-    //   > Entry huhutalk.mixins.json is a duplicate but no duplicate handling strategy has been set.
-    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
-
-    // 授权声明随 JAR 分发；文件来自仓库根目录，保持原样。
-    into('META-INF') {
-        from('LICENSE', 'LICENSING.md', 'THIRD_PARTY_NOTICES.md', 'NOTICE', 'ASSET_LICENSES.json', 'TEMPLATE_LICENSE.txt')
-        from('LICENSES') {
-            into('LICENSES')
-        }
-    }
-}
-
 // 光影开发环境默认关闭；只有显式 -PshaderDev=true 时才加入 Iris/Sodium 与光影 ZIP。
+// 注意：gradle/shader-dev.gradle 仍是 NeoForge/1.21.1 的写法，尚未适配 Forge 1.20.1，
+// 仅影响该可选开发开关，不参与默认构建（详见 docs/forge-port-status.md）。
 if (providers.gradleProperty("shaderDev").map { it.toBoolean() }.getOrElse(false)) {
     apply from: file('gradle/shader-dev.gradle')
 }
-

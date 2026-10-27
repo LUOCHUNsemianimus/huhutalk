@@ -9,9 +9,10 @@ import com.mojang.blaze3d.platform.Lighting;
 import com.mojang.blaze3d.platform.NativeImage;
 import com.mojang.blaze3d.platform.Window;
 import com.mojang.blaze3d.systems.RenderSystem;
+import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.logging.LogUtils;
+import net.minecraft.Util;
 import net.minecraft.client.Camera;
-import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.Screenshot;
 import net.minecraft.client.gui.GuiGraphics;
@@ -23,13 +24,11 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.packs.resources.ResourceManager;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.phys.HitResult;
-import net.neoforged.api.distmarker.Dist;
-import net.neoforged.bus.api.SubscribeEvent;
-import net.neoforged.fml.common.EventBusSubscriber;
-import net.neoforged.neoforge.client.event.CalculateDetachedCameraDistanceEvent;
-import net.neoforged.neoforge.client.event.ViewportEvent;
+import net.minecraftforge.api.distmarker.Dist;
+import net.minecraftforge.eventbus.api.SubscribeEvent;
+import net.minecraftforge.fml.common.Mod.EventBusSubscriber;
+import net.minecraftforge.client.event.ViewportEvent;
 import org.joml.Matrix4f;
-import org.joml.Matrix4fStack;
 import org.lwjgl.opengl.GL11;
 import org.lwjgl.opengl.GL30;
 import org.slf4j.Logger;
@@ -51,14 +50,14 @@ import java.util.function.Consumer;
  * <ol>
  *   <li><b>复刻原版</b>：无光影时把 {@code Minecraft.mainRenderTarget} 临时换成 400x600 输出靶；
  *       光影下直接使用真实主靶，不替换其身份。随后调用公开的
- *       {@code GameRenderer.renderLevel(DeltaTracker)}，这样 {@code LevelRenderer} 内部所有
+ *       {@code GameRenderer.renderLevel(float, long, PoseStack)}，这样 {@code LevelRenderer} 内部所有
  *       {@code getMainRenderTarget()} 调用都自然落到该靶上。</li>
  *   <li><b>相机</b>：<b>只在 {@code mc.getCameraEntity() == mc.player} 时出图，pass 内完全不改相机实体</b> ——
  *       {@code Minecraft.setCameraEntity} 会调 {@code GameRenderer.checkEntityPostEffect}
  *       无条件 close 现有 postEffect 并重建，且新 PostChain 以「当时的主靶」为目标；
  *       在自拍 pass 内调用就等于以自拍 FBO 为目标、并反复重建用户的着色器。故自拍只限本地玩家视角。
  *       {@code CameraSelfieMixin} 把这帧的 {@code camera.setup} 强成第三人称正面（detached + 反向），
- *       本地玩家模型可见，且自带原版方块碰撞裁剪；{@code CalculateDetachedCameraDistanceEvent} 把距离收到约 1.35 格。</li>
+ *       本地玩家模型可见，且自带原版方块碰撞裁剪；{@code CameraSelfieMixin} 在 {@code getMaxZoom} 入参处把距离收到约 1.35 格。</li>
  *   <li><b>投影</b>：{@code GameRendererSelfieMixin} 把 {@code getProjectionMatrix} 的输出换成
  *       竖屏 aspect；{@code ViewportEvent.ComputeFov} 固定 70°。光影裁切路径再按裁切区域占全靶的
  *       比例缩放 m00/m11，使裁切并放大后的构图与原 400x600 一致。</li>
@@ -92,7 +91,7 @@ import java.util.function.Consumer;
  * 渲染自拍，渲染完立即用 {@code glBlitFramebuffer} 把 2:3 中央区域 LINEAR 缩放到固定 400x600 输出靶：
  * <ul>
  *   <li>同一帧稍后正常主场景会重新清屏并覆盖主靶，因此本 pass 只在
- *       {@code ClientModEvents.RenderFrame.Pre} → {@link #update} 这个前置时机调用安全；
+ *       {@code TickEvent.RenderTickEvent.START} → {@link #update} 这个前置时机调用安全；
  *       不能从 HUD 等主场景已绘制之后的位置调用，否则会破坏当帧主画面；</li>
  *   <li>投影在 {@link #buildProjection} 里按裁切比例缩放，保证裁切后的构图与 70° 竖屏 FOV 不变；</li>
  *   <li>无 Iris 或关闭光影时仍走原 400x600 直接渲染路径，预览/拍照/镜像/保存流程不变。</li>
@@ -101,7 +100,7 @@ import java.util.function.Consumer;
  * 做过候选实测，但仍共享 Iris 的帧内历史/缓冲，尚非完全隔离；不声称对任意 Iris / 光影包全面兼容。
  *
  * <p><b>R1 不自动启用</b>：{@link #setActive(boolean)} 默认 false，不加任何页面/手持/输入逻辑。
- * 下一阶段在 {@code ClientModEvents.RenderFrame.Pre} 里先 {@link #update} 再
+ * 下一阶段在 {@code TickEvent.RenderTickEvent.START} 里先 {@link #update} 再
  * {@code PhoneScreenTarget.update}，并跳过自拍 pass 内 {@code AFTER_LEVEL} 的普通抓图消费。
  */
 @EventBusSubscriber(value = Dist.CLIENT)
@@ -231,13 +230,13 @@ public final class SelfieCameraTarget {
     }
 
     /**
-     * 每帧渲染前调用（下一阶段挂在 {@code RenderFrame.Pre}）。
+     * 每帧渲染前调用（挂在 {@code TickEvent.RenderTickEvent.START}）。
      * 内部做 30fps 节流；有未兑现的拍照请求时会立刻出一帧。
      * <p>
      * <b>只在 {@code mc.getCameraEntity() == mc.player}（本地玩家视角）时出图</b>，
      * 出图过程完全不修改相机实体（见 {@link #renderSelfie} 的说明）；条件不满足时以 null 兑现请求。
      */
-    public static void update(DeltaTracker deltaTracker) {
+    public static void update(float partialTick) {
         if (rendering) {
             return; // 重入守卫
         }
@@ -301,7 +300,7 @@ public final class SelfieCameraTarget {
 
         byte[] png = null;
         try {
-            renderSelfie(mc, deltaTracker);
+            renderSelfie(mc, partialTick);
             hasRendered = true;
             if (capturing) {
                 png = capturePng();
@@ -401,12 +400,14 @@ public final class SelfieCameraTarget {
         }
     }
 
-    /** 相机距玩家收到约 1.35 格（随后仍会经过原版碰撞裁剪） */
-    @SubscribeEvent
-    public static void onDetachedCameraDistance(CalculateDetachedCameraDistanceEvent event) {
-        if (rendering) {
-            event.setDistance(SELFIE_CAMERA_DISTANCE);
-        }
+    /**
+     * 相机距玩家收到约 1.35 格（随后仍会经过原版 {@code getMaxZoom} 碰撞裁剪）。
+     * <p>
+     * 由 {@code CameraSelfieMixin} 在 {@code Camera.getMaxZoom(double)} 的入参处调用：
+     * 返回的是碰撞裁剪前的期望距离，不能等原版裁剪完成后再覆盖结果，否则会穿墙。
+     */
+    public static double adjustCameraDistance(double original) {
+        return rendering ? SELFIE_CAMERA_DISTANCE : original;
     }
 
     // ==================== 离屏靶 ====================
@@ -424,7 +425,7 @@ public final class SelfieCameraTarget {
             fbo = target;
         }
         if (textureLocation == null) {
-            ResourceLocation path = ResourceLocation.fromNamespaceAndPath("huhutalk", "selfie_camera_dynamic");
+            ResourceLocation path = new net.minecraft.resources.ResourceLocation("huhutalk", "selfie_camera_dynamic");
             mc.getTextureManager().register(path, new FboTexture());
             textureLocation = path;
         }
@@ -511,7 +512,7 @@ public final class SelfieCameraTarget {
         return matrix;
     }
 
-    private static void renderSelfie(Minecraft mc, DeltaTracker deltaTracker) {
+    private static void renderSelfie(Minecraft mc, float partialTick) {
         final GameRenderer gameRenderer = mc.gameRenderer;
         final LevelRenderer levelRenderer = mc.levelRenderer;
         final TextureTarget output = fbo;
@@ -539,10 +540,10 @@ public final class SelfieCameraTarget {
         final RenderTarget oldCloudsTarget = lr.huhutalk$getCloudsTarget();
         // 原版提供的配对：连带 VertexSorting 一起保存/恢复，无需猜字段名
         RenderSystem.backupProjectionMatrix();
-        final Matrix4fStack modelView = RenderSystem.getModelViewStack();
+        final PoseStack modelView = RenderSystem.getModelViewStack();
         final int[] oldViewport = new int[4];
         GL11.glGetIntegerv(GL11.GL_VIEWPORT, oldViewport);
-        final float restorePartialTick = deltaTracker.getGameTimeDeltaPartialTick(false);
+        final float restorePartialTick = partialTick;
 
         rendering = true;
         boolean pushedModelView = false;
@@ -574,11 +575,11 @@ public final class SelfieCameraTarget {
             RenderSystem.disableScissor();
             RenderSystem.setShaderColor(1.0F, 1.0F, 1.0F, 1.0F);
 
-            modelView.pushMatrix();
+            modelView.pushPose();
             pushedModelView = true;
 
             // 完整世界 pass：天空 / 地形 / 实体（含本地玩家模型）/ 方块实体 / 天气，且不含 HUD
-            gameRenderer.renderLevel(deltaTracker);
+            gameRenderer.renderLevel(partialTick, Util.getNanos(), new PoseStack());
 
             if (cropped) {
                 // 完整世界渲染结束后，把真实主靶的 2:3 中央区域 LINEAR 缩放到 400x600 输出靶。
@@ -591,7 +592,7 @@ public final class SelfieCameraTarget {
             makeColorOpaque(output);
         } finally {
             if (pushedModelView) {
-                modelView.popMatrix();
+                modelView.popPose();
                 RenderSystem.applyModelViewMatrix();
             }
             rendering = false;

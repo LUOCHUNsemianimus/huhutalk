@@ -4,7 +4,7 @@ import com.huhutalk.network.S2CMaidItemTransferPacket;
 import com.huhutalk.phone.ItemTransfer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
-import net.neoforged.neoforge.network.PacketDistributor;
+import com.huhutalk.network.transport.PacketDistributor;
 
 import java.util.List;
 import java.util.UUID;

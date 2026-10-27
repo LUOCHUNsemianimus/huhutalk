@@ -48,7 +48,7 @@ public abstract class GeckoLayerMaidHeldMixin {
      * </pre>
      * 泛型 {@code T extends Mob} 在字节码里擦除成 {@link Mob}，所以处理器第一个参数必须是 {@code Mob}。
      */
-    @Inject(method = "renderArmWithItem", at = @At("HEAD"), cancellable = true)
+    @Inject(method = "renderArmWithItem", at = @At("HEAD"), cancellable = true, remap = false)
     private void huhutalk$hideHeldItemWhileUsingPhone(
             Mob mob, ItemStack itemStack, ILocationModel geoModel,
             ItemDisplayContext displayContext, HumanoidArm arm,

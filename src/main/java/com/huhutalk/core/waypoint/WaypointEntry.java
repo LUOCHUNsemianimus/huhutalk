@@ -1,8 +1,8 @@
 package com.huhutalk.core.waypoint;
 
-import net.minecraft.network.RegistryFriendlyByteBuf;
-import net.minecraft.network.codec.ByteBufCodecs;
-import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.FriendlyByteBuf;
+import com.huhutalk.network.transport.ByteBufCodecs;
+import com.huhutalk.network.transport.StreamCodec;
 
 /**
  * 一条路径点数据（客户端 JourneyMap 同步给服务端的精简版）。
@@ -10,7 +10,7 @@ import net.minecraft.network.codec.StreamCodec;
  */
 public record WaypointEntry(String name, String dimension, int x, int y, int z) {
 
-    public static final StreamCodec<RegistryFriendlyByteBuf, WaypointEntry> STREAM_CODEC =
+    public static final StreamCodec<FriendlyByteBuf, WaypointEntry> STREAM_CODEC =
             StreamCodec.composite(
                     ByteBufCodecs.STRING_UTF8, WaypointEntry::name,
                     ByteBufCodecs.STRING_UTF8, WaypointEntry::dimension,

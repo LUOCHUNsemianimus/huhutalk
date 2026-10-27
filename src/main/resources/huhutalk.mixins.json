@@ -6,7 +6,8 @@
   "refmap": "huhutalk.refmap.json",
   "mixins": [
     "EntityMaidMixin",
-    "ChatBubbleManagerMixin"
+    "ChatBubbleManagerMixin",
+    "PlayerListRescueMixin"
   ],
   "client": [
     "MouseHandlerMixin",

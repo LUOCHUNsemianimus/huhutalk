@@ -42,8 +42,7 @@ public class SosBindData extends SavedData {
     @NotNull
     public static SosBindData get(MinecraftServer server) {
         return server.overworld().getDataStorage().computeIfAbsent(
-                new SavedData.Factory<>(SosBindData::new, SosBindData::load),
-                DATA_NAME
+                SosBindData::load, SosBindData::new, DATA_NAME
         );
     }
 
@@ -120,7 +119,7 @@ public class SosBindData extends SavedData {
     }
 
     @Override
-    public CompoundTag save(CompoundTag tag, net.minecraft.core.HolderLookup.Provider registries) {
+    public CompoundTag save(CompoundTag tag) {
         CompoundTag root = new CompoundTag();
         for (Map.Entry<String, Map<String, String>> e : bindings.entrySet()) {
             CompoundTag inner = new CompoundTag();
@@ -133,7 +132,7 @@ public class SosBindData extends SavedData {
         return tag;
     }
 
-    public static SosBindData load(CompoundTag tag, net.minecraft.core.HolderLookup.Provider registries) {
+    public static SosBindData load(CompoundTag tag) {
         SosBindData data = new SosBindData();
         if (tag.contains("bindings", Tag.TAG_COMPOUND)) {
             CompoundTag root = tag.getCompound("bindings");

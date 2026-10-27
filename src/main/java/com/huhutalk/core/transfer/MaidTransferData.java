@@ -1,6 +1,5 @@
 package com.huhutalk.core.transfer;
 
-import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.Tag;
@@ -39,8 +38,7 @@ public class MaidTransferData extends SavedData {
     @NotNull
     public static MaidTransferData get(MinecraftServer server) {
         return server.overworld().getDataStorage().computeIfAbsent(
-                new SavedData.Factory<>(MaidTransferData::new, MaidTransferData::load),
-                DATA_NAME
+                MaidTransferData::load, MaidTransferData::new, DATA_NAME
         );
     }
 
@@ -153,14 +151,14 @@ public class MaidTransferData extends SavedData {
     // ==================== 持久化 ====================
 
     @Override
-    public CompoundTag save(CompoundTag tag, HolderLookup.Provider registries) {
+    public CompoundTag save(CompoundTag tag) {
         CompoundTag root = new CompoundTag();
         for (Map.Entry<String, Map<String, List<ItemStack>>> chat : inbox.entrySet()) {
             CompoundTag chatTag = new CompoundTag();
             for (Map.Entry<String, List<ItemStack>> batch : chat.getValue().entrySet()) {
                 ListTag fileList = new ListTag();
                 for (ItemStack stack : batch.getValue()) {
-                fileList.add(stack.save(registries));
+                    fileList.add(stack.save(new CompoundTag()));
                 }
                 chatTag.put(batch.getKey(), fileList);
             }
@@ -170,7 +168,7 @@ public class MaidTransferData extends SavedData {
         return tag;
     }
 
-    public static MaidTransferData load(CompoundTag tag, HolderLookup.Provider registries) {
+    public static MaidTransferData load(CompoundTag tag) {
         MaidTransferData data = new MaidTransferData();
         if (tag.contains("inbox", Tag.TAG_COMPOUND)) {
             CompoundTag root = tag.getCompound("inbox");
@@ -182,7 +180,7 @@ public class MaidTransferData extends SavedData {
                     List<ItemStack> files = new ArrayList<>();
                     for (int i = 0; i < fileList.size(); i++) {
                         CompoundTag stackTag = fileList.getCompound(i);
-                        ItemStack stack = ItemStack.parse(registries, stackTag).orElse(ItemStack.EMPTY);
+                        ItemStack stack = ItemStack.of(stackTag);
                         if (!stack.isEmpty()) {
                             files.add(stack);
                         }

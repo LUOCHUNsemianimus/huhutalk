@@ -18,9 +18,9 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.resources.ResourceLocation;
-import net.neoforged.api.distmarker.Dist;
-import net.neoforged.bus.api.SubscribeEvent;
-import net.neoforged.fml.common.EventBusSubscriber;
+import net.minecraftforge.api.distmarker.Dist;
+import net.minecraftforge.eventbus.api.SubscribeEvent;
+import net.minecraftforge.fml.common.Mod.EventBusSubscriber;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
@@ -63,7 +63,7 @@ public final class PhoneAppSelfTest {
 
     /** 自检贴图图标复用 HuhuTalk 自己的 256×256 图标，避免为自检新增资源 */
     private static final ResourceLocation SAMPLE_ICON =
-            ResourceLocation.fromNamespaceAndPath(HuhuTalk.MOD_ID, "textures/huhutalk_symbol.png");
+            new net.minecraft.resources.ResourceLocation(HuhuTalk.MOD_ID, "textures/huhutalk_symbol.png");
 
     private PhoneAppSelfTest() {
     }
@@ -129,7 +129,7 @@ public final class PhoneAppSelfTest {
     }
 
     private static ResourceLocation id(String path) {
-        return ResourceLocation.fromNamespaceAndPath(HuhuTalk.MOD_ID, "selftest/" + path);
+        return new net.minecraft.resources.ResourceLocation(HuhuTalk.MOD_ID, "selftest/" + path);
     }
 
     /** 自检页面：只显示一行说明。右键由 PhoneOverlay 默认逻辑弹回桌面。 */

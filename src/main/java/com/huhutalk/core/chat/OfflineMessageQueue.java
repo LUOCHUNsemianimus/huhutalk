@@ -31,8 +31,7 @@ public class OfflineMessageQueue extends SavedData {
     @NotNull
     public static OfflineMessageQueue get(MinecraftServer server) {
         return server.overworld().getDataStorage().computeIfAbsent(
-                new SavedData.Factory<>(OfflineMessageQueue::new, OfflineMessageQueue::load),
-                DATA_NAME
+                OfflineMessageQueue::load, OfflineMessageQueue::new, DATA_NAME
         );
     }
 
@@ -67,7 +66,7 @@ public class OfflineMessageQueue extends SavedData {
     }
 
     @Override
-    public CompoundTag save(CompoundTag tag, net.minecraft.core.HolderLookup.Provider registries) {
+    public CompoundTag save(CompoundTag tag) {
         CompoundTag root = new CompoundTag();
         for (Map.Entry<String, List<QueuedMessage>> entry : messages.entrySet()) {
             CompoundTag listTag = new CompoundTag();
@@ -86,7 +85,7 @@ public class OfflineMessageQueue extends SavedData {
         return tag;
     }
 
-    public static OfflineMessageQueue load(CompoundTag tag, net.minecraft.core.HolderLookup.Provider registries) {
+    public static OfflineMessageQueue load(CompoundTag tag) {
         OfflineMessageQueue queue = new OfflineMessageQueue();
         if (tag.contains("queues", Tag.TAG_COMPOUND)) {
             CompoundTag root = tag.getCompound("queues");

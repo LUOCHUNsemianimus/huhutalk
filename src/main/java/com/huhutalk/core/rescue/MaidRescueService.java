@@ -8,7 +8,6 @@ import com.huhutalk.common.StableIdProvider;
 import com.huhutalk.common.SystemText;
 import com.huhutalk.core.transfer.MaidTransferService;
 import com.huhutalk.core.transfer.UsedItemNotifier;
-import net.minecraft.core.particles.ColorParticleOption;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.MinecraftServer;
@@ -20,7 +19,6 @@ import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.Mth;
 import net.minecraft.world.damagesource.DamageSource;
 import net.minecraft.world.effect.MobEffectInstance;
-import net.minecraft.world.entity.Entity;
 import net.minecraft.world.item.ItemStack;
 import org.jetbrains.annotations.Nullable;
 import org.slf4j.Logger;
@@ -41,7 +39,7 @@ import java.util.UUID;
  * <ol>
  *   <li>取药：先取治疗（硬前提，取不到就整体放弃、什么都没动过），再取抗火（尽力而为）。</li>
  *   <li>强制重生：先把重生位置重定向到死亡点，再走原版重生路径
- *       {@code respawn(player, false, KILLED)}。<b>必须传 {@code false}</b> ——
+ *       {@code respawn(player, false)}。<b>必须传 {@code false}</b> ——
  *       这与原版"死亡后点重生"完全同一条代码路径，从而跟随玩家游戏规则的
  *       {@code keepInventory}，并让 {@code PlayerEvent.Clone.wasDeath = true}</li>
  *   <li>{@code setHealth(药水回血量)}：重生会先把血置满，必须显式覆盖。</li>
@@ -130,7 +128,7 @@ public final class MaidRescueService {
         // PlayerList.respawn() 内部只做 `serverplayer.connection = player.connection`（把监听器
         // 挂到新玩家身上），【从不反向更新】ServerGamePacketListenerImpl.player。
         // 原版唯一的调用方 ServerGamePacketListenerImpl#handleClientCommand 自己补上了这一步：
-        //     this.player = this.server.getPlayerList().respawn(this.player, false, KILLED);
+        //     this.player = this.server.getPlayerList().respawn(this.player, false);
         // 我们是【直接调用】PlayerList.respawn，因此必须等价地手动补这一句，
         // 否则监听器会永远握着"已被 removePlayerImmediately 移除的旧玩家"，后果是毁灭性的：
         //   · 入站包全部作用在旧玩家实例上（handleInteract 会把旧玩家交给女仆做 isOwnedBy 判定）
@@ -145,7 +143,7 @@ public final class MaidRescueService {
             // 而重生的瞬间就可能有人来查，所以必须写在 respawn 之前）
             PendingRescueManager.markRescued(rescue.playerId(), server.getTickCount());
             PendingRescueManager.beginRespawnRedirect(rescue);
-            revived = server.getPlayerList().respawn(dead, false, Entity.RemovalReason.KILLED);
+            revived = server.getPlayerList().respawn(dead, false);
             repointConnection(dead, revived);
         } finally {
             // 兜底清理：万一事件未被消费，也不能让残留登记影响玩家下一次正常重生
@@ -280,8 +278,7 @@ public final class MaidRescueService {
 
         int color = RescuePotion.colorOf(healPotion);
         if (color >= 0) {
-            level.sendParticles(ColorParticleOption.create(ParticleTypes.ENTITY_EFFECT, color),
-                    x, y + 0.4D, z, 50, 0.35D, 0.5D, 0.35D, 0.02D);
+            PotionParticleFeedback.emit(level, x, y + 0.4D, z, color, 50, 0.35D, 0.5D, 0.35D);
         }
     }
 

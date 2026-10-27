@@ -1,0 +1,59 @@
+# huhutalk（狐狐Talk）Forge 1.20.1 mods.toml
+# 车万女仆（Touhou Little Maid）的附属模组，运行于 Minecraft 1.20.1 / Forge 47.4.16。
+# 标准 TOML v0.5.0 格式；下方各字符串值中的占位符由 Gradle 的 processResources 在打包时替换。
+#
+# Mixin 不在本文件声明：Forge 1.20.1 通过 jar Manifest 的 MixinConfigs 加载
+# huhutalk.mixins.json（见 build.gradle 的 mixin / jar 配置）。
+
+modLoader="javafml" #mandatory
+loaderVersion="${loader_version_range}" #mandatory
+license="${mod_license}" #mandatory
+
+displayURL="https://github.com/LUOCHUNsemianimus/huhutalk"
+
+[[mods]] #mandatory
+modId="${mod_id}" #mandatory
+version="${mod_version}" #mandatory
+displayName="${mod_name}" #mandatory
+authors="罗春"
+description='''
+狐狐Talk（huhutalk）是一款车万女仆（Touhou Little Maid）的附属模组。
+
+它为女仆补充了无法远程聊天的空缺，提供了专属于手机 UI 的聊天方式、新的消息接收路径、以及隐私模式的开关。
+你可以通过手机随时与女仆保持联系，还支持用自然语言指挥女仆前往指定坐标、驻留或回到身边（move to / come / stay）。
+
+本模组由罗春使用 AI 工作流协助开发。感谢下载与体验！
+'''
+
+# 核心依赖：Forge（>= 47.4.16）
+[[dependencies.${mod_id}]]
+    modId="forge"
+    mandatory=true
+    versionRange="${forge_version_range}"
+    ordering="NONE"
+    side="BOTH"
+
+# 核心依赖：Minecraft（仅 1.20.1）
+[[dependencies.${mod_id}]]
+    modId="minecraft"
+    mandatory=true
+    versionRange="${minecraft_version_range}"
+    ordering="NONE"
+    side="BOTH"
+
+# 前置依赖：车万女仆（本模组为其附属）
+[[dependencies.${mod_id}]]
+    modId="touhou_little_maid"
+    mandatory=true
+    versionRange="[1.5.3,)"
+    ordering="AFTER"
+    side="BOTH"
+
+# 可选依赖：旅行地图（JourneyMap）——未安装也能运行，仅路径点指挥功能不可用。
+# 版本范围用 "*" 避免 JourneyMap 的 beta 预发布版本号被严格范围误判。
+[[dependencies.${mod_id}]]
+    modId="journeymap"
+    mandatory=false
+    versionRange="*"
+    ordering="NONE"
+    side="BOTH"

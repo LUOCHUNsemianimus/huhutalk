@@ -1,9 +1,9 @@
 package com.huhutalk.network;
 
-import net.minecraft.network.RegistryFriendlyByteBuf;
-import net.minecraft.network.codec.ByteBufCodecs;
-import net.minecraft.network.codec.StreamCodec;
-import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.network.FriendlyByteBuf;
+import com.huhutalk.network.transport.ByteBufCodecs;
+import com.huhutalk.network.transport.StreamCodec;
+import com.huhutalk.network.transport.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 import org.jetbrains.annotations.NotNull;
 
@@ -16,9 +16,9 @@ import org.jetbrains.annotations.NotNull;
  */
 public record S2CMaidChatInfoPacket(String stableId, String info, boolean queued) implements CustomPacketPayload {
     public static final Type<S2CMaidChatInfoPacket> TYPE =
-            new Type<>(ResourceLocation.fromNamespaceAndPath("huhutalk", "maid_chat_info"));
+            new Type<>(new net.minecraft.resources.ResourceLocation("huhutalk", "maid_chat_info"));
 
-    public static final StreamCodec<RegistryFriendlyByteBuf, S2CMaidChatInfoPacket> STREAM_CODEC =
+    public static final StreamCodec<FriendlyByteBuf, S2CMaidChatInfoPacket> STREAM_CODEC =
             StreamCodec.composite(
                     ByteBufCodecs.STRING_UTF8,
                     S2CMaidChatInfoPacket::stableId,

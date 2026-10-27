@@ -1,9 +1,9 @@
 package com.huhutalk.api.phone;
 
 import com.huhutalk.HuhuTalk;
-import net.neoforged.api.distmarker.Dist;
-import net.neoforged.fml.loading.FMLEnvironment;
-import net.neoforged.neoforge.common.NeoForge;
+import net.minecraftforge.api.distmarker.Dist;
+import net.minecraftforge.fml.loading.FMLEnvironment;
+import net.minecraftforge.common.MinecraftForge;
 
 import java.util.ArrayList;
 import java.util.Comparator;
@@ -129,7 +129,7 @@ public final class PhoneAppRegistry {
         }
         eventFired = true;
         try {
-            NeoForge.EVENT_BUS.post(new PhoneAppRegisterEvent());
+            MinecraftForge.EVENT_BUS.post(new PhoneAppRegisterEvent());
         } catch (Throwable t) {
             // 附属模组的监听器炸了不该连带把手机桌面炸没
             HuhuTalk.LOGGER.error("[HuhuTalk/PhoneApp] 广播 App 注册事件时出错（已忽略，继续启动）", t);

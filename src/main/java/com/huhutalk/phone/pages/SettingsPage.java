@@ -17,7 +17,7 @@ import com.huhutalk.phone.PhoneOverlay;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
-import net.neoforged.neoforge.network.PacketDistributor;
+import com.huhutalk.network.transport.PacketDistributor;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;

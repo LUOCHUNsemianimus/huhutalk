@@ -6,13 +6,13 @@ import com.huhutalk.common.PhoneHelper;
 import com.huhutalk.core.contact.SosBindData;
 import com.huhutalk.core.move.MaidMoveData;
 import net.minecraft.core.BlockPos;
-import net.minecraft.network.RegistryFriendlyByteBuf;
-import net.minecraft.network.codec.StreamCodec;
+import net.minecraft.network.FriendlyByteBuf;
+import com.huhutalk.network.transport.StreamCodec;
 import net.minecraft.network.chat.Component;
-import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import com.huhutalk.network.transport.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
-import net.neoforged.neoforge.network.handling.IPayloadContext;
+import com.huhutalk.network.transport.IPayloadContext;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.HashMap;
@@ -28,7 +28,7 @@ import java.util.UUID;
  */
 public record C2SSOSPacket() implements CustomPacketPayload {
     public static final Type<C2SSOSPacket> TYPE =
-            new Type<>(ResourceLocation.fromNamespaceAndPath("huhutalk", "sos"));
+            new Type<>(new net.minecraft.resources.ResourceLocation("huhutalk", "sos"));
 
     /** 每次 SOS 之间的最短间隔（毫秒），防止客户端高频刷包（网络抖动/连点滥用） */
     private static final long SOS_COOLDOWN_MS = 3000L;
@@ -42,7 +42,7 @@ public record C2SSOSPacket() implements CustomPacketPayload {
             new BlockPos(3, 0, 0), new BlockPos(-3, 0, 0)
     };
 
-    public static final StreamCodec<RegistryFriendlyByteBuf, C2SSOSPacket> STREAM_CODEC =
+    public static final StreamCodec<FriendlyByteBuf, C2SSOSPacket> STREAM_CODEC =
             StreamCodec.of((buf, packet) -> {}, buf -> new C2SSOSPacket());
 
     @Override

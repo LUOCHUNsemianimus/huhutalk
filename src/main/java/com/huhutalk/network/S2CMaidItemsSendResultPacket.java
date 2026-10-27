@@ -1,10 +1,10 @@
 package com.huhutalk.network;
 
 import com.huhutalk.phone.ItemTransfer;
-import net.minecraft.network.RegistryFriendlyByteBuf;
-import net.minecraft.network.codec.ByteBufCodecs;
-import net.minecraft.network.codec.StreamCodec;
-import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.network.FriendlyByteBuf;
+import com.huhutalk.network.transport.ByteBufCodecs;
+import com.huhutalk.network.transport.StreamCodec;
+import com.huhutalk.network.transport.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 import org.jetbrains.annotations.NotNull;
 
@@ -28,7 +28,7 @@ public record S2CMaidItemsSendResultPacket(String stableId, boolean ok, String t
                                            List<ItemTransfer.Preview> previews,
                                            int total) implements CustomPacketPayload {
     public static final CustomPacketPayload.Type<S2CMaidItemsSendResultPacket> TYPE =
-            new CustomPacketPayload.Type<>(ResourceLocation.fromNamespaceAndPath("huhutalk", "maid_items_send_result"));
+            new CustomPacketPayload.Type<>(new net.minecraft.resources.ResourceLocation("huhutalk", "maid_items_send_result"));
 
     /** 旧签名（无预览）：保留以兼容既有调用点。 */
     public S2CMaidItemsSendResultPacket(String stableId, boolean ok, String text, String message) {
@@ -36,7 +36,7 @@ public record S2CMaidItemsSendResultPacket(String stableId, boolean ok, String t
     }
 
     /** 与 {@link S2CMaidItemTransferPacket} 同一份预览编解码（含完整组件 SNBT）。 */
-    private static final StreamCodec<RegistryFriendlyByteBuf, ItemTransfer.Preview> PREVIEW_CODEC =
+    private static final StreamCodec<FriendlyByteBuf, ItemTransfer.Preview> PREVIEW_CODEC =
             StreamCodec.composite(
                     ByteBufCodecs.STRING_UTF8, p -> p.itemId,
                     ByteBufCodecs.INT, p -> p.count,
@@ -44,13 +44,13 @@ public record S2CMaidItemsSendResultPacket(String stableId, boolean ok, String t
                     ItemTransfer.Preview::new
             );
 
-    private static final StreamCodec<RegistryFriendlyByteBuf, List<ItemTransfer.Preview>> PREVIEW_LIST_CODEC =
+    private static final StreamCodec<FriendlyByteBuf, List<ItemTransfer.Preview>> PREVIEW_LIST_CODEC =
             ByteBufCodecs.collection(count -> new ArrayList<ItemTransfer.Preview>(count), PREVIEW_CODEC);
 
     /** 手写编解码：字段 6 个，超过 composite 舒服的范围，且要保证顺序与旧包一致。 */
-    public static final StreamCodec<RegistryFriendlyByteBuf, S2CMaidItemsSendResultPacket> STREAM_CODEC =
-            StreamCodec.<RegistryFriendlyByteBuf, S2CMaidItemsSendResultPacket>of(
-                    (RegistryFriendlyByteBuf buf, S2CMaidItemsSendResultPacket packet) -> {
+    public static final StreamCodec<FriendlyByteBuf, S2CMaidItemsSendResultPacket> STREAM_CODEC =
+            StreamCodec.<FriendlyByteBuf, S2CMaidItemsSendResultPacket>of(
+                    (FriendlyByteBuf buf, S2CMaidItemsSendResultPacket packet) -> {
                         ByteBufCodecs.STRING_UTF8.encode(buf, packet.stableId());
                         ByteBufCodecs.BOOL.encode(buf, packet.ok());
                         ByteBufCodecs.STRING_UTF8.encode(buf, packet.text());
@@ -58,7 +58,7 @@ public record S2CMaidItemsSendResultPacket(String stableId, boolean ok, String t
                         PREVIEW_LIST_CODEC.encode(buf, packet.previews());
                         ByteBufCodecs.INT.encode(buf, packet.total());
                     },
-                    (RegistryFriendlyByteBuf buf) -> new S2CMaidItemsSendResultPacket(
+                    (FriendlyByteBuf buf) -> new S2CMaidItemsSendResultPacket(
                             ByteBufCodecs.STRING_UTF8.decode(buf),
                             ByteBufCodecs.BOOL.decode(buf),
                             ByteBufCodecs.STRING_UTF8.decode(buf),

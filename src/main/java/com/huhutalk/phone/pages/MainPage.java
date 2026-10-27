@@ -100,10 +100,10 @@ public class MainPage implements IPhonePage {
     private static final String EMOJI_DIR = "textures/chat_bubble/maid_emoji";
     /** HuhuTalk APP 图标贴图（三档可选：高清 symbol2 / 低清 symbol / 狐狸 emoji） */
     private static final ResourceLocation ICON_SYMBOL2 =
-            ResourceLocation.fromNamespaceAndPath("huhutalk", "textures/huhutalk_symbol.png");
+            new net.minecraft.resources.ResourceLocation("huhutalk", "textures/huhutalk_symbol.png");
     private static final int ICON_SYMBOL2_SIZE = 256;
     private static final ResourceLocation ICON_SYMBOL =
-            ResourceLocation.fromNamespaceAndPath("huhutalk", "textures/huhutalk_symbol_legacy.png");
+            new net.minecraft.resources.ResourceLocation("huhutalk", "textures/huhutalk_symbol_legacy.png");
     private static final int ICON_SYMBOL_SIZE = 32;
     /** HuhuTalk 图标贴图在桌面方块内占据的比例（1.0 = 铺满，边正好对上 APP 方框的边）。想留边调小即可。 */
     private static final float ICON_FILL_RATIO = 1.0f;
@@ -379,7 +379,7 @@ public class MainPage implements IPhonePage {
         list.add(new AppInfo(5, KEY_SETTINGS, AppBehavior.PLAIN, false,
                 "设置", 0xFF727377, "⚙", true, 2.0f, 0xFFF5F5F5, true, false, false,
                 SettingsAppPage::new,
-                ResourceLocation.fromNamespaceAndPath("huhutalk", "textures/icon/settings.png"),
+                new net.minecraft.resources.ResourceLocation("huhutalk", "textures/icon/settings.png"),
                 256, 256, 1.0f));
         return list;
     }
@@ -409,7 +409,7 @@ public class MainPage implements IPhonePage {
         } else {
             file = ALL_EMOJI[RANDOM.nextInt(ALL_EMOJI.length)];
         }
-        stickerTex = ResourceLocation.fromNamespaceAndPath(EMOJI_NAMESPACE, EMOJI_DIR + "/" + file);
+        stickerTex = new net.minecraft.resources.ResourceLocation(EMOJI_NAMESPACE, EMOJI_DIR + "/" + file);
         int[] sz = parseEmojiSize(file);
         stickerW = sz[0];
         stickerH = sz[1];

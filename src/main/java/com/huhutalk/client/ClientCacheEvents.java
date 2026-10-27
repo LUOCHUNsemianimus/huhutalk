@@ -5,14 +5,15 @@ import com.huhutalk.client.settings.HuhuTalkClientSettings;
 import com.huhutalk.client.animation.PhoneAnimation;
 import com.huhutalk.client.theme.ThemeManager;
 import com.huhutalk.event.ClientModEvents;
+import com.huhutalk.network.transport.PacketTransport;
 import com.huhutalk.phone.PhoneOverlay;
 import com.huhutalk.phone.pages.ChatPage;
 import net.minecraft.network.chat.Component;
-import net.neoforged.api.distmarker.Dist;
-import net.neoforged.bus.api.SubscribeEvent;
-import net.neoforged.fml.common.EventBusSubscriber;
-import net.neoforged.neoforge.client.event.ClientPlayerNetworkEvent;
-import net.neoforged.neoforge.client.event.ClientTickEvent;
+import net.minecraftforge.api.distmarker.Dist;
+import net.minecraftforge.event.TickEvent;
+import net.minecraftforge.eventbus.api.SubscribeEvent;
+import net.minecraftforge.fml.common.Mod.EventBusSubscriber;
+import net.minecraftforge.client.event.ClientPlayerNetworkEvent;
 
 /**
  * 客户端世界切换处理。
@@ -35,6 +36,8 @@ public class ClientCacheEvents {
         // 档案读取按连接代次隔离：登录即作废旧世界/旧连接的迟到响应。
         ArchiveHistoryClient.onConnectionReset();
         ArchiveAssetClient.onConnectionReset();
+        // 新连接不能复用旧连接的半包重组状态。
+        PacketTransport.resetClient();
         SosBindCache.clear();
         SosTaskCache.clear();
         PhoneChatSourceCache.clear();
@@ -54,7 +57,8 @@ public class ClientCacheEvents {
         // 两个键名单独标黄，作为 translatable 参数保留自己的颜色与真实绑定。
         event.getPlayer().displayClientMessage(
                 Component.empty()
-                        .append(Component.literal("【Huhutalk】").withColor(0xFFA500))
+                        .append(Component.literal("【Huhutalk】")
+                                .withStyle(style -> style.withColor(0xFFA500)))
                         .append(Component.translatable("message.huhutalk.enter_world",
                                 keyComponent(ClientModEvents.PHONE_CLICK),
                                 keyComponent(ClientModEvents.PHONE_BACK))), false);
@@ -71,12 +75,16 @@ public class ClientCacheEvents {
 
     /** 键名标黄：与正文、橙色前缀区分开（Minecraft 标准黄 0xFFFF55）。 */
     private static Component keyComponent(net.minecraft.client.KeyMapping mapping) {
-        return Component.literal(keyName(mapping)).withColor(0xFFFF55);
+        return Component.literal(keyName(mapping)).withStyle(style -> style.withColor(0xFFFF55));
     }
 
     /** 周期性重同步路径点（进世界后路径点才陆续加载，需补发） */
     @SubscribeEvent
-    public static void onClientTick(ClientTickEvent.Post event) {
+    public static void onClientTick(TickEvent.ClientTickEvent event) {
+        if (event.phase != TickEvent.Phase.END) {
+            return;
+        }
+        PacketTransport.tick();
         WaypointSync.tickSync();
         // 逐条打字显示按真实时间推进。⚠ 这里【不能】再判 `getCurrentPage() instanceof ChatPage`：
         // 玩家在等回复时切到别的页面（或收起手机），推进就会停 —— 短句不落屏、"正在输入…"不解除、
@@ -93,6 +101,7 @@ public class ClientCacheEvents {
         // 登出后旧连接的档案响应不得再落到任何页面。
         ArchiveHistoryClient.onConnectionReset();
         ArchiveAssetClient.onConnectionReset();
+        PacketTransport.resetClient();
         PhoneChatSourceCache.clear();
         PhoneAnimation.reset();
         PhoneOverlay.resetForNewWorld();

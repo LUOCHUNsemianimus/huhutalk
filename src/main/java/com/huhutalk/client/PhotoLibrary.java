@@ -208,7 +208,7 @@ public final class PhotoLibrary {
         if (mc.getResourceManager() == null) {
             return null;
         }
-        ResourceLocation rl = ResourceLocation.fromNamespaceAndPath(
+        ResourceLocation rl = new net.minecraft.resources.ResourceLocation(
                 "huhutalk", "manual/" + sanitize(key) + ".png");
         var found = mc.getResourceManager().getResource(rl);
         if (found.isEmpty()) {
@@ -255,7 +255,7 @@ public final class PhotoLibrary {
             //
             // 撞名时的兜底：TextureManager.register 会先释放同 id 上的旧对象，
             // 所以这里的 old 与 rl 不同名，互不影响。
-            ResourceLocation rl = ResourceLocation.fromNamespaceAndPath(
+            ResourceLocation rl = new net.minecraft.resources.ResourceLocation(
                     "huhutalk", "photo/" + sanitize(key) + "_" + (++textureSeq));
             Minecraft.getInstance().getTextureManager().register(rl, tex);
             // 线性过滤（blur）：这些图几乎都是"缩小显示"的 ——

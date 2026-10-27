@@ -24,10 +24,10 @@ import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.level.block.entity.BlockEntity;
-import net.neoforged.neoforge.capabilities.Capabilities;
-import net.neoforged.neoforge.items.IItemHandler;
-import net.neoforged.neoforge.items.ItemHandlerHelper;
-import net.neoforged.neoforge.network.PacketDistributor;
+import net.minecraftforge.common.capabilities.ForgeCapabilities;
+import net.minecraftforge.items.IItemHandler;
+import net.minecraftforge.items.ItemHandlerHelper;
+import com.huhutalk.network.transport.PacketDistributor;
 
 import javax.annotation.Nullable;
 import java.util.ArrayList;
@@ -119,7 +119,7 @@ public final class MaidTransferService {
         boolean anyInserted = false;
         for (ItemStack file : batch) {
             // 以玩家整体物品栏(主背包，经实体 ItemHandler capability)为容器做可堆叠插入
-            IItemHandler playerInv = player.getCapability(Capabilities.ItemHandler.ENTITY);
+            IItemHandler playerInv = player.getCapability(ForgeCapabilities.ITEM_HANDLER).resolve().orElse(null);
             ItemStack original = file.copy();
             int beforeCount = original.getCount();
             ItemStack leftover = ItemHandlerHelper.insertItemStacked(playerInv, original, false);
@@ -278,7 +278,7 @@ public final class MaidTransferService {
 
     /** 从女仆身上的隙间(wireless_io)饰品所绑定的箱子里取一份目标物品。 */
     private static ItemStack takeFromGap(EntityMaid maid, ItemStack want, int amount) {
-        net.neoforged.neoforge.items.IItemHandler baubles = maid.getMaidBauble();
+        net.minecraftforge.items.IItemHandler baubles = maid.getMaidBauble();
         for (int slot = 0; slot < baubles.getSlots(); slot++) {
             ItemStack bauble = baubles.getStackInSlot(slot);
             if (bauble.isEmpty() || !bauble.is(InitItems.WIRELESS_IO.get())) {
@@ -292,7 +292,7 @@ public final class MaidTransferService {
             if (be == null) {
                 continue;
             }
-            IItemHandler chest = maid.level().getCapability(Capabilities.ItemHandler.BLOCK, binding, null);
+            IItemHandler chest = be.getCapability(ForgeCapabilities.ITEM_HANDLER, null).resolve().orElse(null);
             ItemStack got = extractFromHandler(chest, want, amount);
             if (!got.isEmpty()) {
                 return got;
@@ -427,7 +427,7 @@ public final class MaidTransferService {
         if (backpack != null) {
             list.add(backpack);
         }
-        net.neoforged.neoforge.items.IItemHandler baubles = maid.getMaidBauble();
+        net.minecraftforge.items.IItemHandler baubles = maid.getMaidBauble();
         for (int slot = 0; slot < baubles.getSlots(); slot++) {
             ItemStack bauble = baubles.getStackInSlot(slot);
             if (bauble.isEmpty() || !bauble.is(InitItems.WIRELESS_IO.get())) {
@@ -437,7 +437,11 @@ public final class MaidTransferService {
             if (binding == null) {
                 continue;
             }
-            IItemHandler chest = maid.level().getCapability(Capabilities.ItemHandler.BLOCK, binding, null);
+            BlockEntity be = maid.level().getBlockEntity(binding);
+            if (be == null) {
+                continue;
+            }
+            IItemHandler chest = be.getCapability(ForgeCapabilities.ITEM_HANDLER, null).resolve().orElse(null);
             if (chest != null) {
                 list.add(chest);
             }
@@ -458,7 +462,7 @@ public final class MaidTransferService {
         // 1) 直接是 registry id
         if (raw.contains(":")) {
             try {
-                net.minecraft.resources.ResourceLocation rl = net.minecraft.resources.ResourceLocation.parse(raw);
+                net.minecraft.resources.ResourceLocation rl = new net.minecraft.resources.ResourceLocation(raw);
                 net.minecraft.world.item.Item it = BuiltInRegistries.ITEM.get(rl);
                 if (it != null && it != net.minecraft.world.item.Items.AIR) {
                     return it;

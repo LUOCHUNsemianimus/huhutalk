@@ -22,7 +22,7 @@ import org.spongepowered.asm.mixin.injection.Redirect;
 @Mixin(ChatBubbleManager.class)
 public abstract class ChatBubbleManagerMixin {
 
-    @Shadow
+    @Shadow(remap = false)
     @Final
     private EntityMaid maid;
 

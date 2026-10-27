@@ -28,7 +28,7 @@ public abstract class GeckoMaidEntityMixin {
     @Unique
     private final PhoneAnimation huhutalk$phoneAnimation = new PhoneAnimation();
 
-    @Inject(method = "registerControllers", at = @At("TAIL"))
+    @Inject(method = "registerControllers", at = @At("TAIL"), remap = false)
     @SuppressWarnings({"unchecked", "rawtypes"})
     private void huhutalk$addPhoneController(CallbackInfo ci) {
         GeckoMaidEntity self = (GeckoMaidEntity) (Object) this;

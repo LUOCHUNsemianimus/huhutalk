@@ -1,8 +1,15 @@
 {
-  "type": "touhou_little_maid:altar_recipe_serializers",
-  "category": "misc",
-  "entity": "minecraft:item",
-  "group": "altar_recipe",
+  "type": "touhou_little_maid:altar_crafting",
+  "output": {
+    "type": "minecraft:item",
+    "nbt": {
+      "Item": {
+        "id": "huhutalk:wifi_block",
+        "Count": 1
+      }
+    }
+  },
+  "power": 1.0,
   "ingredients": [
     {
       "item": "minecraft:iron_block"
@@ -22,11 +29,5 @@
     {
       "item": "minecraft:lightning_rod"
     }
-  ],
-  "lang": "jei.touhou_little_maid.altar_craft.item_craft.result",
-  "power": 1.0,
-  "result": {
-    "count": 1,
-    "id": "huhutalk:wifi_block"
-  }
+  ]
 }

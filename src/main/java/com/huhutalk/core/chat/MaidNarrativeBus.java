@@ -246,13 +246,13 @@ public final class MaidNarrativeBus {
         }
 
         // 最重的那条决定收尾语
-        Event heaviest = due.getFirst();
+        Event heaviest = due.get(0);
         for (Event e : due) {
             if (e.kind.priority() > heaviest.kind.priority()) {
                 heaviest = e;
             }
         }
-        String text = due.size() == 1 ? due.getFirst().text : mergeTexts(due);
+        String text = due.size() == 1 ? due.get(0).text : mergeTexts(due);
         String closing = heaviest.closing;
 
         LOGGER.info("[HuhuTalk][叙事] 播报：player={} maid={} 事件={} 合并数={}",
@@ -311,7 +311,7 @@ public final class MaidNarrativeBus {
     // ==================== 内部 ====================
 
     private static long nowTick() {
-        MinecraftServer server = net.neoforged.neoforge.server.ServerLifecycleHooks.getCurrentServer();
+        MinecraftServer server = net.minecraftforge.server.ServerLifecycleHooks.getCurrentServer();
         return server == null ? 0L : server.getTickCount();
     }
 }

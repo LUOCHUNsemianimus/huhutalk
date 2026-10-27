@@ -1,12 +1,12 @@
 package com.huhutalk.network;
 
 import com.huhutalk.core.chat.MaidChatHandler;
-import net.minecraft.network.RegistryFriendlyByteBuf;
-import net.minecraft.network.codec.ByteBufCodecs;
-import net.minecraft.network.codec.StreamCodec;
-import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.network.FriendlyByteBuf;
+import com.huhutalk.network.transport.ByteBufCodecs;
+import com.huhutalk.network.transport.StreamCodec;
+import com.huhutalk.network.transport.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
-import net.neoforged.neoforge.network.handling.IPayloadContext;
+import com.huhutalk.network.transport.IPayloadContext;
 import org.jetbrains.annotations.NotNull;
 
 /**
@@ -37,9 +37,9 @@ public record C2SMaidImageChatPacket(String stableId, String userText, byte[] im
     public static final int MAX_IMAGE_BYTES = 1_000_000;
 
     public static final CustomPacketPayload.Type<C2SMaidImageChatPacket> TYPE =
-            new CustomPacketPayload.Type<>(ResourceLocation.fromNamespaceAndPath("huhutalk", "maid_image_chat"));
+            new CustomPacketPayload.Type<>(new net.minecraft.resources.ResourceLocation("huhutalk", "maid_image_chat"));
 
-    public static final StreamCodec<RegistryFriendlyByteBuf, C2SMaidImageChatPacket> STREAM_CODEC =
+    public static final StreamCodec<FriendlyByteBuf, C2SMaidImageChatPacket> STREAM_CODEC =
             StreamCodec.composite(
                     ByteBufCodecs.STRING_UTF8,
                     C2SMaidImageChatPacket::stableId,

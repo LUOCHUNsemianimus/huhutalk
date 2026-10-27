@@ -28,14 +28,13 @@ import com.mojang.blaze3d.vertex.PoseStack;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.player.AbstractClientPlayer;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.util.FormattedCharSequence;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
-import net.neoforged.neoforge.network.PacketDistributor;
+import com.huhutalk.network.transport.PacketDistributor;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
@@ -1522,7 +1521,7 @@ public class ChatPage implements PhoneCameraHost {
             return ItemStack.EMPTY;
         }
         try {
-            ResourceLocation rl = ResourceLocation.parse(p.itemId);
+            ResourceLocation rl = new net.minecraft.resources.ResourceLocation(p.itemId);
             Item it = BuiltInRegistries.ITEM.get(rl);
             ItemStack s = new ItemStack(it);
             s.setCount(Math.max(1, p.count));
@@ -1660,8 +1659,8 @@ public class ChatPage implements PhoneCameraHost {
         Minecraft mc = Minecraft.getInstance();
         if (isPlayer) {
             // 玩家头像：皮肤纹理"头颅正面"8×8 区块（与消息列表页一致）
-            if (mc.player instanceof AbstractClientPlayer acp) {
-                ResourceLocation skin = acp.getSkin().texture();
+            if (mc.player != null) {
+                ResourceLocation skin = mc.player.getSkinTextureLocation();
                 g.blit(skin, x, y, AVATAR, AVATAR, 8.0f, 8.0f, 8, 8, 64, 64);
             } else {
                 g.fill(x, y, x + AVATAR, y + AVATAR, 0xFF8AAEE8);

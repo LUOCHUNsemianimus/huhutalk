@@ -73,7 +73,7 @@ public final class PhoneCaseRenderer {
             return null;
         }
         try {
-            ResourceLocation rl = ResourceLocation.parse(blockId);
+            ResourceLocation rl = new net.minecraft.resources.ResourceLocation(blockId);
             Block block = BuiltInRegistries.BLOCK.get(rl);
             if (block == null || block == net.minecraft.world.level.block.Blocks.AIR) {
                 return null;

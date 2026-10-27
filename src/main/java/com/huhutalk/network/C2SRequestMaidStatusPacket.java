@@ -4,13 +4,13 @@ import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
 import com.huhutalk.common.MaidStableIdHelper;
 import com.huhutalk.common.PhoneHelper;
 import com.huhutalk.core.status.MaidStatusText;
-import net.minecraft.network.RegistryFriendlyByteBuf;
-import net.minecraft.network.codec.ByteBufCodecs;
-import net.minecraft.network.codec.StreamCodec;
-import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.network.FriendlyByteBuf;
+import com.huhutalk.network.transport.ByteBufCodecs;
+import com.huhutalk.network.transport.StreamCodec;
+import com.huhutalk.network.transport.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
-import net.neoforged.neoforge.network.handling.IPayloadContext;
+import com.huhutalk.network.transport.IPayloadContext;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.List;
@@ -24,9 +24,9 @@ import java.util.List;
 public record C2SRequestMaidStatusPacket(List<String> stableIds) implements CustomPacketPayload {
 
     public static final Type<C2SRequestMaidStatusPacket> TYPE =
-            new Type<>(ResourceLocation.fromNamespaceAndPath("huhutalk", "request_maid_status"));
+            new Type<>(new net.minecraft.resources.ResourceLocation("huhutalk", "request_maid_status"));
 
-    public static final StreamCodec<RegistryFriendlyByteBuf, C2SRequestMaidStatusPacket> STREAM_CODEC =
+    public static final StreamCodec<FriendlyByteBuf, C2SRequestMaidStatusPacket> STREAM_CODEC =
             StreamCodec.composite(
                     ByteBufCodecs.STRING_UTF8.apply(ByteBufCodecs.list(64)),
                     C2SRequestMaidStatusPacket::stableIds,

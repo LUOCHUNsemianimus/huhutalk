@@ -2,12 +2,12 @@ package com.huhutalk.network;
 
 import com.github.tartaricacid.touhoulittlemaid.util.GameModeUtil;
 import com.huhutalk.core.vision.VisionSites;
-import net.minecraft.network.RegistryFriendlyByteBuf;
-import net.minecraft.network.codec.StreamCodec;
-import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.network.FriendlyByteBuf;
+import com.huhutalk.network.transport.StreamCodec;
+import com.huhutalk.network.transport.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
-import net.neoforged.neoforge.network.handling.IPayloadContext;
+import com.huhutalk.network.transport.IPayloadContext;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -38,12 +38,12 @@ public record C2SVisionSiteEditPacket(String siteId,
                                       @Nullable String url) implements CustomPacketPayload {
 
     public static final CustomPacketPayload.Type<C2SVisionSiteEditPacket> TYPE =
-            new Type<>(ResourceLocation.fromNamespaceAndPath("huhutalk", "vision_site_edit"));
+            new Type<>(new net.minecraft.resources.ResourceLocation("huhutalk", "vision_site_edit"));
 
-    public static final StreamCodec<RegistryFriendlyByteBuf, C2SVisionSiteEditPacket> STREAM_CODEC =
+    public static final StreamCodec<FriendlyByteBuf, C2SVisionSiteEditPacket> STREAM_CODEC =
             StreamCodec.of(C2SVisionSiteEditPacket::write, C2SVisionSiteEditPacket::read);
 
-    private static void write(RegistryFriendlyByteBuf buf, C2SVisionSiteEditPacket p) {
+    private static void write(FriendlyByteBuf buf, C2SVisionSiteEditPacket p) {
         buf.writeUtf(p.siteId);
         buf.writeBoolean(p.apiKey != null);
         if (p.apiKey != null) {
@@ -55,7 +55,7 @@ public record C2SVisionSiteEditPacket(String siteId,
         }
     }
 
-    private static C2SVisionSiteEditPacket read(RegistryFriendlyByteBuf buf) {
+    private static C2SVisionSiteEditPacket read(FriendlyByteBuf buf) {
         String siteId = buf.readUtf();
         String key = buf.readBoolean() ? buf.readUtf() : null;
         String url = buf.readBoolean() ? buf.readUtf() : null;

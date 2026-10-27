@@ -57,7 +57,7 @@ public class BlockWifi extends Block {
     }
 
     @Override
-    protected void onPlace(BlockState state, Level level, BlockPos pos, BlockState oldState, boolean movedByPiston) {
+    public void onPlace(BlockState state, Level level, BlockPos pos, BlockState oldState, boolean movedByPiston) {
         super.onPlace(state, level, pos, oldState, movedByPiston);
         if (level instanceof ServerLevel serverLevel) {
             WifiBlockRegistry.get(serverLevel.getServer()).add(serverLevel.dimension(), new ChunkPos(pos));
@@ -65,7 +65,7 @@ public class BlockWifi extends Block {
     }
 
     @Override
-    protected void onRemove(BlockState state, Level level, BlockPos pos, BlockState newState, boolean movedByPiston) {
+    public void onRemove(BlockState state, Level level, BlockPos pos, BlockState newState, boolean movedByPiston) {
         if (level instanceof ServerLevel serverLevel && !state.is(newState.getBlock())) {
             WifiBlockRegistry.get(serverLevel.getServer()).remove(serverLevel.dimension(), new ChunkPos(pos));
         }

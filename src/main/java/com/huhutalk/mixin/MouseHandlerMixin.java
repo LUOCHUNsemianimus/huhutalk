@@ -2,11 +2,14 @@ package com.huhutalk.mixin;
 
 import com.huhutalk.event.ClientModEvents;
 import com.huhutalk.phone.PhoneOverlay;
+import net.minecraft.client.Minecraft;
 import net.minecraft.client.MouseHandler;
+import net.minecraft.client.OptionInstance;
 import org.spongepowered.asm.mixin.Mixin;
 import org.spongepowered.asm.mixin.Shadow;
 import org.spongepowered.asm.mixin.injection.At;
 import org.spongepowered.asm.mixin.injection.Inject;
+import org.spongepowered.asm.mixin.injection.Redirect;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
@@ -36,13 +39,36 @@ public abstract class MouseHandlerMixin {
      * 在 {@code turnPlayer} <b>返回之后</b>才清零，所以这里读到的是本帧全部增量；
      * 即使取消调用也不会漏清零。
      * <p>
-     * 注意 {@code turnPlayer} 只在 {@code isMouseGrabbed()} 时被调用（原版 MouseHandler），
-     * 所以开着 Screen（含透明输入屏）时本方法不会被触发 —— 手机上那只光标随之冻结，
-     * 这正是想要的：此刻玩家真实的鼠标已经交还给 GUI 了。
+     * 1.20.1 的 {@code turnPlayer} 每帧都会被调用，抓取/窗口激活判断在其内部；
+     * 所以本方法在 HEAD 显式检查 {@code isMouseGrabbed()} 与窗口激活状态。
+     * 开着 Screen（含透明输入屏）或失焦时独立光标随之冻结，这正是想要的：
+     * 此刻玩家真实的鼠标已经交还给 GUI 了。
      */
     @Inject(method = "turnPlayer", at = @At("HEAD"))
-    private void onTurnPlayer(double movementTime, CallbackInfo ci) {
-        PhoneOverlay.onMouseDelta(this.accumulatedDX, this.accumulatedDY);
+    private void onTurnPlayer(CallbackInfo ci) {
+        // 1.20.1 把 grabbed / windowActive 判断放在 turnPlayer 内部，HEAD 尚未经过它：
+        // 这里显式补同样的门控，保证开 Screen、失焦或未抓取鼠标时不会继续推独立光标。
+        if (((MouseHandler) (Object) this).isMouseGrabbed() && Minecraft.getInstance().isWindowActive()) {
+            PhoneOverlay.onMouseDelta(this.accumulatedDX, this.accumulatedDY);
+        }
+    }
+
+    /**
+     * 只拦截 {@code turnPlayer} 内第一个 {@code OptionInstance.get()}（即 sensitivity），
+     * 不碰随后的 {@code invertYMouse().get()}，也不写回全局 Options。
+     */
+    @Redirect(
+            method = "turnPlayer",
+            at = @At(
+                    value = "INVOKE",
+                    target = "Lnet/minecraft/client/OptionInstance;get()Ljava/lang/Object;",
+                    ordinal = 0))
+    private Object huhutalk$adjustSensitivity(OptionInstance<?> option) {
+        Object value = option.get();
+        if (value instanceof Double sensitivity) {
+            return ClientModEvents.adjustMouseSensitivity(sensitivity);
+        }
+        return value;
     }
 
     /**

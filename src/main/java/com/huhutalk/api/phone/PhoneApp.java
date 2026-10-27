@@ -16,9 +16,9 @@ import java.util.function.Supplier;
  * <h2>最小用法</h2>
  * <pre>{@code
  * PhoneAppRegistry.register(
- *     PhoneApp.builder(ResourceLocation.fromNamespaceAndPath("mymod", "douyin"), "抖音")
+ *     PhoneApp.builder(new net.minecraft.resources.ResourceLocation("mymod", "douyin"), "抖音")
  *             .color(0x161823)
- *             .icon(ResourceLocation.fromNamespaceAndPath("mymod", "textures/icon/douyin.png"), 256, 256)
+ *             .icon(new net.minecraft.resources.ResourceLocation("mymod", "textures/icon/douyin.png"), 256, 256)
  *             .page(DouyinPage::new)
  *             .build());
  * }</pre>

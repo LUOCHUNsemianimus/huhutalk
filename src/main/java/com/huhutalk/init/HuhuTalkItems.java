@@ -3,8 +3,8 @@ package com.huhutalk.init;
 import com.huhutalk.HuhuTalk;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.world.item.Item;
-import net.neoforged.neoforge.registries.DeferredHolder;
-import net.neoforged.neoforge.registries.DeferredRegister;
+import net.minecraftforge.registries.DeferredRegister;
+import net.minecraftforge.registries.RegistryObject;
 
 /**
  * 本模组物品注册。
@@ -23,12 +23,12 @@ public final class HuhuTalkItems {
             DeferredRegister.create(Registries.ITEM, HuhuTalk.MOD_ID);
 
     /** 电话手表（青春版）：无强制加载票据，仅在 WiFi 覆盖内可达 */
-    public static final DeferredHolder<Item, ItemMaidPhone> PHONE_WATCH =
+    public static final RegistryObject<ItemMaidPhone> PHONE_WATCH =
             ITEMS.register("phone_watch",
                     () -> new ItemMaidPhone(MaidPhoneTier.WATCH, new Item.Properties().stacksTo(1)));
 
     /** 智能手机（Pro）：永远持有强制加载票据，任意位置可达 */
-    public static final DeferredHolder<Item, ItemMaidPhone> PHONE_SMART =
+    public static final RegistryObject<ItemMaidPhone> PHONE_SMART =
             ITEMS.register("phone_smart",
                     () -> new ItemMaidPhone(MaidPhoneTier.SMART, new Item.Properties().stacksTo(1)));
 
@@ -39,7 +39,7 @@ public final class HuhuTalkItems {
      * {@code ItemRenderer} 去查 {@code models/item/phone_camera.json}（擦除版纹理）。
      * 详见 {@link ItemPhoneCamera}。
      */
-    public static final DeferredHolder<Item, ItemPhoneCamera> PHONE_CAMERA =
+    public static final RegistryObject<ItemPhoneCamera> PHONE_CAMERA =
             ITEMS.register("phone_camera",
                     () -> new ItemPhoneCamera(new Item.Properties()));
 

@@ -2,11 +2,11 @@ package com.huhutalk.network;
 
 import com.github.tartaricacid.touhoulittlemaid.api.task.IMaidTask;
 import com.github.tartaricacid.touhoulittlemaid.entity.task.TaskManager;
-import net.minecraft.network.RegistryFriendlyByteBuf;
-import net.minecraft.network.codec.StreamCodec;
-import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.network.FriendlyByteBuf;
+import com.huhutalk.network.transport.StreamCodec;
+import com.huhutalk.network.transport.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
-import net.neoforged.neoforge.network.handling.IPayloadContext;
+import com.huhutalk.network.transport.IPayloadContext;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
@@ -19,9 +19,9 @@ import java.util.List;
  */
 public record C2SRequestSosTaskListPacket() implements CustomPacketPayload {
     public static final Type<C2SRequestSosTaskListPacket> TYPE =
-            new Type<>(ResourceLocation.fromNamespaceAndPath("huhutalk", "request_sos_task_list"));
+            new Type<>(new net.minecraft.resources.ResourceLocation("huhutalk", "request_sos_task_list"));
 
-    public static final StreamCodec<RegistryFriendlyByteBuf, C2SRequestSosTaskListPacket> STREAM_CODEC =
+    public static final StreamCodec<FriendlyByteBuf, C2SRequestSosTaskListPacket> STREAM_CODEC =
             StreamCodec.of((buf, packet) -> {}, buf -> new C2SRequestSosTaskListPacket());
 
     @Override

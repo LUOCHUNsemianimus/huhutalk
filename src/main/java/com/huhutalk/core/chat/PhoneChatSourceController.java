@@ -4,7 +4,7 @@ import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
 import com.huhutalk.common.StableIdProvider;
 import com.huhutalk.network.S2CPhoneChatSourcePacket;
 import net.minecraft.server.MinecraftServer;
-import net.neoforged.neoforge.network.PacketDistributor;
+import com.huhutalk.network.transport.PacketDistributor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 

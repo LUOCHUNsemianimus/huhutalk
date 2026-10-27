@@ -47,8 +47,8 @@ public abstract class EntityMaidMixin {
     }
 
     @Inject(method = "defineSynchedData", at = @At("TAIL"))
-    private void huhutalkDefineData(SynchedEntityData.Builder builder, CallbackInfo ci) {
-        builder.define(STABLE_ID, "");
+    private void huhutalkDefineData(CallbackInfo ci) {
+        ((Entity) (Object) this).getEntityData().define(STABLE_ID, "");
     }
 
     // 注意：这两个 @Inject 处理器方法名不能带 $，

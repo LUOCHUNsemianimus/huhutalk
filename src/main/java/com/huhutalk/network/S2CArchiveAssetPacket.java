@@ -4,10 +4,10 @@ import com.huhutalk.core.archive.ArchiveAssetRequest;
 import com.huhutalk.core.archive.ArchiveAssetResponse;
 import com.huhutalk.core.archive.ArchiveAssetStatus;
 import com.huhutalk.core.archive.ArchiveAssetStore;
-import net.minecraft.network.RegistryFriendlyByteBuf;
-import net.minecraft.network.codec.ByteBufCodecs;
-import net.minecraft.network.codec.StreamCodec;
-import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.network.FriendlyByteBuf;
+import com.huhutalk.network.transport.ByteBufCodecs;
+import com.huhutalk.network.transport.StreamCodec;
+import com.huhutalk.network.transport.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 import org.jetbrains.annotations.NotNull;
 
@@ -27,9 +27,9 @@ public record S2CArchiveAssetPacket(
 ) implements CustomPacketPayload {
 
     public static final Type<S2CArchiveAssetPacket> TYPE =
-            new Type<>(ResourceLocation.fromNamespaceAndPath("huhutalk", "archive_asset"));
+            new Type<>(new net.minecraft.resources.ResourceLocation("huhutalk", "archive_asset"));
 
-    public static final StreamCodec<RegistryFriendlyByteBuf, S2CArchiveAssetPacket> STREAM_CODEC =
+    public static final StreamCodec<FriendlyByteBuf, S2CArchiveAssetPacket> STREAM_CODEC =
             StreamCodec.composite(
                     ByteBufCodecs.stringUtf8(ArchiveAssetRequest.MAX_REQUEST_ID_CHARS),
                     S2CArchiveAssetPacket::requestId,

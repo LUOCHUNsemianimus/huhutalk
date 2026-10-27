@@ -7,8 +7,9 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.SoundType;
 import net.minecraft.world.level.block.state.BlockBehaviour;
 import net.minecraft.world.level.material.MapColor;
-import net.neoforged.neoforge.registries.DeferredHolder;
-import net.neoforged.neoforge.registries.DeferredRegister;
+import net.minecraftforge.registries.DeferredRegister;
+import net.minecraftforge.registries.ForgeRegistries;
+import net.minecraftforge.registries.RegistryObject;
 
 /**
  * 本模组方块注册。
@@ -19,10 +20,10 @@ import net.neoforged.neoforge.registries.DeferredRegister;
  */
 public final class HuhuTalkBlocks {
 
-    public static final DeferredRegister.Blocks BLOCKS =
-            DeferredRegister.createBlocks(HuhuTalk.MOD_ID);
+    public static final DeferredRegister<Block> BLOCKS =
+            DeferredRegister.create(ForgeRegistries.BLOCKS, HuhuTalk.MOD_ID);
 
-    public static final DeferredHolder<Block, Block> WIFI_BLOCK =
+    public static final RegistryObject<Block> WIFI_BLOCK =
             BLOCKS.register("wifi_block",
                     // 不再 ofFullCopy(IRON_BLOCK)：那样会连带继承 requiresCorrectToolForDrops()，
                     // 空手或任何工具挖下来都不掉落（铁块的性质，不是本方块想要的）。
@@ -37,7 +38,7 @@ public final class HuhuTalkBlocks {
                             .noOcclusion()));
 
     /** WiFi 方块的物品形态（便于摆放） */
-    public static final DeferredHolder<Item, BlockItem> WIFI_BLOCK_ITEM =
+    public static final RegistryObject<BlockItem> WIFI_BLOCK_ITEM =
             HuhuTalkItems.ITEMS.register("wifi_block",
                     () -> new BlockItem(WIFI_BLOCK.get(), new Item.Properties()));
 

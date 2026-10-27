@@ -164,7 +164,7 @@ public class MoveToTool implements ITool<MoveToTool.Result> {
         }
         ResourceKey<Level> dim;
         try {
-            dim = ResourceKey.create(Registries.DIMENSION, ResourceLocation.parse(wp.dimension()));
+            dim = ResourceKey.create(Registries.DIMENSION, new net.minecraft.resources.ResourceLocation(wp.dimension()));
         } catch (Exception e) {
             return callback.addToolResult("Waypoint '%s' has an invalid dimension: %s"
                     .formatted(result.waypointName(), wp.dimension()), toolCallId);

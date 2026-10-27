@@ -4,17 +4,16 @@ import com.huhutalk.core.contact.MaidContactBook;
 import com.huhutalk.core.contact.MaidContactEntry;
 import com.huhutalk.core.contact.SosBindData;
 import com.huhutalk.common.StableIdProvider;
-import com.github.tartaricacid.touhoulittlemaid.api.entity.IMaid;
 import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
-import net.minecraft.network.RegistryFriendlyByteBuf;
-import net.minecraft.network.codec.StreamCodec;
-import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.network.FriendlyByteBuf;
+import com.huhutalk.network.transport.StreamCodec;
+import com.huhutalk.network.transport.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.Entity;
-import net.neoforged.neoforge.network.handling.IPayloadContext;
+import com.huhutalk.network.transport.IPayloadContext;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.ArrayList;
@@ -24,9 +23,9 @@ import java.util.Map;
 
 public record C2SRequestMaidListPacket() implements CustomPacketPayload {
     public static final CustomPacketPayload.Type<C2SRequestMaidListPacket> TYPE =
-            new Type<>(ResourceLocation.fromNamespaceAndPath("huhutalk", "request_maid_list"));
+            new Type<>(new net.minecraft.resources.ResourceLocation("huhutalk", "request_maid_list"));
 
-    public static final StreamCodec<RegistryFriendlyByteBuf, C2SRequestMaidListPacket> STREAM_CODEC =
+    public static final StreamCodec<FriendlyByteBuf, C2SRequestMaidListPacket> STREAM_CODEC =
             StreamCodec.of((buf, packet) -> {}, buf -> new C2SRequestMaidListPacket());
 
     @Override
@@ -79,7 +78,7 @@ public record C2SRequestMaidListPacket() implements CustomPacketPayload {
                         && maid instanceof StableIdProvider sp) {
                     String stableId = sp.getStableId();
                     if (stableId != null && !stableId.isEmpty()) {
-                        String modelId = (maid instanceof IMaid im) ? im.getModelId() : "";
+                        String modelId = maid.getModelId();
                         int favorLevel = maid.getFavorabilityManager().getLevel();
                         map.put(stableId, new MaidData(modelId, favorLevel));
                     }

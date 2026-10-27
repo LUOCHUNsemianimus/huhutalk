@@ -6,11 +6,10 @@ import com.huhutalk.HuhuTalk;
 import com.huhutalk.common.MaidStableIdHelper;
 import com.huhutalk.common.PhoneHelper;
 import com.huhutalk.common.SystemText;
+import com.huhutalk.core.rescue.PotionParticleFeedback;
 import com.huhutalk.core.rescue.RescuePotion;
 import com.huhutalk.core.transfer.MaidTransferService;
 import com.huhutalk.core.transfer.UsedItemNotifier;
-import net.minecraft.core.component.DataComponents;
-import net.minecraft.core.particles.ColorParticleOption;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
@@ -173,11 +172,11 @@ public final class RemoteSupplyService {
      * （救援那边走 {@code setHealth} 一次性结算，口径不同，见 {@link RescuePotion#instantHealAmount}）。
      */
     private static String applyTo(ServerPlayer player, ItemStack stack, boolean asFood) {
-        FoodProperties food = stack.get(DataComponents.FOOD);
+        FoodProperties food = stack.getFoodProperties(player);
         if (asFood && food != null) {
-            player.getFoodData().eat(food);
+            player.getFoodData().eat(food.getNutrition(), food.getSaturationModifier());
             playFeedback(player, -1, false);
-            return SystemText.of("message.huhutalk.supply.food", food.nutrition());
+            return SystemText.of("message.huhutalk.supply.food", food.getNutrition());
         }
 
         int instant = RescuePotion.instantHealAmount(stack);
@@ -210,8 +209,9 @@ public final class RemoteSupplyService {
             level.playSound(null, x, y, z, SoundEvents.GENERIC_DRINK, SoundSource.PLAYERS, 0.6F, 1.1F);
         }
         if (potionColor >= 0) {
-            level.sendParticles(ColorParticleOption.create(ParticleTypes.ENTITY_EFFECT, potionColor),
-                    x, y, z, 24, 0.3D, 0.4D, 0.3D, 0.02D);
+            // 1.20.1 没有 ColorParticleOption，但 ENTITY_EFFECT 的原生 count=0 协议
+            // 可以把 offsetXYZ 当 RGB；共享发射器保留原数量/液色/高斯扩散。
+            PotionParticleFeedback.emit(level, x, y, z, potionColor, 24, 0.3D, 0.4D, 0.3D);
         }
     }
 
@@ -284,11 +284,11 @@ public final class RemoteSupplyService {
 
     /** 食物打分：与治疗药水同一口径（按营养值算）。 */
     private static int scoreFood(ItemStack stack, int deficit) {
-        FoodProperties food = stack.get(DataComponents.FOOD);
+        FoodProperties food = stack.getFoodProperties(null);
         if (food == null) {
             return Integer.MIN_VALUE;
         }
-        int nutrition = food.nutrition();
+        int nutrition = food.getNutrition();
         if (nutrition <= 0) {
             return Integer.MIN_VALUE;
         }
@@ -297,9 +297,9 @@ public final class RemoteSupplyService {
                 : SCORE_SHORT + nutrition;
     }
 
-    /** 是不是可以喂给玩家的食物（带 FOOD 组件即可）。 */
+    /** 是不是可以喂给玩家的食物（有食物属性即可）。 */
     private static boolean isFood(ItemStack stack) {
-        return stack != null && !stack.isEmpty() && stack.get(DataComponents.FOOD) != null;
+        return stack != null && !stack.isEmpty() && stack.getFoodProperties(null) != null;
     }
 
     // ==================== 供 Hook / 叙事使用 ====================

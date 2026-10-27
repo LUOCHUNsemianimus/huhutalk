@@ -119,7 +119,7 @@ public final class PhoneTextArea extends PhoneWidget implements PhoneTextEditabl
     @Override
     public void updateEditingText(String text, int cursor) {
         this.value = text == null ? "" : text;
-        this.cursorPos = Math.clamp(cursor, 0, this.value.length());
+        this.cursorPos = net.minecraft.util.Mth.clamp(cursor, 0, this.value.length());
     }
 
     @Override
@@ -222,7 +222,7 @@ public final class PhoneTextArea extends PhoneWidget implements PhoneTextEditabl
             String line = wp.lines().get(row);
             // 编辑期在光标所在的字符列插入一个竖线（真光标由 EditBox 管，这里只做视觉提示）。
             if (focused && row == cursorLine) {
-                int col = Math.clamp(cursorPos - wp.starts().get(row), 0, line.length());
+                int col = net.minecraft.util.Mth.clamp(cursorPos - wp.starts().get(row), 0, line.length());
                 line = line.substring(0, col) + "|" + line.substring(col);
             }
             PhoneText.draw(g, font, line, x + pad, y + pad + (row - first) * lineH, color, ts);

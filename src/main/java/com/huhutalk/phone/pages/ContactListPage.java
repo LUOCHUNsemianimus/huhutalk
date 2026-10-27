@@ -18,7 +18,7 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.resources.ResourceLocation;
-import net.neoforged.neoforge.network.PacketDistributor;
+import com.huhutalk.network.transport.PacketDistributor;
 import org.lwjgl.glfw.GLFW;
 
 import java.util.ArrayList;
@@ -85,7 +85,7 @@ public class ContactListPage extends PhonePage {
     private static final int SCROLL_PAD_PX = 30;
     /** 心形贴图（64x64 ARGB，像素画，为清晰放大 2 倍） */
     private static final ResourceLocation HEART_TEX =
-            ResourceLocation.fromNamespaceAndPath("huhutalk", "textures/heart.png");
+            new net.minecraft.resources.ResourceLocation("huhutalk", "textures/heart.png");
     /** 心形贴图原始尺寸 */
     private static final int HEART_TEX_SIZE = 64;
 

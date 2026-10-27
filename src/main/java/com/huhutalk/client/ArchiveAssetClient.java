@@ -13,7 +13,7 @@ import com.mojang.blaze3d.systems.RenderSystem;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.texture.DynamicTexture;
 import net.minecraft.resources.ResourceLocation;
-import net.neoforged.neoforge.network.PacketDistributor;
+import com.huhutalk.network.transport.PacketDistributor;
 
 import java.io.ByteArrayInputStream;
 
@@ -195,7 +195,7 @@ public final class ArchiveAssetClient {
 
     private static void replaceTexture(NativeImage image) {
         ResourceLocation old = texture;
-        ResourceLocation next = ResourceLocation.fromNamespaceAndPath(
+        ResourceLocation next = new net.minecraft.resources.ResourceLocation(
                 "huhutalk", "archive_asset/" + (++textureSeq));
         DynamicTexture dynamic;
         try {

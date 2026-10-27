@@ -7,7 +7,7 @@ import com.huhutalk.common.StableIdProvider;
 import com.huhutalk.core.contact.MaidContactBook;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.server.level.ServerLevel;
-import net.neoforged.bus.api.SubscribeEvent;
+import net.minecraftforge.eventbus.api.SubscribeEvent;
 
 /**
  * 胶片转换事件兜底：确保稳定 ID 在所有“女仆 ↔ 物品”转换路径中存活。

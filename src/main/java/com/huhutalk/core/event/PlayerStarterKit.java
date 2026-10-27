@@ -3,7 +3,6 @@ package com.huhutalk.core.event;
 import com.huhutalk.HuhuTalk;
 import com.huhutalk.init.HuhuTalkBlocks;
 import com.huhutalk.init.HuhuTalkItems;
-import net.minecraft.core.HolderLookup;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
 import net.minecraft.nbt.StringTag;
@@ -13,7 +12,7 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.saveddata.SavedData;
-import net.neoforged.neoforge.event.entity.player.PlayerEvent;
+import net.minecraftforge.event.entity.player.PlayerEvent;
 import org.jetbrains.annotations.NotNull;
 
 import java.util.HashSet;
@@ -61,7 +60,7 @@ public final class PlayerStarterKit {
         // 父组件不带上色，前缀单独着色，正文用默认文字颜色（不继承橙色）。
         // 正文用原生 translatable：服务端只发键，接收玩家按自己的语言显示；橙色品牌前缀保持原样。
         Component message = Component.empty()
-                .append(Component.literal("【Huhutalk】").withColor(0xFFA500))
+                .append(Component.literal("【Huhutalk】").withStyle(style -> style.withColor(0xFFA500)))
                 .append(Component.translatable("message.huhutalk.starter_kit"));
         player.displayClientMessage(message, false);
         HuhuTalk.LOGGER.info("[HuhuTalk] 已为 {} 发放开局手机（存档 {}）",
@@ -86,8 +85,7 @@ public final class PlayerStarterKit {
         @NotNull
         public static Granted get(MinecraftServer server) {
             return server.overworld().getDataStorage().computeIfAbsent(
-                    new SavedData.Factory<>(Granted::new, Granted::load),
-                    DATA_NAME
+                    Granted::load, Granted::new, DATA_NAME
             );
         }
 
@@ -101,7 +99,7 @@ public final class PlayerStarterKit {
         }
 
         @Override
-        public CompoundTag save(CompoundTag tag, HolderLookup.Provider registries) {
+        public CompoundTag save(CompoundTag tag) {
             ListTag list = new ListTag();
             for (String id : players) {
                 list.add(StringTag.valueOf(id));
@@ -110,7 +108,7 @@ public final class PlayerStarterKit {
             return tag;
         }
 
-        public static Granted load(CompoundTag tag, HolderLookup.Provider registries) {
+        public static Granted load(CompoundTag tag) {
             Granted data = new Granted();
             ListTag list = tag.getList(KEY_PLAYERS, Tag.TAG_STRING);
             for (int i = 0; i < list.size(); i++) {

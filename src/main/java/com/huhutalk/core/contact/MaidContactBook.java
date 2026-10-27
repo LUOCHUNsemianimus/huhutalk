@@ -29,8 +29,7 @@ public class MaidContactBook extends SavedData {
     @NotNull
     public static MaidContactBook get(MinecraftServer server) {
         return server.overworld().getDataStorage().computeIfAbsent(
-                new SavedData.Factory<>(MaidContactBook::new, MaidContactBook::load),
-                DATA_NAME
+                MaidContactBook::load, MaidContactBook::new, DATA_NAME
         );
     }
 
@@ -159,7 +158,7 @@ public class MaidContactBook extends SavedData {
     }
 
     @Override
-    public CompoundTag save(CompoundTag tag, net.minecraft.core.HolderLookup.Provider registries) {
+    public CompoundTag save(CompoundTag tag) {
         CompoundTag root = new CompoundTag();
         for (MaidContactEntry entry : entries.values()) {
             String sid = entry.getStableId();
@@ -172,7 +171,7 @@ public class MaidContactBook extends SavedData {
         return tag;
     }
 
-    public static MaidContactBook load(CompoundTag tag, net.minecraft.core.HolderLookup.Provider registries) {
+    public static MaidContactBook load(CompoundTag tag) {
         MaidContactBook book = new MaidContactBook();
         if (tag.contains("contacts", Tag.TAG_COMPOUND)) {
             CompoundTag contactsTag = tag.getCompound("contacts");

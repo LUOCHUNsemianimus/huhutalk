@@ -5,7 +5,6 @@ import com.huhutalk.api.phone.ui.PhoneText;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.Font;
 import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.player.AbstractClientPlayer;
 import net.minecraft.resources.ResourceLocation;
 
 /**
@@ -46,8 +45,8 @@ final class PlayerHeader {
                 id = name;
             }
             // 只渲染皮肤纹理里的「头颅正面」8×8 区域（不是立体模型）
-            if (mc.player instanceof AbstractClientPlayer acp) {
-                ResourceLocation skin = acp.getSkin().texture();
+            if (mc.player != null) {
+                ResourceLocation skin = mc.player.getSkinTextureLocation();
                 PhoneImages.drawRegion(g, skin, headX, headY, headSize, headSize, 8, 8, 8, 8, 64, 64);
             } else {
                 g.fill(headX, headY, headX + headSize, headY + headSize, 0xFFFFFFFF);

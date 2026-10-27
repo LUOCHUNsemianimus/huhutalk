@@ -3,14 +3,14 @@ package com.huhutalk.network;
 import com.huhutalk.common.StableIdProvider;
 import com.huhutalk.core.chat.PhoneChatSourceController;
 import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
-import net.minecraft.network.RegistryFriendlyByteBuf;
-import net.minecraft.network.codec.ByteBufCodecs;
-import net.minecraft.network.codec.StreamCodec;
-import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.network.FriendlyByteBuf;
+import com.huhutalk.network.transport.ByteBufCodecs;
+import com.huhutalk.network.transport.StreamCodec;
+import com.huhutalk.network.transport.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
-import net.neoforged.neoforge.network.handling.IPayloadContext;
+import com.huhutalk.network.transport.IPayloadContext;
 import org.jetbrains.annotations.NotNull;
 
 /**
@@ -26,9 +26,9 @@ import org.jetbrains.annotations.NotNull;
  */
 public record C2SPhoneTypingDonePacket(String stableId) implements CustomPacketPayload {
     public static final Type<C2SPhoneTypingDonePacket> TYPE =
-            new Type<>(ResourceLocation.fromNamespaceAndPath("huhutalk", "phone_typing_done"));
+            new Type<>(new net.minecraft.resources.ResourceLocation("huhutalk", "phone_typing_done"));
 
-    public static final StreamCodec<RegistryFriendlyByteBuf, C2SPhoneTypingDonePacket> STREAM_CODEC =
+    public static final StreamCodec<FriendlyByteBuf, C2SPhoneTypingDonePacket> STREAM_CODEC =
             StreamCodec.composite(
                     ByteBufCodecs.STRING_UTF8,
                     C2SPhoneTypingDonePacket::stableId,

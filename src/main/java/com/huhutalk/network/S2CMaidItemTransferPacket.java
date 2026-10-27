@@ -1,10 +1,10 @@
 package com.huhutalk.network;
 
 import com.huhutalk.phone.ItemTransfer;
-import net.minecraft.network.RegistryFriendlyByteBuf;
-import net.minecraft.network.codec.ByteBufCodecs;
-import net.minecraft.network.codec.StreamCodec;
-import net.minecraft.network.protocol.common.custom.CustomPacketPayload;
+import net.minecraft.network.FriendlyByteBuf;
+import com.huhutalk.network.transport.ByteBufCodecs;
+import com.huhutalk.network.transport.StreamCodec;
+import com.huhutalk.network.transport.CustomPacketPayload;
 import net.minecraft.resources.ResourceLocation;
 import org.jetbrains.annotations.NotNull;
 
@@ -24,9 +24,9 @@ public record S2CMaidItemTransferPacket(String stableId, String transferId,
                                         int total, int pending,
                                         boolean used, String effectText) implements CustomPacketPayload {
     public static final CustomPacketPayload.Type<S2CMaidItemTransferPacket> TYPE =
-            new CustomPacketPayload.Type<>(ResourceLocation.fromNamespaceAndPath("huhutalk", "maid_item_transfer"));
+            new CustomPacketPayload.Type<>(new net.minecraft.resources.ResourceLocation("huhutalk", "maid_item_transfer"));
 
-    private static final StreamCodec<RegistryFriendlyByteBuf, ItemTransfer.Preview> PREVIEW_CODEC =
+    private static final StreamCodec<FriendlyByteBuf, ItemTransfer.Preview> PREVIEW_CODEC =
             StreamCodec.composite(
                     ByteBufCodecs.STRING_UTF8, p -> p.itemId,
                     ByteBufCodecs.INT, p -> p.count,
@@ -35,16 +35,16 @@ public record S2CMaidItemTransferPacket(String stableId, String transferId,
                     ItemTransfer.Preview::new
             );
 
-    private static final StreamCodec<RegistryFriendlyByteBuf, List<ItemTransfer.Preview>> PREVIEW_LIST_CODEC =
+    private static final StreamCodec<FriendlyByteBuf, List<ItemTransfer.Preview>> PREVIEW_LIST_CODEC =
             ByteBufCodecs.collection(count -> new ArrayList<ItemTransfer.Preview>(count), PREVIEW_CODEC);
 
     /**
      * 手写编解码而不是 {@code StreamCodec.composite}：composite 的泛型重载最多支持 6 对字段，
      * 本包有 7 个（stableId / transferId / previews / total / pending / used / effectText）。
      */
-    public static final StreamCodec<RegistryFriendlyByteBuf, S2CMaidItemTransferPacket> STREAM_CODEC =
-            StreamCodec.<RegistryFriendlyByteBuf, S2CMaidItemTransferPacket>of(
-                    (RegistryFriendlyByteBuf buf, S2CMaidItemTransferPacket packet) -> {
+    public static final StreamCodec<FriendlyByteBuf, S2CMaidItemTransferPacket> STREAM_CODEC =
+            StreamCodec.<FriendlyByteBuf, S2CMaidItemTransferPacket>of(
+                    (FriendlyByteBuf buf, S2CMaidItemTransferPacket packet) -> {
                         ByteBufCodecs.STRING_UTF8.encode(buf, packet.stableId());
                         ByteBufCodecs.STRING_UTF8.encode(buf, packet.transferId());
                         PREVIEW_LIST_CODEC.encode(buf, packet.previews());
@@ -53,7 +53,7 @@ public record S2CMaidItemTransferPacket(String stableId, String transferId,
                         ByteBufCodecs.BOOL.encode(buf, packet.used());
                         ByteBufCodecs.STRING_UTF8.encode(buf, packet.effectText());
                     },
-                    (RegistryFriendlyByteBuf buf) -> new S2CMaidItemTransferPacket(
+                    (FriendlyByteBuf buf) -> new S2CMaidItemTransferPacket(
                             ByteBufCodecs.STRING_UTF8.decode(buf),
                             ByteBufCodecs.STRING_UTF8.decode(buf),
                             PREVIEW_LIST_CODEC.decode(buf),

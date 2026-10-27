@@ -2,8 +2,7 @@ package com.huhutalk.phone;
 
 import com.google.gson.annotations.SerializedName;
 import net.minecraft.core.registries.BuiltInRegistries;
-import net.minecraft.nbt.NbtOps;
-import net.minecraft.nbt.Tag;
+import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.TagParser;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.item.ItemStack;
@@ -69,18 +68,16 @@ public final class ItemTransfer {
 
         /**
          * 把物品栈编码成 SNBT 字符串。
-         * <p>用 {@link ItemStack#SINGLE_ITEM_CODEC}（不含 count）而不是 {@code ItemStack.CODEC}：
-         * 后者对 count 有 1~99 的区间约束，数量越界会编码失败；数量本来就由 {@link #count} 单独携带。
+         * <p>先 {@code copy()} 再 {@code setCount(1)}，只序列化物品本体与 NBT：
+         * 数量由 {@link #count} 单独携带，预览不能被写成 1 个；真实栈也不会被改动。
          *
          * @return SNBT；编码失败返回空串（调用方自动退回只有 ID 的预览）
          */
         private static String encodeStack(ItemStack stack) {
             try {
-                Tag tag = ItemStack.SINGLE_ITEM_CODEC
-                        .encodeStart(NbtOps.INSTANCE, stack)
-                        .result()
-                        .orElse(null);
-                return tag == null ? "" : tag.toString();
+                ItemStack single = stack.copy();
+                single.setCount(1);
+                return single.save(new CompoundTag()).toString();
             } catch (Exception e) {
                 return "";
             }
@@ -92,11 +89,8 @@ public final class ItemTransfer {
                 return ItemStack.EMPTY;
             }
             try {
-                Tag tag = TagParser.parseTag(stackNbt);
-                return ItemStack.SINGLE_ITEM_CODEC
-                        .parse(NbtOps.INSTANCE, tag)
-                        .result()
-                        .orElse(ItemStack.EMPTY);
+                CompoundTag tag = TagParser.parseTag(stackNbt);
+                return ItemStack.of(tag);
             } catch (Exception e) {
                 return ItemStack.EMPTY;
             }
