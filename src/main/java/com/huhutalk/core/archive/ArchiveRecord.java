@@ -23,7 +23,8 @@ public record ArchiveRecord(
         long sequence,
         List<String> attachmentRefs,
         String relatedEventId,
-        ArchiveEvent event
+        ArchiveEvent event,
+        String quotedMessageId
 ) {
     public ArchiveRecord {
         messageId = ArchiveIds.requireToken(messageId, "messageId");
@@ -64,21 +65,35 @@ public record ArchiveRecord(
         if (relatedEventId != null) {
             relatedEventId = ArchiveIds.requireToken(relatedEventId, "relatedEventId");
         }
+        if (quotedMessageId != null) {
+            quotedMessageId = ArchiveIds.requireToken(quotedMessageId, "quotedMessageId");
+        }
     }
 
-    /** 旧 12 参数入口；结构化事件为 null，保持既有调用可编译。 */
+    /** 旧 13 参数入口；显式引用为 null，保持既有调用可编译。 */
+    public ArchiveRecord(String messageId, String turnId, String relatedMessageId,
+                         ArchiveSource source, ArchiveRole role, String text,
+                         long recordedAtEpochMillis, String originWorldId, long originGameTime,
+                         long sequence, List<String> attachmentRefs, String relatedEventId,
+                         ArchiveEvent event) {
+        this(messageId, turnId, relatedMessageId, source, role, text,
+                recordedAtEpochMillis, originWorldId, originGameTime, sequence,
+                attachmentRefs, relatedEventId, event, null);
+    }
+
+    /** 旧 12 参数入口；结构化事件与显式引用均为 null，保持既有调用可编译。 */
     public ArchiveRecord(String messageId, String turnId, String relatedMessageId,
                          ArchiveSource source, ArchiveRole role, String text,
                          long recordedAtEpochMillis, String originWorldId, long originGameTime,
                          long sequence, List<String> attachmentRefs, String relatedEventId) {
         this(messageId, turnId, relatedMessageId, source, role, text,
                 recordedAtEpochMillis, originWorldId, originGameTime, sequence,
-                attachmentRefs, relatedEventId, null);
+                attachmentRefs, relatedEventId, null, null);
     }
 
     public ArchiveRecord withSequence(long newSequence) {
         return new ArchiveRecord(messageId, turnId, relatedMessageId, source, role, text,
                 recordedAtEpochMillis, originWorldId, originGameTime, newSequence,
-                attachmentRefs, relatedEventId, event);
+                attachmentRefs, relatedEventId, event, quotedMessageId);
     }
 }

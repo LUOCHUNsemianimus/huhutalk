@@ -4,6 +4,7 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import com.google.gson.JsonParseException;
 import com.huhutalk.api.phone.ui.PhoneText;
+import com.huhutalk.core.chat.PhoneMessageQuote;
 import com.mojang.logging.LogUtils;
 import net.minecraft.client.Minecraft;
 import org.slf4j.Logger;
@@ -66,9 +67,19 @@ public class ChatHistoryStorage {
 
     /** 带图片的消息（image 为图片 key/文件名，null=无）。玩家发送图片消息走这里落盘，重进页面可恢复图片气泡 */
     public static void appendMessage(String stableId, String text, String emote, String image, boolean isPlayer, boolean isError) {
+        appendMessage(stableId, text, emote, image, isPlayer, isError, null);
+    }
+
+    /**
+     * 完整消息落盘：额外携带可选只读引用。旧调用点继续走上面的重载并写 null，
+     * 旧 client JSON 里没有 quote 字段时 Gson 同样得到 null。
+     */
+    public static void appendMessage(String stableId, String text, String emote, String image,
+                                     boolean isPlayer, boolean isError, PhoneMessageQuote quote) {
         currentHistory()
                 .computeIfAbsent(stableId, k -> new ArrayList<>())
-                .add(new ChatMessageEntry(text, isPlayer, isError, false, currentGameTime(), emote, image));
+                .add(new ChatMessageEntry(text, isPlayer, isError, false, currentGameTime(), emote, image,
+                        null, quote));
         saveToDisk(currentWorldKey); // 写入即落盘
     }
 
@@ -109,7 +120,7 @@ public class ChatHistoryStorage {
             com.huhutalk.phone.ItemTransfer.Payload p = e.item();
             if (p != null && transferId.equals(p.transferId)) {
                 list.set(i, new ChatMessageEntry(e.text(), e.isPlayer(), e.isError(), e.pending(),
-                        e.gameTime(), e.emote(), e.image(), p.withPending(newPending)));
+                        e.gameTime(), e.emote(), e.image(), p.withPending(newPending), e.quote()));
                 saveToDisk(currentWorldKey);
                 return true;
             }
@@ -220,7 +231,8 @@ public class ChatHistoryStorage {
         for (int i = list.size() - 1; i >= 0; i--) {
             ChatMessageEntry e = list.get(i);
             if (e.isPlayer()) {
-                list.set(i, new ChatMessageEntry(e.text(), true, e.isError(), true, e.gameTime(), e.emote(), e.image()));
+                list.set(i, new ChatMessageEntry(e.text(), true, e.isError(), true, e.gameTime(), e.emote(),
+                        e.image(), null, e.quote()));
                 saveToDisk(currentWorldKey);
                 return true;
             }
@@ -238,7 +250,8 @@ public class ChatHistoryStorage {
         for (int i = 0; i < list.size(); i++) {
             ChatMessageEntry e = list.get(i);
             if (e.pending()) {
-                list.set(i, new ChatMessageEntry(e.text(), e.isPlayer(), e.isError(), false, e.gameTime(), e.emote(), e.image()));
+                list.set(i, new ChatMessageEntry(e.text(), e.isPlayer(), e.isError(), false, e.gameTime(),
+                        e.emote(), e.image(), null, e.quote()));
                 changed = true;
             }
         }
@@ -381,11 +394,19 @@ public class ChatHistoryStorage {
 
     public record ChatMessageEntry(String text, boolean isPlayer, boolean isError, boolean pending, long gameTime,
                                    String emote, String image,
-                                   com.huhutalk.phone.ItemTransfer.Payload item) {
-        /** 兼容旧的无 item 字段的构造（item 默认 null）。 */
+                                   com.huhutalk.phone.ItemTransfer.Payload item,
+                                   PhoneMessageQuote quote) {
+        /** 兼容旧的无 quote 字段的 8 参构造（quote 默认 null）。 */
+        public ChatMessageEntry(String text, boolean isPlayer, boolean isError, boolean pending, long gameTime,
+                                String emote, String image,
+                                com.huhutalk.phone.ItemTransfer.Payload item) {
+            this(text, isPlayer, isError, pending, gameTime, emote, image, item, null);
+        }
+
+        /** 兼容旧的无 item / quote 字段的 7 参构造。 */
         public ChatMessageEntry(String text, boolean isPlayer, boolean isError, boolean pending, long gameTime,
                                 String emote, String image) {
-            this(text, isPlayer, isError, pending, gameTime, emote, image, null);
+            this(text, isPlayer, isError, pending, gameTime, emote, image, null, null);
         }
     }
 }

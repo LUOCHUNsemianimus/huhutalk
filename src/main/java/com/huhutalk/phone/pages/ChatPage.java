@@ -9,6 +9,8 @@ import com.huhutalk.client.NotificationManager;
 import com.huhutalk.client.PhotoLibrary;
 import com.huhutalk.client.render.SelfieCameraTarget;
 import com.huhutalk.client.settings.HuhuTalkClientSettings;
+import com.huhutalk.core.chat.PhoneMessageQuote;
+import com.huhutalk.core.archive.ArchiveRole;
 import com.huhutalk.event.ClientModEvents;
 import com.huhutalk.init.HuhuTalkSounds;
 import com.huhutalk.network.C2SMaidChatPacket;
@@ -38,6 +40,9 @@ import net.minecraft.world.item.ItemStack;
 import net.neoforged.neoforge.network.PacketDistributor;
 import org.lwjgl.glfw.GLFW;
 
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
@@ -60,6 +65,13 @@ public class ChatPage implements PhoneCameraHost {
     private static final int MAX_VISIBLE_INPUT_LINES = 3;
     /** 状态小字缩放（半字号，避免从标题栏凸出） */
     private static final float STATUS_SCALE = 0.5f;
+    /** 引用 header 的相对字号；实际像素高度/宽度都经 PhoneText 缩放测量。 */
+    private static final float QUOTE_HEADER_SCALE = 0.75f;
+    /** 引用右上角原发送时间比预览小一档，作为次要文字；header 高度仍按预览字号计算。 */
+    private static final float QUOTE_TIME_SCALE = 0.5f;
+    /** 引用右上角原发送时间：月-日 时:分（客户端本地时区）。 */
+    private static final DateTimeFormatter QUOTE_TIME_FORMAT =
+            DateTimeFormatter.ofPattern("MM-dd HH:mm");
 
     private static final String[] BOTTOM_ICONS = {"🎤", "🦊", "🖼️", "📷", "+"};
     private static final org.slf4j.Logger LOGGER = org.slf4j.LoggerFactory.getLogger("huhutalk.chat_page");
@@ -186,6 +198,10 @@ public class ChatPage implements PhoneCameraHost {
     private boolean splitting = false;
     /** 本次回复待显示的表情附件（ResourceLocation 字符串，null=无）。文本短句显示完后，作为同组附件尾部出现 */
     private String pendingReplyEmote = null;
+    /**
+     * 本次断句回复的引用；只在第一条短句（splitIndex == 0）使用，尾表情和后续短句都不带。
+     */
+    private PhoneMessageQuote pendingReplyQuote = null;
     /** 本次回复的逐条显示是否已回执服务端（用于关闭手机来源窗口 → 动画放下段）。每次回复复位 */
     private boolean splitDoneNotified = false;
 
@@ -215,22 +231,28 @@ public class ChatPage implements PhoneCameraHost {
                 if (e.item() != null) {
                     // 物品气泡：M→P（女仆发来的文件）与 P→M（我发出去的文件）共用同一张表，
                     // 左右分侧与"能否领取"都由 isPlayer 决定，不能像以前那样写死 false
-                    messages.add(new ChatMessage("", e.isPlayer(), false, false, e.gameTime(), null, null, e.item()));
+                    messages.add(new ChatMessage("", e.isPlayer(), false, false, e.gameTime(), null, null,
+                            e.item(), e.quote()));
                 } else if (e.image() != null) {
                     // 图片消息：直接整条恢复（图片已持久化在 chat_images，重进后仍可渲染）
-                    messages.add(new ChatMessage(e.text(), e.isPlayer(), e.isError(), e.pending(), e.gameTime(), null, e.image()));
+                    messages.add(new ChatMessage(e.text(), e.isPlayer(), e.isError(), e.pending(), e.gameTime(),
+                            null, e.image(), null, e.quote()));
                 } else if (e.emote() != null) {
                     // 表情消息：直接整条恢复（不按逗号拆句），保留 emote 路径
-                    messages.add(new ChatMessage(e.text(), e.isPlayer(), e.isError(), e.pending(), e.gameTime(), e.emote(), null));
+                    messages.add(new ChatMessage(e.text(), e.isPlayer(), e.isError(), e.pending(), e.gameTime(),
+                            e.emote(), null, null, e.quote()));
                 } else if (!e.isPlayer() && !e.isError()) {
                     // 历史中的女仆正常回复：按断句规则拆成多条气泡显示（与实时收到时一致），
                     // 避免重新进入世界后整段回复被合成一个大块。错误/玩家消息保持原样。
+                    // 引用只属于归档的整段回复，因此恢复时也只挂在第一条断句上。
                     List<String> segments = MessageSplitter.split(e.text());
-                    for (String seg : segments) {
-                        messages.add(new ChatMessage(seg, false, false, false, e.gameTime(), null, null));
+                    for (int i = 0; i < segments.size(); i++) {
+                        messages.add(new ChatMessage(segments.get(i), false, false, false, e.gameTime(),
+                                null, null, null, i == 0 ? e.quote() : null));
                     }
                 } else {
-                    messages.add(new ChatMessage(e.text(), e.isPlayer(), e.isError(), e.pending(), e.gameTime(), null, null));
+                    messages.add(new ChatMessage(e.text(), e.isPlayer(), e.isError(), e.pending(), e.gameTime(),
+                            null, null, null, e.quote()));
                 }
             }
             this.currentInput = ChatHistoryStorage.getDraft(stableId);
@@ -277,7 +299,7 @@ public class ChatPage implements PhoneCameraHost {
             com.huhutalk.phone.ItemTransfer.Payload p = m.item();
             if (p != null && transferId.equals(p.transferId)) {
                 messages.set(i, new ChatMessage("", false, false, false, m.gameTime(), null, null,
-                        p.withPending(newPending)));
+                        p.withPending(newPending), m.quote()));
                 break;
             }
         }
@@ -347,7 +369,8 @@ public class ChatPage implements PhoneCameraHost {
         for (int i = messages.size() - 1; i >= 0; i--) {
             ChatMessage m = messages.get(i);
             if (m.isPlayer()) {
-                messages.set(i, new ChatMessage(m.text(), true, m.isError(), true, m.gameTime(), m.emote(), m.image()));
+                messages.set(i, new ChatMessage(m.text(), true, m.isError(), true, m.gameTime(), m.emote(),
+                        m.image(), null, m.quote()));
                 break;
             }
         }
@@ -364,7 +387,8 @@ public class ChatPage implements PhoneCameraHost {
         for (int i = 0; i < messages.size(); i++) {
             ChatMessage m = messages.get(i);
             if (m.pending()) {
-                messages.set(i, new ChatMessage(m.text(), m.isPlayer(), m.isError(), false, m.gameTime(), m.emote(), m.image()));
+                messages.set(i, new ChatMessage(m.text(), m.isPlayer(), m.isError(), false, m.gameTime(), m.emote(),
+                        m.image(), null, m.quote()));
             }
         }
         ChatHistoryStorage.clearPending(stableId);
@@ -383,6 +407,7 @@ public class ChatPage implements PhoneCameraHost {
         this.splitQueue.clear();
         this.splitIndex = 0;
         this.pendingReplyEmote = null;
+        this.pendingReplyQuote = null;
         PENDING_SPLIT.remove(this);
         markLastSentPending();
     }
@@ -446,6 +471,7 @@ public class ChatPage implements PhoneCameraHost {
         splitIndex = 0;
         splitting = false;
         pendingReplyEmote = null;
+        pendingReplyQuote = null;
         pendingEmoteReplies.clear();
         waitingResponse = false;
         scrollOffset = 0;
@@ -562,7 +588,7 @@ public class ChatPage implements PhoneCameraHost {
     }
 
     public void onReceiveMessage(String text, boolean isError) {
-        onReceiveMessage(text, isError, null);
+        onReceiveMessage(text, isError, null, null);
     }
 
     /**
@@ -572,6 +598,17 @@ public class ChatPage implements PhoneCameraHost {
      *              附件在同一时刻分组尾部显示。
      */
     public void onReceiveMessage(String text, boolean isError, String emote) {
+        onReceiveMessage(text, isError, emote, null);
+    }
+
+    /**
+     * 收到女仆回复（带可选只读引用）。
+     *
+     * @param quote 只挂在本条回复的第一条断句气泡上；尾表情和后续断句都不带引用。
+     */
+    public void onReceiveMessage(String text, boolean isError, String emote, PhoneMessageQuote quote) {
+        // 新回复到来前，先把上一条仍在逐条播放的段落落定，避免重置队列时丢掉旧引用/尾段。
+        flushPendingSplitting();
         // 收到女仆回复/提示 → 视为送达，清除未送达标记
         clearPending();
         // 回到最新消息（让新回复可见）
@@ -583,6 +620,7 @@ public class ChatPage implements PhoneCameraHost {
             HuhuTalkSounds.playSendFail();
             messages.add(new ChatMessage(text, false, true, false, currentGameTime(), null, null));
             this.pendingReplyEmote = null;
+            this.pendingReplyQuote = null;
             this.waitingResponse = false;
             this.splitting = false;
             this.splitQueue.clear();
@@ -596,8 +634,9 @@ public class ChatPage implements PhoneCameraHost {
             // 无逗号可拆且无附件 → 整段显示
             // 界面内接收音：未断句整段显示时响 1 次（受 DND 影响）
             HuhuTalkSounds.playMsgReceiveUi();
-            messages.add(new ChatMessage(text, false, false, false, groupTime, null, null));
+            messages.add(new ChatMessage(text, false, false, false, groupTime, null, null, null, quote));
             this.pendingReplyEmote = null;
+            this.pendingReplyQuote = null;
             this.waitingResponse = false;
             this.splitting = false;
             this.splitQueue.clear();
@@ -624,6 +663,7 @@ public class ChatPage implements PhoneCameraHost {
         splitDoneNotified = false;
         splitGameTime = groupTime; // 该回复的所有短句 + 附件表情共享同一发送时间
         pendingReplyEmote = pendingEmoteLocal;
+        pendingReplyQuote = quote;
         splitting = true;
         waitingResponse = true; // 断句期间保持"对方正在输入…"
         // 登记本页：此后由客户端 tick 按真实时间推进，与"当前页是谁"解耦
@@ -687,10 +727,9 @@ public class ChatPage implements PhoneCameraHost {
         long now = System.currentTimeMillis();
         // 逐条追加：到点即落屏
         while (splitIndex < splitQueue.size() && now >= splitSchedule.get(splitIndex)) {
-            messages.add(new ChatMessage(splitQueue.get(splitIndex), false, false, false, splitGameTime, null, null));
+            appendSplitSegment();
             // 界面内接收音：随断句逐条出现响一次（受 DND 影响）
             HuhuTalkSounds.playMsgReceiveUi();
-            splitIndex++;
         }
         // 文本全部显示完 → 附带的表情作为同一分组尾部出现
         if (splitIndex >= splitQueue.size() && pendingReplyEmote != null) {
@@ -701,8 +740,24 @@ public class ChatPage implements PhoneCameraHost {
         if (splitIndex >= splitQueue.size() && pendingReplyEmote == null) {
             splitting = false;
             waitingResponse = false;
+            pendingReplyQuote = null;
             PENDING_SPLIT.remove(this);
             notifySplitDone();
+        }
+    }
+
+    /**
+     * 追加下一条待显示断句（推进/立刻完成两条路径共用）。
+     * 只有第一条断句携带本次回复的引用；尾表情不经过这里，因此永远无引用。
+     */
+    private void appendSplitSegment() {
+        int index = splitIndex;
+        PhoneMessageQuote quote = index == 0 ? pendingReplyQuote : null;
+        messages.add(new ChatMessage(splitQueue.get(index), false, false, false, splitGameTime,
+                null, null, null, quote));
+        splitIndex++;
+        if (index == 0) {
+            pendingReplyQuote = null;
         }
     }
 
@@ -743,8 +798,7 @@ public class ChatPage implements PhoneCameraHost {
         }
         // 剩余未显示短句全部追加（共享同一分组时间）
         while (splitIndex < splitQueue.size()) {
-            messages.add(new ChatMessage(splitQueue.get(splitIndex), false, false, false, splitGameTime, null, null));
-            splitIndex++;
+            appendSplitSegment();
         }
         // 待显示表情作为该组尾部一次性列出
         if (pendingReplyEmote != null) {
@@ -754,6 +808,7 @@ public class ChatPage implements PhoneCameraHost {
         // 复位断句状态，解除"对方正在输入…"
         splitting = false;
         waitingResponse = false;
+        pendingReplyQuote = null;
         splitQueue.clear();
         splitSchedule.clear();
         splitIndex = 0;
@@ -1373,11 +1428,51 @@ public class ChatPage implements PhoneCameraHost {
         if (m.image() != null) {
             return imageBubbleSize() + (groupTop ? timeH() : 0);
         }
-        int maxTextW = (int) ((phoneW - AVATAR * 2 - MARGIN * 4) / uiScale());
+        return measureTextBubble(font, m, phoneW).bubbleHeight() + (groupTop ? timeH() : 0);
+    }
+
+    /**
+     * 文本气泡的共享测量结果。滚动高度钳制和实际绘制都读这一份，避免引用 header 加入后
+     * 「算高度」与「画气泡」各写一套换行/宽度逻辑而错位。
+     */
+    private record TextBubbleMetrics(List<FormattedCharSequence> lines, int bubbleWidth,
+                                     int bubbleHeight, int headerBlock) {
+    }
+
+    /**
+     * 测出文本气泡的换行、宽度与总高度。
+     * <p>普通短文本仍按内容收窄；带引用时固定为内容区可用宽度，让 header 有稳定的一行空间。
+     * header 加入的高度同时计入这里，供滚动钳制使用。</p>
+     */
+    private TextBubbleMetrics measureTextBubble(Font font, ChatMessage m, int phoneW) {
+        boolean hasQuote = m.quote() != null;
+        // 引用气泡独占对侧头像留白，给单行预览更多横向空间；普通气泡宽度保持原样。
+        int bubbleMaxW = hasQuote
+                ? phoneW - AVATAR - MARGIN * 3
+                : phoneW - AVATAR * 2 - MARGIN * 2;
+        int textMaxPx = hasQuote
+                ? Math.max(1, bubbleMaxW - PhoneText.px(8))
+                : Math.max(1, phoneW - AVATAR * 2 - MARGIN * 4);
+        int maxTextW = Math.max(1, (int) (textMaxPx / uiScale()));
         List<FormattedCharSequence> lines = font.split(Component.literal(m.text()), maxTextW);
+
+        int longest = 0;
+        for (FormattedCharSequence line : lines) {
+            longest = Math.max(longest, font.width(line));
+        }
+        int bubbleW = hasQuote
+                ? bubbleMaxW
+                : Math.min((int) (longest * uiScale()) + PhoneText.px(8), bubbleMaxW);
         int lineH = lh() + 1;
-        int base = lines.size() * lineH + PhoneText.px(4);
-        return base + (groupTop ? timeH() : 0);
+        int headerBlock = hasQuote ? quoteHeaderBlockHeight(font) : 0;
+        int bubbleH = headerBlock + lines.size() * lineH + PhoneText.px(4);
+        return new TextBubbleMetrics(lines, bubbleW, bubbleH, headerBlock);
+    }
+
+    /** 引用 header 占用的额外高度：顶部留白 + 一行 header + 分隔线上下间距。 */
+    private static int quoteHeaderBlockHeight(Font font) {
+        return PhoneText.height(font, PhoneText.scale(QUOTE_HEADER_SCALE))
+                + PhoneText.px(2) * 2 + 1;
     }
 
     /**
@@ -1407,18 +1502,12 @@ public class ChatPage implements PhoneCameraHost {
         int bgColor = isError ? scheme.errorBubble()
                 : (isPlayer ? 0xFF5294BF : 0xFF525A6E);
 
-        // 换行宽度按缩放后折算，保证放大字体时文字仍不超出气泡
-        int maxTextW = (int) ((phoneW - AVATAR * 2 - MARGIN * 4) / uiScale());
-        List<FormattedCharSequence> lines = font.split(Component.literal(m.text()), maxTextW);
-
-        int longest = 0;
-        for (FormattedCharSequence line : lines) {
-            longest = Math.max(longest, font.width(line));
-        }
-        int bubbleW = Math.min((int) (longest * uiScale()) + PhoneText.px(8),
-                phoneW - AVATAR * 2 - MARGIN * 2);
+        // 与 bubbleHeight 共用同一份换行/宽度/header 高度测量
+        TextBubbleMetrics metrics = measureTextBubble(font, m, phoneW);
+        List<FormattedCharSequence> lines = metrics.lines();
+        int bubbleW = metrics.bubbleWidth();
+        int bubbleH = metrics.bubbleHeight();
         int lineH = lh() + 1;
-        int bubbleH = lines.size() * lineH + PhoneText.px(4);
         int yTop = yBottom - bubbleH;
         // 圆角方框：圆角半径 = 1/4 方框高
         int radius = Math.max(2, bubbleH / 4);
@@ -1442,6 +1531,9 @@ public class ChatPage implements PhoneCameraHost {
             int bubbleLeft = baseX + AVATAR + MARGIN;
             PhoneShapes.fillRoundedRect(g, bubbleLeft, yTop, bubbleW, bubbleH, radius, bgColor);
             int ty = yTop + PhoneText.px(2);
+            if (m.quote() != null) {
+                ty = drawQuoteHeader(g, font, m.quote(), bubbleLeft, bubbleW, ty);
+            }
             for (FormattedCharSequence line : lines) {
                 PhoneText.draw(g, font, line, bubbleLeft + PhoneText.px(4), ty, textColor, PhoneText.scale(1.0f));
                 ty += lineH;
@@ -1462,6 +1554,57 @@ public class ChatPage implements PhoneCameraHost {
             }
         }
         return bubbleH + (groupTop ? timeH() : 0);
+    }
+
+    /**
+     * 画引用 header 并返回正文起始 y：左侧作者+预览（像素截断），右侧归档原发送时间，
+     * 下方一条细分隔线。只读引用字段，不触发领取/识图/跳转。
+     */
+    private int drawQuoteHeader(GuiGraphics g, Font font, PhoneMessageQuote quote,
+                                int bubbleLeft, int bubbleW, int textTop) {
+        float scale = PhoneText.scale(QUOTE_HEADER_SCALE);
+        float timeScale = PhoneText.scale(QUOTE_TIME_SCALE);
+        int padX = PhoneText.px(4);
+        int innerW = Math.max(1, bubbleW - padX * 2);
+        String time = formatQuoteTime(quote.recordedAtEpochMillis());
+        int timeW = PhoneText.width(font, time, timeScale);
+        int previewMaxW = Math.max(0, innerW - timeW - PhoneText.px(4));
+        String header = quoteHeaderText(quote);
+        String shownHeader = previewMaxW <= 0 ? "" : PhoneText.truncate(font, header, previewMaxW, scale);
+
+        int headerH = PhoneText.height(font, scale);
+        int timeH = PhoneText.height(font, timeScale);
+        int timeY = textTop + Math.max(0, (headerH - timeH) / 2);
+        if (!shownHeader.isEmpty()) {
+            PhoneText.draw(g, font, shownHeader, bubbleLeft + padX, textTop, 0xFFE8E8EF, scale);
+        }
+        PhoneText.draw(g, font, time, bubbleLeft + bubbleW - padX - timeW, timeY,
+                0xFFC9CEDC, timeScale);
+
+        int dividerY = textTop + headerH + PhoneText.px(2);
+        g.fill(bubbleLeft + padX, dividerY, bubbleLeft + bubbleW - padX, dividerY + 1, 0x55FFFFFF);
+        return dividerY + 1 + PhoneText.px(2);
+    }
+
+    /** 引用 header 的左半部分；作者来自归档角色，文案来自当前语言。 */
+    private static String quoteHeaderText(PhoneMessageQuote quote) {
+        String author = PhoneText.tr(quote.role() == ArchiveRole.PLAYER
+                ? "gui.huhutalk.chat.quote.player"
+                : "gui.huhutalk.chat.quote.maid");
+        return switch (quote.kind()) {
+            case TEXT -> PhoneText.tr("gui.huhutalk.chat.quote.text", author, quote.preview());
+            case IMAGE -> PhoneText.tr("gui.huhutalk.chat.quote.image", author);
+            case ITEMS -> PhoneText.tr("gui.huhutalk.chat.quote.items", author, quote.preview());
+        };
+    }
+
+    /** 归档原发送时间按客户端本地时区显示；0 = 旧档未知，绝不拿当前时间补造。 */
+    private static String formatQuoteTime(long recordedAtEpochMillis) {
+        if (recordedAtEpochMillis <= 0L) {
+            return PhoneText.tr("gui.huhutalk.chat.quote.time_unknown");
+        }
+        return QUOTE_TIME_FORMAT.format(
+                Instant.ofEpochMilli(recordedAtEpochMillis).atZone(ZoneId.systemDefault()));
     }
 
     // ==================== 物品气泡（M→P 传文件） ====================
@@ -2687,7 +2830,8 @@ public class ChatPage implements PhoneCameraHost {
         for (int i = messages.size() - 1; i >= 0; i--) {
             ChatMessage m = messages.get(i);
             if (m.image() != null && pendingImageKey.equals(m.image())) {
-                messages.set(i, new ChatMessage(m.text(), m.isPlayer(), true, false, m.gameTime(), m.emote(), m.image()));
+                messages.set(i, new ChatMessage(m.text(), m.isPlayer(), true, false, m.gameTime(), m.emote(),
+                        m.image(), null, m.quote()));
                 break;
             }
         }
@@ -3239,14 +3383,21 @@ public class ChatPage implements PhoneCameraHost {
     }
 
     /**
-     * 一条聊天消息。emote/image 为资源/图片 key；item 为物品气泡负载（M→P 传文件），null=无。
-     * 为了少改动已有调用点，保留一个不带 item 的便捷构造（item=null）。
+     * 一条聊天消息。emote/image 为资源/图片 key；item 为物品气泡负载（M→P 传文件），null=无；
+     * quote 为可选只读引用，只挂在该回复第一条断句的文本气泡上。
+     * 为了少改动已有调用点，保留旧 8 参（item）和 7 参便捷构造。
      */
     private record ChatMessage(String text, boolean isPlayer, boolean isError, boolean pending, long gameTime,
-                               String emote, String image, com.huhutalk.phone.ItemTransfer.Payload item) {
+                               String emote, String image, com.huhutalk.phone.ItemTransfer.Payload item,
+                               PhoneMessageQuote quote) {
+        private ChatMessage(String text, boolean isPlayer, boolean isError, boolean pending, long gameTime,
+                            String emote, String image, com.huhutalk.phone.ItemTransfer.Payload item) {
+            this(text, isPlayer, isError, pending, gameTime, emote, image, item, null);
+        }
+
         private ChatMessage(String text, boolean isPlayer, boolean isError, boolean pending, long gameTime,
                             String emote, String image) {
-            this(text, isPlayer, isError, pending, gameTime, emote, image, null);
+            this(text, isPlayer, isError, pending, gameTime, emote, image, null, null);
         }
     }
 }

@@ -2,6 +2,7 @@ package com.huhutalk.core.archive;
 
 import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
 import com.huhutalk.common.StableIdProvider;
+import com.huhutalk.core.chat.PhoneMessageQuote;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -348,7 +349,7 @@ public final class ArchiveService {
      */
     public static void recordMaidReply(MinecraftServer server, EntityMaid maid,
                                        ArchiveTurnContext turn, String maidMessageId, String replyText) {
-        recordMaidReply(server, maid, turn, maidMessageId, replyText, null);
+        recordMaidReply(server, maid, turn, maidMessageId, replyText, null, null);
     }
 
     /**
@@ -358,6 +359,19 @@ public final class ArchiveService {
     public static void recordMaidReply(MinecraftServer server, EntityMaid maid,
                                        ArchiveTurnContext turn, String maidMessageId, String replyText,
                                        String emoteResource) {
+        recordMaidReply(server, maid, turn, maidMessageId, replyText, emoteResource, null);
+    }
+
+    /**
+     * 记录最终文本回复，可选附带表情与本轮显式引用的归档消息 ID。
+     * 引用只保存稳定 messageId，必须已存在于同一 owner/stable 归档，且通过
+     * {@link PhoneMessageQuote#fromRecord} 的统一资格校验（真实成功物品发送事件可由
+     * TOOL/SYSTEM 记录派生作者；普通工具/系统文字仍不可引用）。
+     * 缺失或不可引用时显式失败，不重建归档、不跨会话查找。原 relatedMessageId 仍是本轮玩家消息。
+     */
+    public static void recordMaidReply(MinecraftServer server, EntityMaid maid,
+                                       ArchiveTurnContext turn, String maidMessageId, String replyText,
+                                       String emoteResource, String quotedMessageId) {
         requireServerThread(server);
         if (maid == null || turn == null) {
             throw new ArchiveException(ArchiveException.Code.VALIDATION,
@@ -368,6 +382,16 @@ public final class ArchiveService {
             throw new ArchiveException(ArchiveException.Code.VALIDATION,
                     "maid reply text must not be blank");
         }
+        String quoteId = quotedMessageId == null ? null
+                : ArchiveIds.requireToken(quotedMessageId, "quotedMessageId");
+        if (quoteId != null) {
+            ArchiveRecord quoted = store(server)
+                    .findByMessageId(turn.ownerUuid(), turn.maidStableId(), quoteId)
+                    .orElseThrow(() -> new ArchiveException(ArchiveException.Code.NOT_FOUND,
+                            "quoted phone memory message does not exist: " + quoteId));
+            // 唯一资格/作者派生入口：只验证，不把 DTO 内容写进归档。
+            PhoneMessageQuote.fromRecord(quoted);
+        }
         ArchiveEvent event = null;
         if (emoteResource != null && !emoteResource.isBlank()) {
             event = ArchiveEvent.emote(emoteResource.trim());
@@ -376,7 +400,7 @@ public final class ArchiveService {
         ArchiveRecord draft = new ArchiveRecord(maidMessageId, turn.turnId(),
                 turn.playerMessageId(), turn.source(), ArchiveRole.MAID,
                 replyText, System.currentTimeMillis(), turn.originWorldId(),
-                maid.level().getGameTime(), 0L, List.of(), null, event);
+                maid.level().getGameTime(), 0L, List.of(), null, event, quoteId);
         store(server).append(turn.ownerUuid(), turn.maidStableId(), draft);
     }
 
@@ -531,6 +555,15 @@ public final class ArchiveService {
     public static ArchivePage query(MinecraftServer server, UUID ownerUuid, String maidStableId,
                                     int offset, int limit, ArchiveRole role, String keyword) {
         return store(server).query(ownerUuid, maidStableId, offset, limit, role, keyword);
+    }
+
+    /**
+     * 手机回忆检索：与 {@link #query} 同一套 store/分页，但关键词可命中正文、
+     * 真实物品/媒体结构化事实和标签别名；不改旧 query 的纯文本语义。
+     */
+    public static ArchivePage queryMemory(MinecraftServer server, UUID ownerUuid, String maidStableId,
+                                          int offset, int limit, ArchiveRole role, String keyword) {
+        return store(server).queryMemory(ownerUuid, maidStableId, offset, limit, role, keyword);
     }
 
     public static Optional<ArchiveRecord> findByMessageId(MinecraftServer server, UUID ownerUuid,

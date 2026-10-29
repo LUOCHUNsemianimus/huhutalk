@@ -131,10 +131,26 @@ public final class ArchiveStore {
 
     /**
      * 按 sequence 排序的分页查询；role 为 null 表示不过滤角色，keyword 为
-     * null/空白表示不过滤原文关键词。
+     * null/空白表示不过滤原文关键词。旧文本语义保持不变，物品/媒体回忆请用
+     * {@link #queryMemory}。
      */
     public ArchivePage query(UUID ownerUuid, String maidStableId, int offset, int limit,
                              ArchiveRole role, String keyword) {
+        return queryInternal(ownerUuid, maidStableId, offset, limit, role, keyword, false);
+    }
+
+    /**
+     * 与 {@link #query} 共用校验、加载、角色过滤、排序和分页，但关键词同时匹配
+     * 正文、真实 structured event 的物品 ID/显示名，以及图片/物品标签别名。
+     * 只派生检索命中，不修改 {@link ArchiveRecord#text()}。
+     */
+    public ArchivePage queryMemory(UUID ownerUuid, String maidStableId, int offset, int limit,
+                                   ArchiveRole role, String keyword) {
+        return queryInternal(ownerUuid, maidStableId, offset, limit, role, keyword, true);
+    }
+
+    private ArchivePage queryInternal(UUID ownerUuid, String maidStableId, int offset, int limit,
+                                      ArchiveRole role, String keyword, boolean memoryFacts) {
         if (offset < 0) {
             throw new ArchiveException(ArchiveException.Code.VALIDATION, "offset must be >= 0");
         }
@@ -155,7 +171,7 @@ public final class ArchiveStore {
                 continue;
             }
             if (normalizedKeyword != null && !normalizedKeyword.isEmpty()
-                    && !record.text().toLowerCase(Locale.ROOT).contains(normalizedKeyword)) {
+                    && !matchesKeyword(record, normalizedKeyword, memoryFacts)) {
                 continue;
             }
             matching.add(record);
@@ -168,6 +184,48 @@ public final class ArchiveStore {
         return new ArchivePage(snapshot.archiveId(), page, offset, limit, totalMatching,
                 to < totalMatching, true, snapshot.coverage());
     }
+
+    private static boolean matchesKeyword(ArchiveRecord record, String keyword, boolean memoryFacts) {
+        if (record.text().toLowerCase(Locale.ROOT).contains(keyword)) {
+            return true;
+        }
+        if (!memoryFacts) {
+            return false;
+        }
+        ArchiveEvent event = record.event();
+        if (event != null) {
+            for (ArchiveItemSummary item : event.items()) {
+                if (item.itemId().toLowerCase(Locale.ROOT).contains(keyword)
+                        || item.displayName().toLowerCase(Locale.ROOT).contains(keyword)) {
+                    return true;
+                }
+            }
+        }
+        if (hasImageFacts(record, event) && containsAny(keyword, IMAGE_ALIASES)) {
+            return true;
+        }
+        return event != null && event.kind().isItemEvent()
+                && containsAny(keyword, ITEM_ALIASES);
+    }
+
+    private static boolean hasImageFacts(ArchiveRecord record, ArchiveEvent event) {
+        return !record.attachmentRefs().isEmpty()
+                || (event != null && event.kind() == ArchiveEventKind.IMAGE_SENT);
+    }
+
+    private static boolean containsAny(String keyword, String[] aliases) {
+        for (String alias : aliases) {
+            if (keyword.equals(alias)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 媒体标签别名；只参与检索派生，不写回记录正文。 */
+    private static final String[] IMAGE_ALIASES = {"图片", "照片", "image", "photo", "picture"};
+    /** 物品/文件标签别名；只匹配真实 item event。 */
+    private static final String[] ITEM_ALIASES = {"物品", "文件", "item", "file", "transfer"};
 
     public Optional<ArchiveRecord> findByMessageId(UUID ownerUuid, String maidStableId, String messageId) {
         String id = ArchiveIds.requireToken(messageId, "messageId");
@@ -372,6 +430,7 @@ public final class ArchiveStore {
                 && first.originGameTime() == second.originGameTime()
                 && first.attachmentRefs().equals(second.attachmentRefs())
                 && Objects.equals(first.relatedEventId(), second.relatedEventId())
-                && Objects.equals(first.event(), second.event());
+                && Objects.equals(first.event(), second.event())
+                && Objects.equals(first.quotedMessageId(), second.quotedMessageId());
     }
 }

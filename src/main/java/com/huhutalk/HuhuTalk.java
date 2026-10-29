@@ -57,6 +57,11 @@ import org.slf4j.LoggerFactory;
 @Mod(HuhuTalk.MOD_ID)
 public class HuhuTalk {
     public static final String MOD_ID = "huhutalk";
+    /**
+     * 手机聊天网络协议版本。引用字段改变了回复包布局，旧客户端必须因版本不匹配被拒绝，
+     * 而不是按旧布局错解包。服务端与客户端注册必须共用这个常量。
+     */
+    public static final String NETWORK_VERSION = "huhutalk-phone-quote-v1";
     public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
 
     public HuhuTalk(IEventBus modEventBus) {
@@ -128,7 +133,7 @@ public class HuhuTalk {
     }
 
     private void setupPackets(RegisterPayloadHandlersEvent event) {
-        var registrar = event.registrar(MOD_ID);
+        var registrar = event.registrar(NETWORK_VERSION);
         // 客户端 → 服务端：聊天消息
         registrar.playToServer(C2SMaidChatPacket.TYPE, C2SMaidChatPacket.STREAM_CODEC, C2SMaidChatPacket::handle);
         // 客户端 → 服务端：带一张图片的聊天（图片走 vision_tmp 共享目录，包内只传 token）

@@ -22,6 +22,7 @@ sourceSets.main.resources {
 // 只用于编译/运行验收驱动；不进入 sourceSets.main.output，因此正式 jar 不含它。
 // 普通 client/server 与正式 jar 完全不引用该源集。
 def debugSmokeEnabled = providers.gradleProperty("debugSmoke").map { it.isBlank() || it.toBoolean() }.getOrElse(false)
+def phoneMemorySmokeEnabled = providers.gradleProperty("phoneMemorySmoke").map { it.isBlank() || it.toBoolean() }.getOrElse(false)
 def debugSmokeRuntime = rootProject.file('../.workflow/projects/huhutalk/runtime')
 sourceSets {
     debugSmoke {
@@ -146,12 +147,28 @@ neoForge {
                         '--width', '1280', '--height', '720'
             }
         }
+
+        // 独立的原生手机回忆/引用气泡验收；与旧 debugSmoke 互不加驱动。
+        if (phoneMemorySmokeEnabled) {
+            phoneMemorySmoke {
+                client()
+                gameDirectory = debugSmokeRuntime.toPath().resolve('phone-memory-client').toFile()
+                systemProperty 'huhutalk.phoneMemorySmoke', 'true'
+                systemProperty 'huhutalk.phoneMemorySmokeWorld',
+                        debugSmokeRuntime.toPath().resolve('phone-memory-client/saves/phone-memory-smoke')
+                                .toFile().absolutePath
+                systemProperty 'huhutalk.phoneMemorySmokeOutput',
+                        debugSmokeRuntime.toPath().resolve('phone-memory-results').toFile().absolutePath
+                programArguments.addAll '--quickPlaySingleplayer', 'phone-memory-smoke',
+                        '--width', '1280', '--height', '720'
+            }
+        }
     }
 
     mods {
         "${mod_id}" {
             sourceSet(sourceSets.main)
-            if (debugSmokeEnabled) {
+            if (debugSmokeEnabled || phoneMemorySmokeEnabled) {
                 sourceSet(sourceSets.debugSmoke)
             }
         }

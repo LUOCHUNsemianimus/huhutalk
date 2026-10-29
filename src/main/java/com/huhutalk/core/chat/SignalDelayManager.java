@@ -63,14 +63,24 @@ public final class SignalDelayManager {
      * 调用方需保证在服务端线程执行（与现有 {@code server.submit(...)} 一致）。
      */
     public static void sendDelayedReply(ServerPlayer player, String stableId, String text, String emote) {
+        sendDelayedReply(player, stableId, text, emote, null);
+    }
+
+    /**
+     * 同 {@link #sendDelayedReply(ServerPlayer, String, String, String)}，并携带本回复的只读引用。
+     * 每条延迟包自己保存 quote，投递时不会串用到别的回复。
+     */
+    public static void sendDelayedReply(ServerPlayer player, String stableId, String text, String emote,
+                                        PhoneMessageQuote quote) {
         int delayTicks = delayTicksFor(player);
+        S2CMaidChatResponsePacket packet = new S2CMaidChatResponsePacket(stableId, text, emote, quote);
         if (delayTicks <= 0) {
-            PacketDistributor.sendToPlayer(player, new S2CMaidChatResponsePacket(stableId, text, emote));
+            PacketDistributor.sendToPlayer(player, packet);
             return;
         }
         MinecraftServer server = player.server;
         long dispatchTick = server.getTickCount() + delayTicks;
-        QUEUE.add(new DelayedSend(dispatchTick, player, new S2CMaidChatResponsePacket(stableId, text, emote)));
+        QUEUE.add(new DelayedSend(dispatchTick, player, packet));
     }
 
     /** 服务端每 tick 处理到点的延迟消息（注册于 ServerTickEvent.Post） */

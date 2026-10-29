@@ -177,6 +177,9 @@ public record ArchiveSnapshot(
         object.add("attachmentRefs", attachments);
         object.add("relatedEventId", record.relatedEventId() == null
                 ? JsonNull.INSTANCE : new JsonPrimitive(record.relatedEventId()));
+        if (record.quotedMessageId() != null) {
+            object.addProperty("quotedMessageId", record.quotedMessageId());
+        }
         if (record.event() != null) {
             object.add("event", record.event().toJson());
         }
@@ -208,12 +211,13 @@ public record ArchiveSnapshot(
             attachmentRefs.add(attachment.getAsString());
         }
         String relatedEventId = optionalString(object, "relatedEventId");
+        String quotedMessageId = optionalString(object, "quotedMessageId");
         JsonElement eventElement = object.get("event");
         ArchiveEvent event = eventElement == null || eventElement.isJsonNull()
                 ? null : ArchiveEvent.fromJson(eventElement);
         return new ArchiveRecord(messageId, turnId, relatedMessageId, source, role, text,
                 recordedAt, originWorldId, originGameTime, sequence, attachmentRefs,
-                relatedEventId, event);
+                relatedEventId, event, quotedMessageId);
     }
 
     private static String requireString(JsonObject object, String field) {

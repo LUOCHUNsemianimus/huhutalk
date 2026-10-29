@@ -13,6 +13,7 @@ import com.huhutalk.client.SosBindCache;
 import com.huhutalk.client.SosTaskCache;
 import com.huhutalk.client.vision.VisionSiteCache;
 import com.huhutalk.common.SystemText;
+import com.huhutalk.core.chat.PhoneMessageQuote;
 import com.huhutalk.init.HuhuTalkSounds;
 import com.huhutalk.network.S2CVisionSitesPacket;
 import com.huhutalk.network.S2CArchiveHistoryPacket;
@@ -49,7 +50,7 @@ public class ClientPayloadSetup {
 
     @SubscribeEvent
     public static void onRegisterPayloads(RegisterPayloadHandlersEvent event) {
-        var registrar = event.registrar(HuhuTalk.MOD_ID);
+        var registrar = event.registrar(HuhuTalk.NETWORK_VERSION);
         registrar.playToClient(S2CMaidChatResponsePacket.TYPE, S2CMaidChatResponsePacket.STREAM_CODEC, ClientPayloadSetup::handleResponse);
         registrar.playToClient(S2CMaidChatErrorPacket.TYPE, S2CMaidChatErrorPacket.STREAM_CODEC, ClientPayloadSetup::handleError);
         registrar.playToClient(S2CMaidChatInfoPacket.TYPE, S2CMaidChatInfoPacket.STREAM_CODEC, ClientPayloadSetup::handleInfo);
@@ -120,7 +121,8 @@ public class ClientPayloadSetup {
 
     private static void handleResponse(S2CMaidChatResponsePacket packet, IPayloadContext context) {
         // AI 回复原文原样投递：绝不经过 SystemText，即使正文看起来像系统文案编码
-        context.enqueueWork(() -> deliverResponse(packet.stableId(), packet.responseText(), packet.emote()));
+        context.enqueueWork(() -> deliverResponse(packet.stableId(), packet.responseText(), packet.emote(),
+                packet.quote()));
     }
 
     /**
@@ -130,15 +132,22 @@ public class ClientPayloadSetup {
      * 因此两者的落盘/未读/音效行为完全一致；系统通知只在调用前把编码解析成当前语言。
      */
     private static void deliverResponse(String stableId, String text, String emote) {
+        deliverResponse(stableId, text, emote, null);
+    }
+
+    /**
+     * 带可选引用的女仆回复投递。只有正文那一条历史携带 quote；尾部表情是独立记录且不带引用。
+     */
+    private static void deliverResponse(String stableId, String text, String emote, PhoneMessageQuote quote) {
         boolean hasEmote = emote != null && !emote.isEmpty();
         // 文本与附件表情分别落盘（同一 tick 写入 → 同 gameTime → 重进后仍同组）
-        ChatHistoryStorage.appendMessage(stableId, text, false, false);
+        ChatHistoryStorage.appendMessage(stableId, text, null, null, false, false, quote);
         if (hasEmote) {
             ChatHistoryStorage.appendMessage(stableId, "", emote, false, false);
         }
         IPhonePage current = PhoneOverlay.getCurrentPage();
         if (current instanceof ChatPage chatPage && chatPage.getStableId().equals(stableId)) {
-            chatPage.onReceiveMessage(text, false, hasEmote ? emote : null);
+            chatPage.onReceiveMessage(text, false, hasEmote ? emote : null, quote);
             // 特殊：玩家在该女仆聊天页但已收起手机 → 手机不可见、不产生红点，
             // 此时补响一声界面外通知音（较响 + 限频），提示"有消息来了"。
             if (!PhoneOverlay.isVisible()) {

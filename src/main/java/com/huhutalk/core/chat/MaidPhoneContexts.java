@@ -49,6 +49,7 @@ public final class MaidPhoneContexts {
         // promptContext = true：作为常驻上下文注入提示词，而不是等模型主动查询
         register.registerCategory(CATEGORY, CATEGORY_SUMMARY, true);
         register.registerContext(CATEGORY, new RemoteSupportContext());
+        register.registerContext(CATEGORY, new PhoneMemoryContext());
     }
 
     /**
@@ -61,6 +62,29 @@ public final class MaidPhoneContexts {
         }
         List<String> lines = GameContextRegister.getContext(CATEGORY, maid);
         return lines == null || lines.isEmpty() ? "" : String.join("\n", lines);
+    }
+
+    /**
+     * 「手机档案」条目：她能检索/核对/引用本轮主人与自己的手机会话记录。
+     */
+    private static final class PhoneMemoryContext extends AbstractMaidContext {
+        private PhoneMemoryContext() {
+            super("phone_memory", "手机档案引用");
+        }
+
+        @Override
+        public String getValue(EntityMaid maid) {
+            if (maid == null) {
+                return "";
+            }
+            return "你和当前主人通过手机聊天的已归档内容可以被检索和核对：用短关键词搜索原话，"
+                    + "也可以按物品名/物品 ID 或图片、物品关键词回忆真实的物品与媒体事件；"
+                    + "物品和媒体记录可能归档在 tool/system 角色下，查它们时用 role=all。"
+                    + "按 message_id 读取原文，只有确认后设置 quote=true 才能把一条真实消息作为引用"
+                    + "附在当前回复上。不要把你自己过去的回答或当时的图片观察当成主人的原话；"
+                    + "普通 tool/system 文字仍不能当作主人或你说过的话，只有真实的成功物品发送事件"
+                    + "可以按实际方向引用。搜索没有命中只说明归档里没有匹配记录，不代表事情没发生过。";
+        }
     }
 
     /**

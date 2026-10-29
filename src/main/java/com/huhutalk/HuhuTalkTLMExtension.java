@@ -8,6 +8,8 @@ import com.github.tartaricacid.touhoulittlemaid.client.renderer.entity.GeckoEnti
 import com.github.tartaricacid.touhoulittlemaid.entity.task.TaskManager;
 import com.github.tartaricacid.touhoulittlemaid.item.bauble.BaubleManager;
 import com.huhutalk.client.render.PhoneInHandLayer;
+import com.huhutalk.core.archive.GetPhoneMessageTool;
+import com.huhutalk.core.archive.SearchPhoneHistoryTool;
 import com.huhutalk.core.chat.MaidPhoneContexts;
 import com.huhutalk.core.chat.SendEmoteTool;
 import com.huhutalk.core.move.MoveToTool;
@@ -50,6 +52,9 @@ public class HuhuTalkTLMExtension implements ILittleMaid {
         register.register(new SendEmoteTool());
         // 传文件（M→P）：女仆把自己身上/隙间里的物品发给主人，主人聊天里点气泡领取
         register.register(new SendItemTool());
+        // 手机归档检索/按 ID 读取；只允许 HuhuTalk 手机会话，quote=true 才挂引用
+        register.register(new SearchPhoneHistoryTool());
+        register.register(new GetPhoneMessageTool());
     }
 
     /**

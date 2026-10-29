@@ -36,6 +36,10 @@ public class HuhuTalkChatCallback extends LLMCallback {
     private final AtomicBoolean archiveReplySubmitted = new AtomicBoolean(false);
     /** 本次回复待附带的表情资源路径（空串=无）。由 {@link SendEmoteTool} 调用 {@link #attachEmote} 设置 */
     private String pendingEmote = "";
+    /**
+     * 本次回复可选附带的只读归档引用。仅本回调持有，不跨回调共享；发送/归档接线在后续步骤。
+     */
+    private volatile PhoneMessageQuote pendingQuote;
 
     public HuhuTalkChatCallback(MaidAIChatManager chatManager, List<LLMMessage> messages,
                                 ServerPlayer sender, String stableId) {
@@ -68,6 +72,21 @@ public class HuhuTalkChatCallback extends LLMCallback {
         this.pendingEmote = emotePath == null ? "" : emotePath;
     }
 
+    /** 挂上一条已经验证来源的只读引用；同一回调后挂的引用覆盖先前的。 */
+    public void attachQuote(PhoneMessageQuote quote) {
+        this.pendingQuote = quote;
+    }
+
+    /** 当前回调待发送的引用；没有时为 null。 */
+    public PhoneMessageQuote getQuote() {
+        return pendingQuote;
+    }
+
+    /** 清掉本回调的引用，避免失败的 quote 尝试沿用旧结果。 */
+    public void clearQuote() {
+        this.pendingQuote = null;
+    }
+
     /** 触发本次聊天的主人（ServerPlayer）。 */
     public ServerPlayer getSender() {
         return sender;
@@ -96,8 +115,9 @@ public class HuhuTalkChatCallback extends LLMCallback {
         // 服务端 tick 仍有超时兜底，防止客户端异常导致窗口悬挂。
 
         String replyText = responseChat.getChatText();
-        // 一次性捕获本次回复选中的表情，归档与客户端发送使用同一份事实。
+        // 一次性捕获本次回复选中的表情与引用，归档与后续发送使用同一份事实。
         String emote = pendingEmote;
+        PhoneMessageQuote quote = pendingQuote;
 
         // 归档最终回复不依赖 sender 是否在线/存活；归属变化在 service 内校验并只记归档日志。
         if (archiveTurn != null && replyText != null && !replyText.isBlank()
@@ -105,7 +125,7 @@ public class HuhuTalkChatCallback extends LLMCallback {
             if (archiveReplySubmitted.compareAndSet(false, true)) {
                 MinecraftServer server = archiveLevel.getServer();
                 String messageId = archiveReplyMessageId;
-                server.submit(() -> archiveReply(server, messageId, replyText, emote));
+                server.submit(() -> archiveReply(server, messageId, replyText, emote, quote));
             }
         }
 
@@ -114,7 +134,7 @@ public class HuhuTalkChatCallback extends LLMCallback {
                 MinecraftServer server = serverLevel.getServer();
                 server.submit(() -> {
                     // 按玩家所在维度应用信号延迟：主世界满格 / 其余维度中等 / 地狱差
-                    SignalDelayManager.sendDelayedReply(sender, stableId, replyText, emote);
+                    SignalDelayManager.sendDelayedReply(sender, stableId, replyText, emote, quote);
                 });
             }
         }
@@ -138,9 +158,11 @@ public class HuhuTalkChatCallback extends LLMCallback {
         }
     }
 
-    private void archiveReply(MinecraftServer server, String messageId, String replyText, String emote) {
+    private void archiveReply(MinecraftServer server, String messageId, String replyText, String emote,
+                              PhoneMessageQuote quote) {
         try {
-            ArchiveService.recordMaidReply(server, getMaid(), archiveTurn, messageId, replyText, emote);
+            ArchiveService.recordMaidReply(server, getMaid(), archiveTurn, messageId, replyText,
+                    emote, quote == null ? null : quote.messageId());
         } catch (ArchiveException exception) {
             // 只限捕获归档错误：不改变原聊天/LLM 错误处理，也不阻断回复发送。
             LOGGER.error("[HuhuTalk] 在线手机女仆回复归档失败 turnId={}",
