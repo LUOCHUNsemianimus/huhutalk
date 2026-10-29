@@ -2014,7 +2014,7 @@ public class PhoneOverlay {
         fillRoundedRect(graphics, baseX, baseY, w, h, 0, PhoneText.px(WATERMARK_H), WATERMARK_BG);
         String version = ModList.get().getModContainerById(HuhuTalk.MOD_ID)
                 .map(c -> c.getModInfo().getVersion().toString())
-                .orElse("1.1.0");
+                .orElse("1.1.1");
         Component comp = Component.literal("HUHUTALK  VISION " + version)
                 .withStyle(s -> s.withBold(true));
         FormattedCharSequence seq = comp.getVisualOrderText();

@@ -22,7 +22,7 @@ displayURL="https://github.com/LUOCHUNsemianimus/huhutalk"
 # 模组 id
 modId="${mod_id}" #mandatory
 
-# 模组版本（1.1.0 正式版）
+# 模组版本（1.1.1 正式版）
 version="${mod_version}" #mandatory
 
 # 显示名

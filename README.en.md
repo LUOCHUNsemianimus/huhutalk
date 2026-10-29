@@ -1,8 +1,8 @@
 # HuhuTalk
 
-[简体中文](README.md) · [Changelog](CHANGELOG.md) · [1.1.0 release notes](docs/releases/1.1.0.md)
+[简体中文](README.md) · [Changelog](CHANGELOG.md) · [1.1.1 release notes](docs/releases/1.1.1.md)
 
-A phone-style remote chat and photography add-on for **Touhou Little Maid** on **Minecraft 1.21.1 / NeoForge**. Current version: **1.1.0**.
+A phone-style remote chat and photography add-on for **Touhou Little Maid** on **Minecraft 1.21.1 / NeoForge**. Current version: **1.1.1**.
 
 ## Features
 
@@ -14,6 +14,8 @@ A phone-style remote chat and photography add-on for **Touhou Little Maid** on *
 - Press O to open a standalone floating screen without holding a phone. Keep camera control and use the phone cursor plus the bound confirm key to drag its status bar.
 - Settings app → Display & Rendering groups aspect ratio, phone size, font scale, brightness and E-ink Screen. Icon style and other app-specific options remain in HuhuTalk's internal settings.
 - Chinese and English interface/manual selected by Minecraft language. AI response language still follows the model and conversation configuration.
+- Open a read-only chat archive from the maid profile and page through text, images and item-transfer events stored on the server, including messages that have left the current conversation context. See [phone history search and quotes](docs/phone-memory.md).
+- Ask the maid to search archived history for the current owner and maid and quote a found message, image or item event in her reply. Search depends on model tool-calling support and is not used automatically in every conversation. See [phone history search and quotes](docs/phone-memory.md).
 
 ## Installation and requirements
 
@@ -26,7 +28,7 @@ A phone-style remote chat and photography add-on for **Touhou Little Maid** on *
 | JourneyMap | Optional, for waypoint-related features |
 | Iris / shader packs | Optional; distributed separately |
 
-Install the required components and place `huhutalk-1.1.0.jar` in your instance's `mods` folder. Use matching mod versions on the client and multiplayer server. Back up existing worlds and configuration before upgrading. Touhou Little Maid is required to use this add-on.
+Install the required components and place `huhutalk-1.1.1.jar` in your instance's `mods` folder. Use matching mod versions on the client and multiplayer server. Back up existing worlds and configuration before upgrading. Touhou Little Maid is required to use this add-on.
 
 Configure Touhou Little Maid's chat model service first, then configure vision in the desktop Settings app if needed. Editing provider credentials follows Touhou Little Maid's server-side permissions. The first-entry starter kit for each world contains a Pro phone, smartwatch and Wi-Fi block. See the in-game Manual app for controls; key bindings can be changed in Minecraft settings.
 
@@ -48,7 +50,7 @@ With Java 21, run from the repository root:
 gradlew.bat build
 ```
 
-The output is `build/libs/huhutalk-1.1.0.jar`. Add `--offline --console=plain` when dependencies are cached. The repository's `gradle.properties` contains local developer proxy settings; adjust them for your network. Shader development dependencies are opt-in with `-PshaderDev=true` and are not bundled in the mod. See [shader development](docs/shader-dev.md).
+The output is `build/libs/huhutalk-1.1.1.jar`. Add `--offline --console=plain` when dependencies are cached. The repository's `gradle.properties` contains local developer proxy settings; adjust them for your network. Shader development dependencies are opt-in with `-PshaderDev=true` and are not bundled in the mod. See [shader development](docs/shader-dev.md).
 
 ## Feedback and license
 

@@ -1,5 +1,46 @@
 # 更新日志 / Changelog
 
+## 1.1.1 — 2026-10-29
+
+本节汇总 1.1.0 之后的手机归档、历史检索与引用改动。
+This section covers the phone archive, history retrieval and quoting work since 1.1.0.
+
+### 新增与改进 / Added and improved
+
+- 服务端手机归档长期保存当前主人与当前女仆的手机文字、图片及双向物品传输事件；图片按内容哈希存入世界目录，传输记录包含发送、领取与丢地结果。
+  Server-side phone archive retaining text, images and two-way item-transfer events for the current owner and maid; images are content-addressed in the world folder, and transfer records include sent, claimed and dropped outcomes.
+- 女仆资料页新增只读手机存储页，可分页浏览归档中的文字、图片和结构化传输事件，并按需查看归档图片；本页不合并本机聊天记录，也不提供删除归档或领取物品的按钮。
+  A read-only phone storage page in the maid profile pages through archived text, images and structured transfer events, loading archived images on demand. It does not merge local chat history or offer archive deletion or item claiming.
+- 手机聊天支持检索当前主人与当前女仆的归档历史，并把找到的原话、图片或真实物品事件引用到女仆回复；引用显示原作者、原消息预览与原发送时间，且只挂在本次回复断句后的第一条气泡上。检索依赖模型支持工具调用，并非每次对话都会自动使用。
+  Phone chat can search archived history for the current owner and maid and quote a found message, image or real item event in a maid reply. A quote shows the original author, preview and send time and appears only on the first bubble of the segmented reply. Search depends on model tool-calling support and is not used automatically in every conversation.
+- 玩家随文字同发的物品会绑定到同一轮对话上下文，归档不再把物品事件与对应消息拆散；女仆发件的待领取事件也随当前回合归档。
+  Items sent together with a player's text are bound to the same conversation turn, so the archive no longer separates the item event from its message; queued maid-to-player transfers are archived in the current turn as well.
+- 识图设置更新豆包预设为 Seed 2.1 Pro / Lite / Turbo 与 Seed 2.0 Mini，并更新平台图标与名称显示；自定义模型仍走原输入通路。
+  Vision settings update the Doubao presets to Seed 2.1 Pro / Lite / Turbo and Seed 2.0 Mini, with refreshed platform icons and names; custom models still use the existing input path.
+
+### 修复与调整 / Fixed and adjusted
+
+- 修复救援叙述开关：开关状态现在会同步到服务端，关闭后只停止 AI 救援叙述，药水救援本身仍照常执行。
+  Fixed the rescue narrative toggle: its state now syncs to the server, and disabling it stops only the AI rescue narration while potion rescue still runs normally.
+- 提供归档导出/导入基础，兼容读取旧 schema1 记录与缺少引用字段的 schema2 记录；导入按 ID 幂等并保留冲突处理。
+  Archive export/import groundwork, with compatible reading of legacy schema1 records and schema2 records missing quote fields; imports are idempotent by ID and retain conflict handling.
+
+### 升级与兼容说明 / Upgrade and compatibility
+
+- 本发布包仅适用于 **Minecraft 1.21.1 / NeoForge**；Forge 1.20.1 分支暂未同步本轮功能。需要 Java 21、NeoForge 21.1.243 或更高的 1.21.1 对应版本，以及车万女仆（元数据最低 1.5.0）。
+  This release targets **Minecraft 1.21.1 / NeoForge only**; the Forge 1.20.1 branch has not received these features yet. It requires Java 21, NeoForge 21.1.243 or newer for 1.21.1, and Touhou Little Maid (metadata minimum 1.5.0).
+- 网络协议已变化（`huhutalk-phone-quote-v1`），**多人服的客户端与服务端都必须升级到 1.1.1**，不能与旧版本混用。
+  The network protocol changed (`huhutalk-phone-quote-v1`); **both client and server on a multiplayer server must upgrade to 1.1.1** and cannot be mixed with older versions.
+- 服务端归档不等于车万女仆完整的 AI 工作上下文，本轮未实现完整 provider；不承诺重建旧版本从未归档的数据。本机聊天清理不等于删除服务端归档。升级前请备份存档与配置。
+  The server archive is not Touhou Little Maid's complete AI working context, and this round does not implement a full provider. Data never archived by older versions cannot be reconstructed. Clearing local chat does not delete the server archive. Back up worlds and configuration before upgrading.
+- 传输事件历史是只读审计，不会重发物品；归档导出/导入只是基础能力，未集成 Maid File Manager（MFM）的 `.maid` provider。
+  Transfer history is a read-only audit and never re-sends items. Archive export/import is groundwork only; the Maid File Manager (MFM) `.maid` provider is not integrated.
+
+### 验证边界 / Verification scope
+
+本轮交付以 49 项 JUnit（构建不跳过）、94 项原生链路检查、456 个自有双语键和六张上游检查截图为依据，对应本次功能的源码状态。原生检查不发起真实付费 LLM/TTS 请求，也未进行 Forge 运行实测；发布版本重新构建与资源审计由上游核对。
+This delivery is supported by 49 JUnit tests (not skipped in the build), 94 native-chain checks, 456 bilingual keys and six upstream-reviewed screenshots, corresponding to the feature source state. The native checks do not make paid LLM/TTS requests and no Forge runtime test was performed; the release build and resource audit are rechecked upstream.
+
 ## 1.1.0 — 2026-10-18
 
 本节汇总从 `v1.0.0-beta` 之后的开发改动；不补造历史正式版本日期。

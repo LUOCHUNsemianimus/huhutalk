@@ -1,8 +1,8 @@
 # HuhuTalk（狐狐 Talk）
 
-[English](README.en.md) · [更新日志 / Changelog](CHANGELOG.md) · [1.1.0 发布说明](docs/releases/1.1.0.md)
+[English](README.en.md) · [更新日志 / Changelog](CHANGELOG.md) · [1.1.1 发布说明](docs/releases/1.1.1.md)
 
-为 **Minecraft 1.21.1 / NeoForge** 上的 **Touhou Little Maid（车万女仆）** 提供手机式远程聊天与摄影体验。当前版本：**1.1.0**。
+为 **Minecraft 1.21.1 / NeoForge** 上的 **Touhou Little Maid（车万女仆）** 提供手机式远程聊天与摄影体验。当前版本：**1.1.1**。
 
 ## 功能
 
@@ -14,6 +14,8 @@
 - 按 O 唤出独立悬浮屏，无需持有手机；保留视角控制，以手机独立光标和绑定确认键拖动状态栏调整位置。
 - 设置 App →「显示与渲染」集中管理屏幕比例、大小、字体倍率、亮度及「墨水屏」。HuhuTalk 内部设置保留图标风格等选项。
 - 中文、英文界面与手册，随 Minecraft 语言切换；AI 回复语言由模型及对话配置决定。
+- 女仆资料页可打开只读的聊天档案，按页浏览服务端长期保存的文字、图片与物品传输事件；旧消息离开当前对话上下文后仍可回看。详见[手机历史检索与引用](docs/phone-memory.md)。
+- 在手机聊天中可让女仆检索当前主人与当前女仆的归档旧记录，并把找到的原话、图片或物品事件引用到回复中；检索依赖模型支持工具调用，并非每次对话都会自动使用。详见[手机历史检索与引用](docs/phone-memory.md)。
 
 ## 安装与要求
 
@@ -26,7 +28,7 @@
 | JourneyMap | 可选，用于路径点相关功能 |
 | Iris / 光影包 | 可选，不随本模组分发 |
 
-安装上述必需组件，将 `huhutalk-1.1.0.jar` 放入所用实例的 `mods` 文件夹。联网服务器与客户端需要匹配的模组版本。升级已有世界前请备份存档及配置；本模组不能脱离车万女仆单独使用。
+安装上述必需组件，将 `huhutalk-1.1.1.jar` 放入所用实例的 `mods` 文件夹。联网服务器与客户端需要匹配的模组版本。升级已有世界前请备份存档及配置；本模组不能脱离车万女仆单独使用。
 
 进入游戏后先配置车万女仆的聊天模型服务，再按需在桌面「设置」App 配置识图。平台密钥配置权限沿用车万女仆的服务端规则。每个世界首次进入的礼包包含 Pro 版手机、电话手表与 Wi-Fi 方块。操作细节见手机内「手册」App，键位可在 Minecraft 控制设置中修改。
 
@@ -48,7 +50,7 @@
 gradlew.bat build
 ```
 
-产物位于 `build/libs/huhutalk-1.1.0.jar`。依赖已缓存时可加 `--offline --console=plain`。仓库 `gradle.properties` 含开发者本地代理配置，请按自己的网络环境调整。光影开发依赖仅在显式 `-PshaderDev=true` 时启用，见[光影开发环境](docs/shader-dev.md)，不会打包进模组。
+产物位于 `build/libs/huhutalk-1.1.1.jar`。依赖已缓存时可加 `--offline --console=plain`。仓库 `gradle.properties` 含开发者本地代理配置，请按自己的网络环境调整。光影开发依赖仅在显式 `-PshaderDev=true` 时启用，见[光影开发环境](docs/shader-dev.md)，不会打包进模组。
 
 ## 反馈与协议
 
