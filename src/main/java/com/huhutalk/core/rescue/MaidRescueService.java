@@ -68,10 +68,8 @@ public final class MaidRescueService {
         if (server == null || player == null) {
             return;
         }
-        // 玩家在手机设置里可关闭：不想让每次复活都触发一次 AI 叙事（烧 token）时关掉
-        if (!RescueSettings.isEnabled(player.getUUID())) {
-            return;
-        }
+        // 手机开关只是「救援叙事偏好」，绝不能在这里拦截实际救援：
+        // 登记 / 5 秒对账 / 消耗药水 / 死亡点复活始终执行，是否调用 LLM 由叙事层判断。
         // 硬模式保持原版语义：死亡不可逆，绝不强行复活
         if (server.isHardcore()) {
             return;

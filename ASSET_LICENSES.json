@@ -579,6 +579,44 @@
       "creator": "罗春",
       "license": "CC-BY-NC-SA-4.0",
       "source": "maintainer-confirmed own models, textures and icons; related visual source files"
+    },
+    {
+      "path": "src/main/resources/assets/touhou_little_maid/textures/gui/ai_chat/huhutalk_qianfan.png",
+      "sha256": "8b4c6213c42178ffc1d328b7994f24aed58219186bf778207bd810b2c540c182",
+      "category": "third-party-provider-icon",
+      "creator": "LobeHub contributors; respective brand owners",
+      "license": "MIT (Lobe Icons distribution); brand marks retain their respective ownership",
+      "source": "https://github.com/lobehub/lobe-icons/blob/8b7bbc433d38437fa2b0cca58ae896917162b812/packages/static-png/light/baiducloud-color.png",
+      "license_file": "LICENSES/Lobe-Icons-MIT.txt",
+      "modifications": "None; original PNG bytes"
+    },
+    {
+      "path": "src/main/resources/assets/touhou_little_maid/textures/gui/ai_chat/huhutalk_hunyuan.png",
+      "sha256": "0f2f9af09b698f4cfa3158d43b29e90a5f30297b09401c49133c9f195899556d",
+      "category": "third-party-provider-icon",
+      "creator": "LobeHub contributors; respective brand owners",
+      "license": "MIT (Lobe Icons distribution); brand marks retain their respective ownership",
+      "source": "https://github.com/lobehub/lobe-icons/blob/8b7bbc433d38437fa2b0cca58ae896917162b812/packages/static-png/light/hunyuan-color.png",
+      "license_file": "LICENSES/Lobe-Icons-MIT.txt",
+      "modifications": "None; original PNG bytes"
+    },
+    {
+      "path": "src/main/resources/assets/touhou_little_maid/textures/gui/ai_chat/huhutalk_stepfun.png",
+      "sha256": "49e54bcda77c23f9a8ceacc0d3c1c07da09be4c2534d453ebcad7da201b25b96",
+      "category": "third-party-provider-icon",
+      "creator": "LobeHub contributors; respective brand owners",
+      "license": "MIT (Lobe Icons distribution); brand marks retain their respective ownership",
+      "source": "https://github.com/lobehub/lobe-icons/blob/8b7bbc433d38437fa2b0cca58ae896917162b812/packages/static-png/light/stepfun-color.png",
+      "license_file": "LICENSES/Lobe-Icons-MIT.txt",
+      "modifications": "None; original PNG bytes"
+    },
+    {
+      "path": "src/main/resources/assets/touhou_little_maid/textures/gui/ai_chat/huhutalk_custom.png",
+      "sha256": "11e646f4965c4e8ec8bc1c3604bf28dfd42d30b591753c15109c9c600839c1b6",
+      "category": "original-visual-art",
+      "creator": "罗春",
+      "license": "CC-BY-NC-SA-4.0",
+      "source": "Reuses src/main/resources/assets/huhutalk/textures/icon/settings.png without pixel changes"
     }
   ]
 }

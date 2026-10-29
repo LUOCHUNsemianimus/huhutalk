@@ -48,6 +48,21 @@ public class MaidChatHandler {
     public static void handleChat(ServerPlayer player, String stableId, String message,
                                   boolean bubbleMute, boolean chatBannerMute,
                                   @Nullable ArchiveTurnContext archiveTurn) {
+        handleChat(player, stableId, message, bubbleMute, chatBannerMute, archiveTurn, null);
+    }
+
+    /**
+     * 带本轮临时系统说明的兼容入口。
+     *
+     * <p>{@code requestSystemContext} 只绑定这一次请求：它会被捕获进 chatAction 闭包，
+     * 在本轮消息列表构建完成后、最后一条 USER 之前作为 SYSTEM 插入。即使压缩管理器
+     * 延后执行 chatAction，或期间有其他聊天/离线队列消费了共享 pending 队列，这条说明
+     * 也不会被带走。{@code null} 时行为与六参数入口完全一致。
+     */
+    public static void handleChat(ServerPlayer player, String stableId, String message,
+                                  boolean bubbleMute, boolean chatBannerMute,
+                                  @Nullable ArchiveTurnContext archiveTurn,
+                                  @Nullable String requestSystemContext) {
         EntityMaid maid = findMaidByStableId(player.getServer(), stableId);
         if (maid == null) {
             handleOfflineMessage(player, stableId, message);
@@ -95,6 +110,7 @@ public class MaidChatHandler {
             }
         }
         final ArchiveTurnContext archiveTurnIn = turn;
+        final String requestSystemContextIn = requestSystemContext;
 
         manager.addUserHistory(message);
 
@@ -113,6 +129,10 @@ public class MaidChatHandler {
             List<LLMMessage> messages = buildMessages(manager, message);
             // 消息来源上下文：告知女仆这是手机消息 + 当前与主人的距离（SYSTEM，不写历史）
             prependSourceContext(messages, player, maid);
+            // 本轮请求专属说明（随物品发送的送达说明）：只用闭包捕获的不可变参数，
+            // 放在最后 USER 之前，不进入共享 pending 队列。
+            ChatRequestContext.appendSystemBeforeLastUser(messages, requestSystemContextIn,
+                    maid.level().getGameTime());
             // 正常聊天允许消费待注入系统消息（如果有积压，一并带上）
             String stableIdIn = stableId;
             EntityMaid maidIn = maid;

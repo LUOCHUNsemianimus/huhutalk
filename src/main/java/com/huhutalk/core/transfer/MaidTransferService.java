@@ -13,7 +13,6 @@ import com.huhutalk.core.archive.ArchiveException;
 import com.huhutalk.core.archive.ArchiveTransferFacts;
 import com.huhutalk.core.archive.ArchiveTurnContext;
 import com.huhutalk.core.chat.MaidChatHandler;
-import com.huhutalk.core.chat.PendingSystemMessageBus;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.server.MinecraftServer;
@@ -627,9 +626,8 @@ public final class MaidTransferService {
         String sys = sum + "。请自然地回应主人（比如表达收到、感谢，或简单评价这些物品）。";
         ArchiveTurnContext archiveTurn = r.archiveTurn;
         if (text != null && !text.isBlank()) {
-            // 有文字：作为正常用户消息，同时把"收到物品"作为系统说明一并带给 AI
-            PendingSystemMessageBus.queue(stableId, sys);
-            MaidChatHandler.handleChat(player, stableId, text, bubbleMute, immersive, archiveTurn);
+            // 有文字：作为正常用户消息；送达说明只绑定本轮请求，不进入共享 pending 队列
+            MaidChatHandler.handleChat(player, stableId, text, bubbleMute, immersive, archiveTurn, sys);
         } else {
             // 无文字：直接让女仆针对收到的物品主动回应
             MaidChatHandler.handleSystemInjection(player, stableId, sys, archiveTurn);

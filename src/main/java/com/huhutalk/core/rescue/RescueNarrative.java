@@ -90,6 +90,11 @@ public final class RescueNarrative {
         if (revived == null || rescue == null || plan == null) {
             return;
         }
+        // 叙事偏好：关闭时到此为止——不构造文案、不写记忆、不调 LLM；
+        // 实际的复活与药水消耗已在调用方完成，不受这里影响。
+        if (!RescueSettings.shouldNarrate(revived.getUUID(), MaidNarrativeBus.Kind.RESCUE)) {
+            return;
+        }
         List<EntityMaid> maids = plan.maids();
         for (EntityMaid maid : maids) {
             // 逐只隔离：任一女仆的 AI 站点异常都不该影响已经完成的救援
@@ -138,6 +143,9 @@ public final class RescueNarrative {
         if (player == null || notice == null || notice.speaker() == null) {
             return;
         }
+        if (!RescueSettings.shouldNarrate(player.getUUID(), MaidNarrativeBus.Kind.RESCUE_LOW_POTION)) {
+            return;
+        }
         try {
             String stableId = MaidStableIdHelper.getOrCreateStableId(notice.speaker());
             if (stableId == null || stableId.isBlank()) {
@@ -163,6 +171,9 @@ public final class RescueNarrative {
      */
     public static void injectStreakSummary(ServerPlayer player, RescueStreak streak, EntityMaid speaker) {
         if (player == null || streak == null || speaker == null) {
+            return;
+        }
+        if (!RescueSettings.shouldNarrate(player.getUUID(), MaidNarrativeBus.Kind.RESCUE_STREAK_SUMMARY)) {
             return;
         }
         try {

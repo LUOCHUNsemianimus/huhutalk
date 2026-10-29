@@ -18,6 +18,18 @@ sourceSets.main.resources {
     exclude("src/generated/**/.cache")
 }
 
+// ── debugSmoke：隔离的 -PdebugSmoke client 验收驱动 ───────────────────────────
+// 只用于编译/运行验收驱动；不进入 sourceSets.main.output，因此正式 jar 不含它。
+// 普通 client/server 与正式 jar 完全不引用该源集。
+def debugSmokeEnabled = providers.gradleProperty("debugSmoke").map { it.isBlank() || it.toBoolean() }.getOrElse(false)
+def debugSmokeRuntime = rootProject.file('../.workflow/projects/huhutalk/runtime')
+sourceSets {
+    debugSmoke {
+        compileClasspath += sourceSets.main.output + sourceSets.main.compileClasspath
+        runtimeClasspath += sourceSets.main.output + sourceSets.main.runtimeClasspath + sourceSets.main.compileClasspath
+    }
+}
+
 repositories {
     exclusiveContent {
         forRepository {
@@ -61,6 +73,9 @@ dependencies {
     compileOnly("info.journeymap:journeymap-api-neoforge:2.0.0-1.21.1") {
         exclude(group: "curse.maven")
     }
+
+    // 仅测试期依赖：真实 JUnit4 入口驱动既有 main 行为检查，不进入正式 jar。
+    testImplementation("junit:junit:4.13.2")
 }
 
 base {
@@ -69,8 +84,18 @@ base {
 
 java.toolchain.languageVersion = JavaLanguageVersion.of(21)
 
+// 既有测试源是不依赖 JUnit 的 main 程序，但要编译/运行真实主源码（含 Gson 等主源依赖）。
+// 让测试编译与运行复用主源的完整 classpath，避免测试源缺少主源码依赖而无法编译。
+sourceSets.test.compileClasspath += sourceSets.main.compileClasspath
+sourceSets.test.runtimeClasspath += sourceSets.main.runtimeClasspath
+// 真实消息测试要加载 TLM 的 LLMMessage/Role（compileOnly，不进生产 jar）；仅为测试运行追加编译期依赖。
+sourceSets.test.runtimeClasspath += sourceSets.main.compileClasspath
+
 neoForge {
     version = project.neo_version
+
+    // 驱动源集要使用与 main 相同的 NeoForge/Minecraft 依赖才能编译。
+    addModdingDependenciesTo(sourceSets.debugSmoke)
 
     parchment {
         mappingsVersion = project.parchment_mappings_version
@@ -105,11 +130,30 @@ neoForge {
             systemProperty 'forge.logging.markers', 'REGISTRIES'
             logLevel = org.slf4j.event.Level.DEBUG
         }
+
+        // 仅 -PdebugSmoke：隔离 gameDir + 固定 QuickPlay 世界 + 驱动输出目录。
+        // 普通 client/server 与正式 jar 不包含、也不运行 debugSmoke。
+        if (debugSmokeEnabled) {
+            debugSmoke {
+                client()
+                gameDirectory = debugSmokeRuntime.toPath().resolve('debug-client').toFile()
+                systemProperty 'huhutalk.debugSmoke', 'true'
+                systemProperty 'huhutalk.debugSmokeWorld',
+                        debugSmokeRuntime.toPath().resolve('debug-client/saves/debug-smoke').toFile().absolutePath
+                systemProperty 'huhutalk.debugSmokeOutput',
+                        debugSmokeRuntime.toPath().resolve('debug-smoke-results').toFile().absolutePath
+                programArguments.addAll '--quickPlaySingleplayer', 'debug-smoke',
+                        '--width', '1280', '--height', '720'
+            }
+        }
     }
 
     mods {
         "${mod_id}" {
             sourceSet(sourceSets.main)
+            if (debugSmokeEnabled) {
+                sourceSet(sourceSets.debugSmoke)
+            }
         }
     }
 }
@@ -157,6 +201,17 @@ publishing {
 
 tasks.withType(JavaCompile).configureEach {
     options.encoding = 'UTF-8'
+}
+
+// 既有行为检查是 main 程序而非 JUnit 类；用 JUnit4 入口逐项调用真实 main。
+// 不关闭 failOnNoDiscoveredTests：若测试未被发现必须失败。
+tasks.named('test') {
+    useJUnit()
+}
+
+// 固定 build 必须编译 debugSmoke 驱动，避免驱动腐化后到运行期才发现。
+tasks.named('check') {
+    dependsOn tasks.named('debugSmokeClasses')
 }
 
 idea {

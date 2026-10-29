@@ -83,9 +83,9 @@ public final class VisionProviders {
             "火山引擎方舟",
             "豆包 Doubao 视觉理解",
             "model 也可填你自建的「推理接入点 ID」",
-            List.of("doubao-seed-1.6-vision", "doubao-1.5-vision-pro-32k-250115",
-                    "doubao-vision-pro-32k", "doubao-vision-lite-32k"),
-            "doubao-seed-1.6-vision",
+            List.of("doubao-seed-2-1-pro-260915", "doubao-seed-2-1-lite-260915",
+                    "doubao-seed-2-1-turbo-260628", "doubao-seed-2-0-mini-260428"),
+            "doubao-seed-2-1-pro-260915",
             null,
             false
     );
@@ -308,6 +308,35 @@ public final class VisionProviders {
     @Nullable
     public static VisionProvider byId(@Nullable String siteId) {
         return siteId == null ? null : BY_ID.get(siteId);
+    }
+
+    /**
+     * 把豆包平台保存过的<b>旧内置预设</b>迁移到当前预设，其余字面量一律原样保留。
+     * <p>
+     * 只处理 {@code siteId == doubao} 且 {@code custom == false} 的情况：
+     * <ul>
+     *   <li>{@code doubao-vision-lite-32k} → {@code doubao-seed-2-1-lite-260915}；</li>
+     *   <li>其余三个旧预设 → {@code doubao-seed-2-1-pro-260915}。</li>
+     * </ul>
+     * 自建推理接入点（{@code ep-...}）、其他模型字面量、其他站点以及
+     * 「自定义模型」模式都保持原值 —— 它们是玩家明确填写的，不能被静默改写。
+     * <p>
+     * 这是纯函数：不读写设置，不碰网络，调用方决定何时持久化。
+     */
+    @Nullable
+    public static String normalizeLegacyPresetModel(@Nullable String siteId,
+                                                    @Nullable String model,
+                                                    boolean custom) {
+        if (custom || model == null || !DOUBAO.siteId().equals(siteId)) {
+            return model;
+        }
+        return switch (model) {
+            case "doubao-vision-lite-32k" -> "doubao-seed-2-1-lite-260915";
+            case "doubao-seed-1.6-vision",
+                 "doubao-1.5-vision-pro-32k-250115",
+                 "doubao-vision-pro-32k" -> "doubao-seed-2-1-pro-260915";
+            default -> model;
+        };
     }
 
     /** 站点显示名：有预设用预设，否则退回站点 id。 */

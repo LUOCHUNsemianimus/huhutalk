@@ -60,3 +60,7 @@ HuhuTalk's screenshot/layout contribution does not relicense the depicted materi
 
 MDK 模板保留原 MIT 声明。手册截图中 Minecraft、车万女仆、选用女仆模型及其他模组元素
 仍由各自权利人拥有；截图/布局的许可不替代被拍摄内容的许可。
+
+## Provider icons added on 2026-10-29
+
+Baidu AI Cloud (Qianfan), Tencent Hunyuan and StepFun icons are copied without modification from Lobe Icons, commit `8b7bbc433d38437fa2b0cca58ae896917162b812`: https://github.com/lobehub/lobe-icons . Distribution license: MIT; full text in `LICENSES/Lobe-Icons-MIT.txt`. Original brand marks remain the property of their respective owners. Exact source paths and SHA-256 hashes are recorded in `ASSET_LICENSES.json`. The custom-provider icon reuses the maintainer's existing settings artwork.

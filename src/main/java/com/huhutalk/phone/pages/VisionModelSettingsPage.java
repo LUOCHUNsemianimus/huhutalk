@@ -205,6 +205,24 @@ public class VisionModelSettingsPage extends PhonePage {
         return p == null ? List.of() : p.models();
     }
 
+    /**
+     * 下拉里展示的预设模型名。豆包四个完整 ID 的前缀相同，在手机宽度下会被截成一样；
+     * 这里只换显示标签，真实模型 ID 仍来自 {@link #presetModels(VisionProvider)}。
+     * 标签是专名，不做翻译；其他平台与自定义项保持原字符串。
+     */
+    private static String presetModelLabel(VisionProvider p, String model) {
+        if (p == null || !VisionProviders.DOUBAO.siteId().equals(p.siteId())) {
+            return model;
+        }
+        return switch (model) {
+            case "doubao-seed-2-1-pro-260915" -> "Seed 2.1 Pro";
+            case "doubao-seed-2-1-lite-260915" -> "Seed 2.1 Lite";
+            case "doubao-seed-2-1-turbo-260628" -> "Seed 2.1 Turbo";
+            case "doubao-seed-2-0-mini-260428" -> "Seed 2.0 Mini";
+            default -> model;
+        };
+    }
+
     /** 这个平台允许玩家改接口地址吗（只有「自定义」与玩家自建站点允许）。 */
     private static boolean urlEditable(VisionProvider p) {
         return p == null || p.editableUrl();
@@ -214,7 +232,7 @@ public class VisionModelSettingsPage extends PhonePage {
         List<String> ms = presetModels(p);
         String[] out = new String[ms.size() + 1];
         for (int i = 0; i < ms.size(); i++) {
-            out[i] = ms.get(i);
+            out[i] = presetModelLabel(p, ms.get(i));
         }
         out[ms.size()] = PhoneText.tr(CUSTOM_OPTION_KEY);
         return out;
@@ -312,7 +330,8 @@ public class VisionModelSettingsPage extends PhonePage {
             // 但下拉的"展开高度"是布局的输入，必须在这一帧就能问到。
             PhoneDropdown dd = dropdown(e.siteId(), p);
             // 选项数组里最后一项「自定义…」是 UI 文案：每帧按当前语言刷新，
-            // 控件实例与选中下标都保持不变。模型名本身是数据，不翻译。
+            // 控件实例与选中下标都保持不变。豆包预设项用短显示标签区分变体，
+            // 但真实模型 ID 仍由 presetModels/modelIndex/onChange 保存和发送，模型 ID 本身不翻译。
             dd.options(dropdownOptions(p));
             ensureKeyInput(e.siteId());
             if (urlEditable(p)) {

@@ -51,8 +51,9 @@ public final class HuhuTalkClientSettings {
     /** 「沉浸式聊天」：开启后通过手机唤起聊天时，女仆回复不出现在左下角公屏聊天栏（默认关） */
     private static boolean immersiveChatEnabled = false;
     /**
-     * 「药水复活」：死亡时由女仆远程送药救人（默认开）。
-     * <p>每次触发都会让女仆走一次 AI 叙事，因此对在意 token 消耗的玩家提供关闭入口。
+     * 「药水复活叙事」：死亡时是否让女仆为救援走一次 AI 叙事（默认开）。
+     * <p><b>关闭只停止救援相关的 AI 播报/提醒，复活本身照常工作</b>：女仆仍会消耗药水
+     * 把主人救回死亡点，只是不再为救援、药水见底和连续事件总结调用 LLM（省 token）。
      */
     private static boolean potionRescueEnabled = true;
     /**
@@ -179,7 +180,7 @@ public final class HuhuTalkClientSettings {
     public static boolean isDndEnabled() { return dndEnabled; }
     public static boolean isMaidWhisperEnabled() { return maidWhisperEnabled; }
     public static boolean isImmersiveChatEnabled() { return immersiveChatEnabled; }
-    /** 「药水复活」开关：关闭后死亡不会触发女仆远程送药（也就不消耗 AI token） */
+    /** 「药水复活叙事」开关：关闭后仍会正常复活，只是不再为救援事件调用 AI（不消耗 token） */
     public static boolean isPotionRescueEnabled() { return potionRescueEnabled; }
     /** 「远程补给触发女仆回复」开关：关闭后补给照常，但不再因此唤起女仆开口 */
     public static boolean isRemoteSupplyReplyEnabled() { return remoteSupplyReply; }
@@ -455,10 +456,10 @@ public final class HuhuTalkClientSettings {
     }
 
     /**
-     * 设置「药水复活」开关。
-     * <p><b>注意</b>：判定发生在服务端（死亡瞬间），所以调用方改完这里后必须把值同步给服务端
+     * 设置「药水复活叙事」偏好。
+     * <p><b>注意</b>：判定发生在服务端（救援叙事入口），所以调用方改完这里后必须把值同步给服务端
      * （见 {@code ClientModEvents.pushPotionRescueSetting} / {@code SettingsPage}）。
-     * 本方法只负责本地持久化。
+     * 关闭只会停止 AI 叙事，不会停止实际复活。本方法只负责本地持久化。
      */
     public static void setPotionRescueEnabled(boolean enabled) {
         potionRescueEnabled = enabled;
@@ -740,6 +741,19 @@ public final class HuhuTalkClientSettings {
                     }
                 }
             }
+            // 豆包旧内置预设迁移：必须在「自定义模型」集合加载完之后判断，
+            // 且只改预设字面量。ep- 接入点、其他模型、其他站点、custom=true 都原样保留。
+            // 这里先只改内存，等 load 把所有其他字段都读完再统一落盘（见方法末尾）。
+            boolean visionModelsChanged = false;
+            for (Map.Entry<String, String> entry : visionModels.entrySet()) {
+                String normalized = VisionProviders.normalizeLegacyPresetModel(
+                        entry.getKey(), entry.getValue(),
+                        visionCustomModelSites.contains(entry.getKey()));
+                if (!normalized.equals(entry.getValue())) {
+                    entry.setValue(normalized);
+                    visionModelsChanged = true;
+                }
+            }
             // 外貌描述：老配置没有这两个字段 → 保持空（= 未填写），识图行为与改造前一致。
             // 这里同样走一遍 clean：设置文件是玩家可以手改的，超长/带换行的文本不该流进提示词。
             playerAppearance = VisionAppearance.clean(data.playerAppearance);
@@ -772,6 +786,11 @@ public final class HuhuTalkClientSettings {
             }
             // 读盘也算一次布局变动：桌面可能在读盘之前就已经建过合并缓存了
             desktopLayoutGeneration++;
+            // 全部字段都已加载完成，旧豆包预设若发生迁移才落盘一次；
+            // 后续 getVisionModel / UI / 同步包读到的都是同一个归一值。
+            if (visionModelsChanged) {
+                save();
+            }
         } catch (JsonParseException e) {
             // 损坏/不合法 JSON：不崩溃，回退默认设置；原文件改名备份，避免下次继续崩
             LOGGER.error("[HuhuTalk] 设置文件损坏，已回退默认设置: {}", file, e);

@@ -3,6 +3,7 @@ package com.huhutalk.core.chat;
 import com.github.tartaricacid.touhoulittlemaid.entity.passive.EntityMaid;
 import com.huhutalk.HuhuTalk;
 import com.huhutalk.common.MaidStableIdHelper;
+import com.huhutalk.core.rescue.RescueSettings;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import org.jetbrains.annotations.Nullable;
@@ -200,6 +201,15 @@ public final class MaidNarrativeBus {
             Map.Entry<Key, List<Event>> entry = it.next();
             Key key = entry.getKey();
             List<Event> list = entry.getValue();
+
+            // 选 due / 合并之前，按此刻的玩家偏好丢弃不再允许播报的事件（救援叙事偏好）。
+            // 以实际 tick 时的当前偏好为准，而非提交时的快照：关闭开关后，即便事件在关闭前
+            // 已排队、尚未发送，也会在这里被丢弃，不会“漏网”播报。普通补给事件始终保留。
+            list.removeIf(e -> !RescueSettings.shouldNarrate(key.playerId(), e.kind));
+            if (list.isEmpty()) {
+                it.remove();
+                continue;
+            }
 
             List<Event> due = new ArrayList<>();
             for (Event e : list) {

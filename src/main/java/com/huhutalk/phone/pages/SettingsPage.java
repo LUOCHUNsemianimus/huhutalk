@@ -221,7 +221,8 @@ public class SettingsPage extends PhonePage {
         immersiveSwitch.on(HuhuTalkClientSettings.isImmersiveChatEnabled())
                 .onChange(HuhuTalkClientSettings::setImmersiveChatEnabled);
 
-        // 救援的两个开关判定都在服务端（死亡瞬间 / 补给链路），所以拨动后必须立刻同步
+        // 救援的两个开关判定都在服务端（叙事注入 / 补给链路），所以拨动后必须立刻同步。
+        // 药水复活开关只控制 AI 叙事，关闭后女仆仍会正常消耗药水把主人救回死亡点。
         potionRescueSwitch.on(HuhuTalkClientSettings.isPotionRescueEnabled())
                 .onChange(v -> {
                     HuhuTalkClientSettings.setPotionRescueEnabled(v);
